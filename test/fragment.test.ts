@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { encodeFragment, decodeFragment } from "../src/ui/fragment";
+import { encodeFragment, decodeFragment, sanitize, SCHEMA_VERSION } from "../src/ui/fragment";
 
 test("fragment round-trip", async () => {
   const fragment = await encodeFragment({ seed: "the naked economy" });
@@ -76,4 +76,23 @@ test("hostile fragments degrade, never crash: shape and bounds are enforced", as
   const nan = await craft({ seed: "ok", n: Infinity, cam: [1, 2, NaN] }) as Record<string, unknown>;
   assert.equal(nan.n, undefined);
   assert.equal(nan.cam, undefined);
+});
+
+test("schema version travels on the wire but never reaches the app", async () => {
+  assert.ok(SCHEMA_VERSION >= 2);
+  const back = await decodeFragment(`#${await encodeFragment({ seed: "ok", n: 5 })}`);
+  assert.deepEqual(back, { seed: "ok", n: 5 }); // sv consumed, not emitted
+});
+
+test("migrations key on the declared version", () => {
+  // a fragment declaring v1 loses its interventions (memo/due matching,
+  // unreplayable against the re-derived schedule)
+  const v1 = sanitize({ seed: "ok", sv: 1, i: [[119, "118.s0", "wait"]] });
+  assert.equal(v1!.i, undefined);
+  // no declared version = the last pre-versioning schema (v2): kept
+  const v2 = sanitize({ seed: "ok", i: [[119, "118.s0", "wait"]] });
+  assert.deepEqual(v2!.i, [[119, "118.s0", "wait"]]);
+  // a fragment from a future app version parses best-effort
+  const future = sanitize({ seed: "ok", sv: 99, n: 7, someFutureField: true });
+  assert.deepEqual(future, { seed: "ok", n: 7 });
 });

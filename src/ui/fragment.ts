@@ -5,6 +5,19 @@
 // (for the right-click "copy reference" reviewing aid) a click position
 // plus the element under the cursor.
 
+/**
+ * Fragment schema version, stamped on the wire (`sv`) by encodeFragment and
+ * consumed — never emitted — by sanitize. Bump it whenever a field's shape
+ * or meaning changes, and add an explicit migration in sanitize keyed on
+ * the declared version; never re-interpret an old field's bytes in place.
+ * History: v1 = pre-M10 interventions as 5-tuples matched by (memo, due) —
+ * structurally distinguishable, dropped; v2 = interventions as
+ * [day, schedule id, plan]. Fragments without `sv` are v2 (the last
+ * pre-versioning schema); fragments claiming a future version are parsed
+ * best-effort — unknown fields are ignored anyway.
+ */
+export const SCHEMA_VERSION = 2;
+
 export interface FragmentState {
   seed: string;
   /** economy parameter overrides, non-default values only:
@@ -73,7 +86,7 @@ async function pipe(bytes: Uint8Array, stream: CompressionStream | Decompression
 }
 
 export async function encodeFragment(state: FragmentState): Promise<string> {
-  const json = new TextEncoder().encode(JSON.stringify(state));
+  const json = new TextEncoder().encode(JSON.stringify({ ...state, sv: SCHEMA_VERSION }));
   const packed = await pipe(json, new CompressionStream("deflate-raw"));
   return `s=${bytesToB64url(packed)}`;
 }
@@ -106,7 +119,10 @@ function str(v: unknown, maxLen: number): string | undefined {
 
 export function sanitize(raw: unknown): FragmentState | null {
   if (typeof raw !== "object" || raw === null) return null;
-  const r = raw as Record<string, unknown>;
+  const r = { ...(raw as Record<string, unknown>) };
+  // migrations, keyed on the declared schema version (see SCHEMA_VERSION)
+  const sv = num(r.sv, 1, 1e6, true) ?? SCHEMA_VERSION;
+  if (sv < 2) delete r.i; // v1 interventions matched by (memo, due): unreplayable
   const seed = str(r.seed, 64);
   if (seed === undefined || seed.length === 0) return null;
   const out: FragmentState = { seed };
