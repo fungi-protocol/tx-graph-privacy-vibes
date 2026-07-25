@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
 import { PERSONAS, BASE_EDGES, BASE_POP, MAX_POP, buildCast, ownerColor, OWNER_COLORS } from "../src/scenario/cast";
 import { encodeFragment, decodeFragment, type FragmentState } from "../src/ui/fragment";
-import { setCastNames } from "../src/ui/blockview";
-import { OMNISCIENT } from "../src/ui/morph";
+import { setCastNames, OMNISCIENT } from "../src/scenario/omniscient";
 
 test("pop 10 is exactly the fixed cast and edges", () => {
   const town = buildCast("golden", 10);

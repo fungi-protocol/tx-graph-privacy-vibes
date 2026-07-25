@@ -3,26 +3,11 @@
 // across the morph: a coin's producing box glides to its coin vertex, the
 // duplicate input slots fly into that same vertex while fading, tx cards
 // shrink to square nodes, and the output edges fade in.
-import { type Chain, type Coin, type Tx } from "../model/chain";
+import { type Chain, type Coin } from "../model/chain";
 import { fmtSats } from "../core/sats";
-import { OWNER_TEXT } from "../scenario/intro";
-import { type Layout, type Rect, type Hit, coinColor, castName } from "./blockview";
+import { type Paint, STRUCTURE } from "./paint";
+import { type Layout, type Rect, type Hit } from "./blockview";
 import { type BipLayout } from "./bipartite";
-
-/**
- * What knowledge the drawing assumes: the omniscient paint shows true
- * owners and narrative labels; an observer paint may only use what is
- * public (amounts, fees, structure) plus its own inferences.
- */
-export interface Paint {
-  coinFill(coin: Coin): string;
-  coinText(coin: Coin): string;
-  coinCaption(coin: Coin): string;
-  txMemo(tx: Tx): string | null;
-  /** when every input belongs to one cluster/owner under this lens, the
-   *  transaction itself is attributable — tint it that color */
-  txAttribution?(tx: Tx, chain: Chain): string | null;
-}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -111,25 +96,6 @@ function routedEdge(
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
 }
 
-export const OMNISCIENT: Paint = {
-  coinFill: coinColor,
-  coinText: (c) => (c.owner === null ? "#111" : OWNER_TEXT[c.owner] ?? "#111"),
-  coinCaption: (c) => `${castName(c.owner)}${c.label ? " · " + c.label : ""}`,
-  txMemo: (t) => t.memo ?? null,
-  txAttribution: (t, ch) => commonInputFill(ch, t, coinColor),
-};
-
-/** Attribution helper: the common fill of all input coins, or null. */
-export function commonInputFill(chain: Chain, tx: Tx, fill: (c: Coin) => string): string | null {
-  let color: string | null = null;
-  for (const cid of tx.inputs) {
-    const f = fill(chain.coins.get(cid)!);
-    if (color === null) color = f;
-    else if (color !== f) return null;
-  }
-  return color;
-}
-
 /** A coin's single morphing frame: producing box -> bipartite vertex. */
 export function coinRectAt(block: Layout, bip: BipLayout, id: string, t: number): Rect | null {
   const from = block.coinBoxes.find((cb) => cb.coin === id && cb.role !== "in")?.rect;
@@ -157,7 +123,7 @@ export interface MorphDrawOptions {
     partial: { coins: Set<string>; txs: Set<string> };
   } | null;
   hideDim?: boolean;
-  /** knowledge lens; defaults to the omniscient paint */
+  /** knowledge lens; defaults to the bare structure paint */
   paint?: Paint;
   /** the clicked coins / transaction: outlined so the seeds of the trace
    *  stand apart from everything the trace lights up */
@@ -183,7 +149,7 @@ export function drawMorph(
   const hoverCoin = hover?.kind === "coin" ? hover.id : null;
   const hl = opts.highlight ?? null;
   const dim = opts.hideDim ? 0 : DIM;
-  const paint = opts.paint ?? OMNISCIENT;
+  const paint = opts.paint ?? STRUCTURE;
   const coinAlpha = (id: string): number =>
     !hl ? 1 : hl.full.coins.has(id) ? 1 : hl.partial.coins.has(id) ? PARTIAL : dim;
   const txAlpha = (id: string): number =>

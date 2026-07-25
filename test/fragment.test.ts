@@ -24,6 +24,17 @@ test("fragment round-trip with camera, tutorial step, and reference", async () =
   assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
 });
 
+test("observer heuristics bitmask round-trips and is clamped", async () => {
+  const full = { seed: "welcome", l: 1, ov: 3 };
+  assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+  const craft = (state: unknown): Promise<unknown> =>
+    encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
+  const wild = await craft({ seed: "ok", ov: 999 }) as Record<string, unknown>;
+  assert.equal(wild.ov, 7);
+  const neg = await craft({ seed: "ok", ov: -4 }) as Record<string, unknown>;
+  assert.equal(neg.ov, 0);
+});
+
 test("missing fragment decodes to null", async () => {
   assert.equal(await decodeFragment(""), null);
   assert.equal(await decodeFragment("#other=1"), null);

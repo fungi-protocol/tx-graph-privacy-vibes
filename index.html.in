@@ -49,6 +49,13 @@
             border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 10px;
             font: inherit; font-size: 13px; cursor: pointer; }
   #params .apply:hover { background: #3d414a; }
+  #overlays { position: fixed; left: 16px; top: 176px; display: none; width: 210px;
+            background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
+            padding: 10px 12px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
+  #overlays h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; opacity: 0.7;
+            text-transform: uppercase; letter-spacing: 0.04em; }
+  #overlays label { display: block; margin: 6px 0; opacity: 0.85; cursor: pointer; }
+  #overlays input { margin-right: 6px; }
   #decisions { position: fixed; right: 16px; bottom: 64px; display: none; width: 330px;
             max-height: 46vh; overflow-y: auto; background: #24262cf2;
             border: 1px solid #3a3e46; border-radius: 10px; padding: 10px 12px;
@@ -104,6 +111,7 @@
 <button id="clusterbtn" title="collapse each cluster's coins into one vertex — the observer's user graph (c)">clusters</button>
 <button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
 <button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>
+<div id="overlays"></div>
 <div id="params"></div>
 <div id="decisions"></div>
 <button id="castbtn" title="the neighborhood's character sheets">cast</button>

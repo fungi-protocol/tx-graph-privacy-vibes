@@ -26,6 +26,8 @@ export interface FragmentState {
   l?: number;
   /** lens 2 only: which agent's view (participant index) */
   a?: number;
+  /** lens 1 only: observer heuristics bitmask (1 CIOH, 2 change, 4 subset-sum) */
+  ov?: number;
   /** economy day (scene 1 only) */
   n?: number;
   /** copy-reference: world position clicked + element selector under cursor */
@@ -145,6 +147,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (l !== undefined) out.l = l;
   const a = num(r.a, 0, MAX_AGENT, true);
   if (a !== undefined) out.a = a;
+  const ov = num(r.ov, 0, 7, true);
+  if (ov !== undefined) out.ov = ov;
   const n = num(r.n, 0, MAX_DAY, true);
   if (n !== undefined) out.n = n;
   if (typeof r.ref === "object" && r.ref !== null) {

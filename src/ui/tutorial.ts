@@ -13,6 +13,9 @@ export interface TutorialStep {
   lens?: 0 | 1 | 2;
   /** lens 2: whose eyes (function = resolved late; undefined = app default) */
   agent?: () => number | undefined;
+  /** lens 1: observer heuristics bitmask (1 CIOH, 2 change, 4 subset-sum);
+   * undefined = all of them */
+  overlays?: number;
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
@@ -33,6 +36,8 @@ export interface TutorialCallbacks {
   onStepChange?: (index: number) => void;
   onView?: (view: 0 | 1 | 2) => void;
   onLens?: (lens: 0 | 1 | 2, agent?: number) => void;
+  /** observer-lens steps set which heuristics run, after lens */
+  onOverlays?: (overlays: number) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
   /** steps that trace something fire this after lens, before focus */
@@ -96,6 +101,7 @@ export class Tutorial {
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
+    if (animate) this.cb.onOverlays?.(step.overlays ?? 7);
     if (animate && step.select) {
       const sel = step.select();
       if (sel !== undefined) this.cb.onSelect?.(sel);

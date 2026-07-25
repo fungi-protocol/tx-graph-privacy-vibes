@@ -1,11 +1,9 @@
-// Block-explorer view: each transaction is a card with nested boxes — inputs
-// down the left, outputs down the right — and a coin is an EDGE connecting
-// the output box where it was created to the input box where it was spent.
-// This is the foundational rendering; other views generalize from it.
-import { type Chain, type Coin, type CoinId, type TxId } from "../model/chain";
-import { fmtSats } from "../core/sats";
-import { OWNER_TEXT, EXTERNAL_COLOR, CAST } from "../scenario/intro";
-import { ownerColor } from "../scenario/cast";
+// Block-explorer layout: each transaction is a card with nested boxes —
+// inputs down the left, outputs down the right — and a coin is an EDGE
+// connecting the output box where it was created to the input box where
+// it was spent. This is the foundational geometry; drawing happens in
+// morph.ts against whatever Paint the active lens supplies.
+import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { layered, type LayeredNode, type LayeredEdge } from "./layered";
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -137,104 +135,6 @@ export function layoutChain(chain: Chain): Layout {
     maxX = Math.max(maxX, r.x + r.w); maxY = Math.max(maxY, r.y + r.h);
   }
   return { txs, roots, coinBoxes, edges, routes, bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
-}
-
-function rounded(ctx: CanvasRenderingContext2D, r: Rect, radius: number): void {
-  ctx.beginPath();
-  ctx.roundRect(r.x, r.y, r.w, r.h, radius);
-}
-
-// the live cast can outgrow the fixed ten; main.ts keeps this current
-let castNames: readonly string[] = CAST;
-export function setCastNames(names: readonly string[]): void {
-  castNames = names;
-}
-
-export function castName(owner: number | null): string {
-  return owner === null ? "external" : castNames[owner] ?? `resident #${owner + 1}`;
-}
-
-export interface DrawOptions {
-  hover?: Hit | null;
-}
-
-/** Draw in world coordinates (caller sets the camera transform). */
-export function drawChain(ctx: CanvasRenderingContext2D, chain: Chain, layout: Layout, opts: DrawOptions = {}): void {
-  const hover = opts.hover ?? null;
-  const hoverCoin = hover?.kind === "coin" ? hover.id : null;
-
-  // coin edges beneath everything
-  for (const e of layout.edges) {
-    const coin = chain.coins.get(e.coin)!;
-    const x0 = e.from.x + e.from.w, y0 = e.from.y + e.from.h / 2;
-    const x1 = e.to.x, y1 = e.to.y + e.to.h / 2;
-    const dx = Math.max(40, (x1 - x0) / 2);
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.bezierCurveTo(x0 + dx, y0, x1 - dx, y1, x1, y1);
-    const emphasized = hoverCoin === e.coin;
-    ctx.strokeStyle = coinColor(coin) + (emphasized ? "" : "b0");
-    ctx.lineWidth = emphasized ? 3.5 : 1.8;
-    ctx.stroke();
-  }
-
-  // tx cards
-  for (const [tid, frame] of layout.txs) {
-    const tx = chain.txs.get(tid)!;
-    rounded(ctx, frame, 8);
-    ctx.fillStyle = "#26292f";
-    ctx.fill();
-    ctx.strokeStyle = hover?.kind === "tx" && hover.id === tid ? "#d8dade" : "#4a4e57";
-    ctx.lineWidth = hover?.kind === "tx" && hover.id === tid ? 2 : 1.2;
-    ctx.stroke();
-    ctx.fillStyle = "#9aa0ab";
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.textBaseline = "middle";
-    ctx.fillText(`${tid} — ${tx.memo ?? "transaction"}`, frame.x + PAD, frame.y + HEADER_H / 2 + 2);
-    ctx.fillStyle = "#6d727d";
-    ctx.font = "10px system-ui, sans-serif";
-    ctx.fillText(`fee ${fmtSats(tx.fee)} sats @ ${tx.feerate} sat/vb`, frame.x + PAD, frame.y + HEADER_H + PAD / 2 - 2);
-  }
-
-  // coin boxes
-  for (const cb of layout.coinBoxes) {
-    const coin = chain.coins.get(cb.coin)!;
-    const focused = hoverCoin === cb.coin;
-    rounded(ctx, cb.rect, 10);
-    ctx.fillStyle = coinColor(coin);
-    ctx.fill();
-    const unspent = coin.dest === null && cb.role !== "in";
-    ctx.strokeStyle = focused ? "#ffffff" : unspent ? "#111111" : "#333333";
-    ctx.lineWidth = focused ? 2.5 : unspent ? 3 : 1;
-    ctx.stroke();
-    ctx.fillStyle = coin.owner === null ? "#111" : OWNER_TEXT[coin.owner] ?? "#111";
-    ctx.font = "600 12px system-ui, sans-serif";
-    ctx.textBaseline = "middle";
-    const cx = cb.rect.x + cb.rect.w / 2;
-    ctx.textAlign = "center";
-    ctx.fillText(fmtSats(coin.value), cx, cb.rect.y + cb.rect.h / 2);
-    ctx.textAlign = "left";
-    // small caption under root and output boxes: whose coin / what for
-    if (cb.role !== "in") {
-      ctx.fillStyle = "#8b919c";
-      ctx.font = "10px system-ui, sans-serif";
-      const caption = `${castName(coin.owner)}${coin.label ? " · " + coin.label : ""}`;
-      ctx.textAlign = "center";
-      ctx.fillText(caption, cx, cb.rect.y + cb.rect.h + 12);
-      ctx.textAlign = "left";
-    }
-  }
-}
-
-export function coinColor(coin: Coin): string {
-  return coin.owner === null ? EXTERNAL_COLOR : ownerColor(coin.owner);
-}
-
-export function hitTest(layout: Layout, wx: number, wy: number): Hit | null {
-  const inRect = (r: Rect): boolean => wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h;
-  for (const cb of layout.coinBoxes) if (inRect(cb.rect)) return { kind: "coin", id: cb.coin };
-  for (const [tid, frame] of layout.txs) if (inRect(frame)) return { kind: "tx", id: tid };
-  return null;
 }
 
 /** Rect of a coin's primary (producing) box, for tutorial camera focus. */

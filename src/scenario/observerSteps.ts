@@ -1,4 +1,5 @@
-// Chapter 3: the third-party observer — CIOH, change identification,
+// Chapter 3: the third-party observer — the bare public record first,
+// then each heuristic switched on in turn: CIOH, change identification,
 // cluster contraction, and the pseudonym graph. The Scroll #2/#3 arc:
 // familiar heuristics first, then the honest caveat that attacks always
 // get better, then the observer's real product — a social graph.
@@ -10,16 +11,38 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
     {
       id: "observers-map",
       title: "The observer's map",
-      html: `<p>This is the same graph through the <b>observer lens</b>: no
-        names, no colors, no stories — only amounts, fees, and structure.</p>
-        <p>Yet the observer is not blind. A transaction that spends
-        <b>several coins at once</b> is evidence that one entity owns them
-        all — the <b>common-input-ownership heuristic</b> (CIOH). Co-spent
-        coins merge into <b>clusters</b>: the colored groups. Gray coins are
-        ones the observer has nothing on yet.</p>`,
+      html: `<p>This is the same graph through the <b>observer lens</b>,
+        with every inference switched off: no names, no colors, no
+        stories — only what the chain itself records. Amounts, fees, and
+        which output feeds which input.</p>
+        <p>This bare structure is the observer's raw material — public,
+        permanent, and downloadable by anyone. Everything the observer
+        will ever claim about it is an <b>inference</b> laid on top. The
+        next steps switch those inferences on, one at a time; the
+        <b>heuristics</b> panel on the left lets you flip them yourself.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
+      overlays: 0,
+      scene: 1,
+      minDay: 21,
+    },
+    {
+      id: "coins-spent-together",
+      title: "Coins spent together",
+      html: `<p>The first inference: a transaction that spends
+        <b>several coins at once</b> is evidence that one entity owns them
+        all — whoever signed it could spend each of them. This is the
+        <b>common-input-ownership heuristic</b> (CIOH). Co-spent coins
+        merge into <b>clusters</b>: the colored groups that just
+        appeared. Gray coins are ones the observer has nothing on yet.</p>
+        <p>The colors are the observer's bookkeeping, not the truth —
+        that's why this palette looks nothing like the all-seeing
+        lens.</p>`,
+      focus: () => pad(bipBounds()),
+      view: 1,
+      lens: 1,
+      overlays: 1,
       scene: 1,
       minDay: 21,
     },
@@ -34,10 +57,11 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         output is probably the change — and change belongs to whoever
         paid.</p>
         <p>Each correct guess extends a cluster by one hop. Chained day
-        after day, that is most of the map you see.</p>`,
+        after day, that is most of the map you now see.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
+      overlays: 3,
       scene: 1,
       minDay: 21,
     },
@@ -57,6 +81,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
+      overlays: 7,
       scene: 1,
       minDay: 21,
     },
@@ -73,6 +98,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,
+      overlays: 7,
       scene: 1,
       minDay: 21,
     },
@@ -91,6 +117,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,
+      overlays: 7,
       scene: 1,
       minDay: 21,
     },

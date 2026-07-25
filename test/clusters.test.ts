@@ -121,3 +121,56 @@ test("observer clustering is deterministic", () => {
   assert.deepEqual([...ca.rep.entries()], [...cb.rep.entries()]);
   assert.deepEqual([...ca.changeGuess.entries()], [...cb.changeGuess.entries()]);
 });
+
+test("heuristic toggles gate their unions independently", () => {
+  const c = new Chain();
+  c.addRoot("a", 200_000, 0);
+  c.addRoot("b", 900_000, 0);
+  const fee2 = txfee(2, 2, 2);
+  // co-spend (CIOH) whose round-USD output also invites a change guess
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 1, value: 100_000 },
+    { owner: 0, value: 1_000_000 - fee2 },
+  ], 2);
+  // CIOH off: the co-spent inputs stay apart, the change guess still fires
+  const noCioh = clusterObserver(c, at, { cioh: false });
+  assert.notEqual(noCioh.rep.get("a"), noCioh.rep.get("b"));
+  assert.equal(noCioh.changeGuess.get("t1"), "t1o2");
+  // change off: the co-spend still welds, no output joins the inputs
+  const noChange = clusterObserver(c, at, { change: false });
+  assert.equal(noChange.rep.get("a"), noChange.rep.get("b"));
+  assert.equal(noChange.changeGuess.size, 0);
+  assert.notEqual(noChange.rep.get("t1o2"), noChange.rep.get("a"));
+});
+
+test("subset-sum toggle off falls back to CIOH on ambiguous spends", () => {
+  const c = new Chain();
+  // three equal outputs make the split proven-ambiguous: {a}<->{any one
+  // of them} balances, so the analysis abstains — until it is switched
+  // off, when plain CIOH welds the co-spent inputs unconditionally
+  const fee = txfee(2, 3, 2);
+  c.addRoot("a", 100_000, 0);
+  c.addRoot("b", 200_000 + fee, 1);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 2, value: 100_000 },
+    { owner: 3, value: 100_000 },
+    { owner: 4, value: 100_000 },
+  ], 2);
+  const withSub = clusterObserver(c);
+  const without = clusterObserver(c, undefined, { subsum: false });
+  assert.notEqual(withSub.rep.get("a"), withSub.rep.get("b"));
+  assert.equal(without.rep.get("a"), without.rep.get("b"));
+});
+
+test("all heuristics off leaves every coin a singleton", () => {
+  const c = new Chain();
+  c.addRoot("a", 200_000, 0);
+  c.addRoot("b", 900_000, 0);
+  const fee2 = txfee(2, 2, 2);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 1, value: 100_000 },
+    { owner: 0, value: 1_000_000 - fee2 },
+  ], 2);
+  const cl = clusterObserver(c, at, { cioh: false, change: false, subsum: false });
+  for (const [, members] of cl.members) assert.equal(members.length, 1);
+});

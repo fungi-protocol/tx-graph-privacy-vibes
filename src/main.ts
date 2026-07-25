@@ -21,9 +21,11 @@ import { settlementSteps } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
 import { gameSteps } from "./scenario/gameSteps";
-import { layoutChain, type Layout, type Hit, type Rect, setCastNames } from "./ui/blockview";
+import { setCastNames, OMNISCIENT } from "./scenario/omniscient";
+import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
-import { drawMorph, hitTestMorph, coinRectAt, txRectAt, commonInputFill, type Paint } from "./ui/morph";
+import { drawMorph, hitTestMorph, coinRectAt, txRectAt } from "./ui/morph";
+import { commonInputFill, type Paint } from "./ui/paint";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
@@ -86,13 +88,23 @@ function active(): SceneData {
 // --- lenses: 0 = all-seeing, 1 = third-party observer, 2 = one agent's view ---
 let lens: 0 | 1 | 2 = 0;
 let lensAgent: number | null = null;
-let clCache: { n: number; sc: number; cl: Clustering; clay: ClusterLayout } | null = null;
+// which heuristics the observer lens runs, as a bitmask:
+// 1 = CIOH, 2 = round-USD change, 4 = subset-sum; default all of them.
+// With all off the union-find never fires, every coin is a singleton, and
+// the observer's map degrades honestly into the bare public structure.
+const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_ALL = 7;
+let overlays = OV_ALL;
+let clCache: { n: number; sc: number; ov: number; cl: Clustering; clay: ClusterLayout } | null = null;
 function clustering(): Clustering {
   const s = active();
-  if (!clCache || clCache.n !== s.chain.order.length || clCache.sc !== scene) {
+  if (!clCache || clCache.n !== s.chain.order.length || clCache.sc !== scene || clCache.ov !== overlays) {
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
-    const cl = clusterObserver(s.chain, priceAt);
-    clCache = { n: s.chain.order.length, sc: scene, cl, clay: layoutClusterGraph(cl) };
+    const cl = clusterObserver(s.chain, priceAt, {
+      cioh: (overlays & OV_CIOH) !== 0,
+      change: (overlays & OV_CHANGE) !== 0,
+      subsum: (overlays & OV_SUBSUM) !== 0,
+    });
+    clCache = { n: s.chain.order.length, sc: scene, ov: overlays, cl, clay: layoutClusterGraph(cl) };
   }
   return clCache.cl;
 }
@@ -107,7 +119,10 @@ function observerPaint(): Paint {
     coinText: () => "#111",
     coinCaption: (c) => clusterLabel(cl, c.id),
     txMemo: () => null,
-    txAttribution: (t, ch) => commonInputFill(ch, t, (c) => clusterColor(cl, c.id)),
+    txAttribution: (t, ch) => {
+      const fill = commonInputFill(ch, t, (c) => clusterColor(cl, c.id));
+      return fill === CLUSTER_MISC ? null : fill; // unclustered is not attribution
+    },
   };
 }
 
@@ -210,7 +225,7 @@ function draw(): void {
       hover, highlight, hideDim,
       selected: selection?.kind === "coins" ? { coins: new Set(selection.ids), txs: new Set() } :
         selection?.kind === "tx" ? { coins: new Set(), txs: new Set([selection.id]) } : null,
-      ...(lens === 1 ? { paint: observerPaint() } : lens === 2 ? { paint: agentPaint() } : {}),
+      paint: lens === 1 ? observerPaint() : lens === 2 ? agentPaint() : OMNISCIENT,
     });
   }
 
@@ -334,11 +349,46 @@ function setLens(l: 0 | 1 | 2): void {
     l === 0 ? "lens: all-seeing" :
     l === 1 ? "lens: observer" :
     `lens: ${castList()[lensAgent ?? 0]!.name}'s`;
+  overlaysPanel.style.display = l === 1 ? "block" : "none";
   recomputeTrace(); // the joint-trace intersection is cluster-wise under the observer
   draw();
   void syncFragment();
 }
 lensBtn.addEventListener("click", () => setLens(((lens + 1) % 3) as 0 | 1 | 2));
+
+// --- observer heuristic toggles: which inferences the map is running.
+// With all off, only the public structure remains — nothing is welded,
+// colored, or captioned beyond what the chain itself says.
+const overlaysPanel = document.getElementById("overlays")!;
+const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
+  { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
+  { bit: OV_CHANGE, label: "round-USD change", title: "the round-dollar output is probably the payment; the other is change" },
+  { bit: OV_SUBSUM, label: "subset-sum analysis", title: "a unique balancing partition welds its sub-transactions together" },
+];
+overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
+  `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>`).join("");
+function reflectOverlays(): void {
+  overlaysPanel.querySelectorAll("input[type=checkbox]").forEach((el) => {
+    const input = el as HTMLInputElement;
+    input.checked = (overlays & Number(input.dataset["bit"])) !== 0;
+  });
+}
+reflectOverlays();
+function setOverlays(mask: number): void {
+  overlays = mask & OV_ALL;
+  reflectOverlays();
+  knCache = null; // the agent lens seeds its guesses from these clusters
+  recomputeTrace();
+  draw();
+  void syncFragment();
+}
+overlaysPanel.addEventListener("change", () => {
+  let mask = 0;
+  overlaysPanel.querySelectorAll("input:checked").forEach((el) => {
+    mask |= Number((el as HTMLInputElement).dataset["bit"]);
+  });
+  setOverlays(mask);
+});
 
 window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -796,6 +846,9 @@ const tutorial = new Tutorial(steps, {
     if (l === 2) lensAgent = a ?? defaultLensAgent(); // step's pick, else the payjoin payee
     if (l !== lens || l === 2) setLens(l);
   },
+  onOverlays: (ov) => {
+    if (ov !== overlays) setOverlays(ov);
+  },
   onScene: (s, minDay) => setScene(s, minDay),
   onSelect: (sel) => {
     if (sel === null) clearSelection();
@@ -935,6 +988,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   else if (targetView !== 0) state.v = targetView;
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
+  if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
   if (scene === 1) {
     state.sc = 1;
     state.n = economy().day;
@@ -1056,6 +1110,10 @@ async function init(): Promise<void> {
   if (state?.v === 2) setCollapsed(true, false);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
   if (manual !== null) setManual(manual); // light the cast panel + decisions
+  if (state?.ov !== undefined) {
+    overlays = state.ov & OV_ALL;
+    reflectOverlays();
+  }
   // lens after scene: the agent lens defaults to a payee the economy knows
   if (state?.l === 1 || state?.l === 2) {
     if (state.l === 2 && typeof state.a === "number" && state.a < MAX_POP) lensAgent = state.a;

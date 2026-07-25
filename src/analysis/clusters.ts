@@ -30,15 +30,26 @@ export interface Clustering {
   changeGuess: Map<TxId, CoinId>;
 }
 
+/** Which heuristics the observer is running; all on by default. */
+export interface Heuristics {
+  cioh?: boolean;
+  change?: boolean;
+  subsum?: boolean;
+}
+
 /**
  * Cluster the chain as a third-party observer would.
  * `usdPrice(day)` is the public exchange rate; omit it (or return
  * undefined) to disable the round-USD change heuristic.
+ * `heuristics` switches individual heuristics off — with all of them off
+ * every coin stays a singleton and only the public structure remains.
  */
 export function clusterObserver(
   chain: Chain,
   usdPrice?: (day: number) => number | undefined,
+  heuristics: Heuristics = {},
 ): Clustering {
+  const { cioh = true, change = true, subsum = true } = heuristics;
   const parent = new Map<CoinId, CoinId>();
   for (const id of chain.coins.keys()) parent.set(id, id);
   const find = (x: CoinId): CoinId => {
@@ -65,7 +76,7 @@ export function clusterObserver(
     // and settlements on their own heuristics; a 2-output multiparty
     // join (the doc's 4-in/2-out bad coinjoin) would slip past it into
     // CIOH, but no form here produces that shape
-    if (tx.inputs.length >= 2 && tx.outputs.length >= 3) {
+    if (subsum && tx.inputs.length >= 2 && tx.outputs.length >= 3) {
       const value = (id: CoinId): number => chain.coins.get(id)!.value;
       const map = subTransactionMapping(tx.inputs.map(value), tx.outputs.map(value), tx.fee);
       if (map.kind === "unique") {
@@ -82,9 +93,11 @@ export function clusterObserver(
       // atomic: no way to split it — fall through to plain CIOH
     }
     // CIOH: all inputs of one transaction, one owner
-    for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
+    if (cioh) {
+      for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
+    }
     // round-USD change identification
-    const price = usdPrice?.(tx.timestep);
+    const price = change ? usdPrice?.(tx.timestep) : undefined;
     if (price !== undefined && tx.outputs.length === 2) {
       const looksRound = tx.outputs.map((o) => {
         const usd = (chain.coins.get(o)!.value * price) / 1e8;
