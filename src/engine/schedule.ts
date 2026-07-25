@@ -86,9 +86,10 @@ const EXT_MEAN = mean(EXTERNAL_MEMOS);
  * the same parameters that size the burn. Each person's expected daily
  * flow is what the schedule will ask of them (obligations out, purchases)
  * less what it hands them (obligations in); income covers the deficit
- * with 50% headroom, is never less than the persona's single steepest
- * bill (rent is lumpy — solvency in expectation still misses the month
- * both rents land close together), and nobody earns less than a token
+ * with 80% headroom (timing luck plus the fees the execution layer's
+ * varied coin picks burn), is never less than the steepest bill the
+ * dice can draw (rent is lumpy — solvency in expectation still misses
+ * the month both rents land close together), and nobody earns less than a token
  * $60 from outside town, so wallets replenish over long runs instead of
  * peeling to dust. This is the solvency guarantee's scope: scheduled
  * obligations stay fundable at the defaults and modest sweeps across the
@@ -108,14 +109,18 @@ export function incomeFor(
     const daily = params.oblRate * (e.rate ?? 1) * m;
     outflow[e.payer]! += daily;
     inflow[e.payee]! += daily;
-    maxBill[e.payer] = Math.max(maxBill[e.payer]!, m);
+    // the floor must cover the steepest bill the dice can actually draw —
+    // the top of the range, not its mean; a $400 invoice due the day
+    // before payday starves a mean-floored wallet
+    const steepest = Math.max(...e.memos.map((mm) => mm[2]));
+    maxBill[e.payer] = Math.max(maxBill[e.payer]!, steepest);
   }
   return cast.map((_, u) => {
     // internal receivables are Poisson-timed — they cannot be scheduled
     // against a due date — so they only count at half weight; a landlord
     // living rent-to-rent would starve the month the rent runs late
     const deficit = Math.max(0, outflow[u]! - inflow[u]! / 2) * INCOME_EVERY;
-    return Math.max(60, Math.round(Math.max(deficit * 1.5, maxBill[u]!) / 10) * 10);
+    return Math.max(60, Math.round(Math.max(deficit * 1.8, maxBill[u]!) / 10) * 10);
   });
 }
 

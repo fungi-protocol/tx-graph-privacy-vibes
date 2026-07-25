@@ -172,21 +172,36 @@ export class Economy {
   }
 
   /** smallest-sufficient single coin, else the largest coins together (a
-   *  consolidation — the ⚠ kind), up to six; covers target + fee + dust change */
-  private select(u: number, target: number, feerate: number, extraIn = 0, outs = 2): CoinId[] | null {
+   *  consolidation — the ⚠ kind), up to six; covers target + fee + dust change.
+   *  vary is a behavior die (0 = the rng-free preview): sometimes the
+   *  next-smallest sufficient coin, sometimes a deliberate two-coin spend —
+   *  real wallets tidy small coins along the way instead of peeling one coin
+   *  forever — but every varied pick still covers its own fee, so a payment
+   *  funds whenever the preview says it can */
+  private select(u: number, target: number, feerate: number, extraIn = 0, outs = 2, vary = 0): CoinId[] | null {
     const coins = this.wallet(u)
       .map((id) => this.chain.coins.get(id)!)
       .sort((a, b) => b.value - a.value);
-    const need1 = target + txfee(1 + extraIn, outs, feerate) + 294;
-    const single = [...coins].reverse().find((c) => c.value >= need1);
-    if (single) return [single.id];
+    const need = (ins: number) => target + txfee(ins + extraIn, outs, feerate) + 294;
+    const singles = coins.filter((c) => c.value >= need(1)); // still descending
+    if (singles.length > 0) {
+      const chosen = vary >= 0.85 && singles.length >= 2
+        ? singles[singles.length - 2]! // the next-smallest sufficient coin
+        : singles[singles.length - 1]!; // the preview's smallest-sufficient
+      if (vary >= 0.6 && vary < 0.85) {
+        // sweep the wallet's smallest other coin in alongside, when the
+        // pair still covers the larger two-input fee
+        const small = [...coins].reverse().find((c) => c.id !== chosen.id);
+        if (small && chosen.value + small.value >= need(2)) return [chosen.id, small.id];
+      }
+      return [chosen.id];
+    }
     const picked: CoinId[] = [];
     let sum = 0;
     for (const c of coins.slice(0, 6)) {
       picked.push(c.id);
       sum += c.value;
-      if (picked.length >= 2 &&
-          sum >= target + txfee(picked.length + extraIn, outs, feerate) + 294) return picked;
+      if (picked.length >= 2 && sum >= need(picked.length)) return picked;
     }
     return null;
   }
@@ -200,7 +215,7 @@ export class Economy {
   private batchPay(payer: number, obls: Obligation[], feerate: number): boolean {
     const values = obls.map((o) => this.sats(o.usd));
     const total = values.reduce((a, b) => a + b, 0);
-    const inputs = this.select(payer, total, feerate, 0, obls.length + 1);
+    const inputs = this.select(payer, total, feerate, 0, obls.length + 1, this.rng.next());
     if (!inputs) return false;
     const inValue = inputs.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
     const fee = txfee(inputs.length, obls.length + 1, feerate);
@@ -229,7 +244,7 @@ export class Economy {
   }
 
   private unilateral(payer: number, payee: number | null, value: number, memo: string, feerate: number, oblId?: string): boolean {
-    const inputs = this.select(payer, value, feerate);
+    const inputs = this.select(payer, value, feerate, 0, 2, this.rng.next());
     if (!inputs) return false;
     const inValue = inputs.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
     const fee = txfee(inputs.length, 2, feerate);
@@ -258,7 +273,7 @@ export class Economy {
       .map((id) => this.chain.coins.get(id)!)
       .sort((a, b) => a.value - b.value)[0];
     if (!contributed) return false;
-    const inputs = this.select(payer, value, feerate, 1);
+    const inputs = this.select(payer, value, feerate, 1, 2, this.rng.next());
     if (!inputs) return false;
     const inValue = inputs.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
     const fee = txfee(inputs.length + 1, 2, feerate);

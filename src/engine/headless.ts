@@ -24,9 +24,24 @@ function main(): void {
   const world = [eco.chain.describe(),
     ...eco.events.map((e) => `${e.day}/${e.tid}/${e.form}/${e.memo}`)];
 
+  // wallet-shape characterization: execution realism means wallets hold a
+  // spread of coins instead of collapsing into one endlessly peeled coin,
+  // and some spends take more than one input — pinned so a regression in
+  // coin selection trips the check like any other behaviour change
+  const held = new Map<number, number>();
+  for (const c of eco.chain.utxos()) {
+    if (c.owner !== null) held.set(c.owner, (held.get(c.owner) ?? 0) + 1);
+  }
+  const sizes = [...held.values()].sort((a, b) => a - b);
+  // collaborative forms take several inputs by design; the realism metric
+  // is how often a plain one-payer spend does
+  const unil = eco.events.filter((e) => e.form === "unilateral" && !e.memo.startsWith("batch"));
+  const multi = unil.filter((e) => eco.chain.txs.get(e.tid)!.inputs.length >= 2).length;
+
   console.log(`seed ${seed}`);
   console.log(`rng-digest ${fnv1a(parts.join(","))}`);
   console.log(`economy-digest day ${eco.day} txs ${eco.chain.order.length} ${fnv1a(world.join(";"))}`);
+  console.log(`wallets min ${sizes[0]} median ${sizes[Math.floor(sizes.length / 2)]} multi-input spends ${multi}/${unil.length}`);
 }
 
 main();
