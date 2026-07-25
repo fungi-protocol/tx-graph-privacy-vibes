@@ -972,7 +972,7 @@ const steps = [
   ...payjoinSteps(
     () => active().bip.bounds,
     () => {
-      // frame the first payjoin transaction (there is one by minDay 45) in
+      // frame the first payjoin transaction (there is one by minDay 35) in
       // whichever view the step just asked for; prefer a 2-input one so
       // the step prose matches on every seed
       const s = active();
@@ -987,7 +987,7 @@ const steps = [
   ...settlementSteps(
     () => active().bip.bounds,
     () => {
-      // frame the first settlement (there is one by minDay 75); prefer a
+      // frame the first settlement (there is one by minDay 60); prefer a
       // three-party one so the chapter's arithmetic plays out on screen
       const s = active();
       const ev = firstSettlement();

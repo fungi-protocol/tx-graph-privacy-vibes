@@ -51,15 +51,18 @@ export function settlementSteps(
         <b>one transaction</b>: everyone contributes coins of their own,
         everyone takes one output.</p>
         <p>Only the <b>net balances</b> touch the chain. No output is a
-        payment: what shows is each person's net — and because these
-        obligations <b>loop</b>, the nets can be far from any amount owed. Not
-        the rent, not the shelves, not the logo. And one transaction is
-        cheaper than three.</p>`,
+        payment: each is one participant's net across everything they
+        settled, and a net can be far from any amount owed. Nor do the
+        amounts readily
+        pair an output with the inputs that fed it: where a plain
+        payment wears its amount openly, a net is no number the observer
+        already knows to look for. And one transaction is cheaper than
+        three.</p>`,
       focus: () => pad(settleFocus()),
       view: 1,
       lens: 0,
       scene: 1,
-      minDay: 75,
+      minDay: 60,
     },
     {
       id: "the-amounts-are-gone",
@@ -93,29 +96,29 @@ export function settlementSteps(
         <p>Worse for the observer: with a cycle inside, a participant's net
         can land anywhere, <b>including near zero</b>. In a payjoin the
         payment amount at least still constrained the guesses; here the
-        amounts on chain say almost nothing about who owed whom what.
-        (Only the full loop earns this — most days the neighborhood only
-        finds pairs and chains to net, and those still whisper.)</p>
-        <p>The matching game the observer learns next chapter is the
-        sharper test. ${verdictLine}</p>`;
+        amounts on chain say almost nothing about who paid whom.</p>
+        <p>The sharper test is the <b>sub-transaction analysis</b> — the
+        matching game over amounts. ${verdictLine}</p>`;
       },
       focus: () => pad(settleFocus()),
       view: 1,
       lens: 1,
       scene: 1,
-      minDay: 75,
+      minDay: 60,
     },
     {
       id: "insiders-do-the-math",
       title: "Insiders can still do the math",
-      html: `<p>Hidden from outsiders — not from the room. Each participant
-        knows the obligations they are on — in this loop, two of the three
-        — and everyone's nets are visible to the room. That is enough to
-        <b>solve the edge they are not on</b>: two knowns and the nets
-        leave one unknown.</p>
-        <p>That is a property of the <b>protocol</b>, not of multiparty
-        transactions as such: this town's settlements are coordinated in
-        the open, so the room sees every contribution.</p>
+      html: `<p>Hidden from outsiders — but what an <b>insider</b> learns
+        depends on the protocol the participants use to construct the
+        transaction. This town's settlements are coordinated in the
+        open: the room sees every contribution, and each participant
+        knows the obligations they are on — in this settlement, two of
+        the three. That is enough to <b>solve the edge they are not
+        on</b>: two knowns and the nets leave one unknown.</p>
+        <p>A protocol can be built to show each participant less — that
+        design space is outside this story. The town's open version
+        marks its simple end.</p>
         <p>You are looking through one participant's eyes. Same rule as the
         payjoin, more of it: every settlement adds to what its insiders
         hold.</p>`,
@@ -124,7 +127,7 @@ export function settlementSteps(
       lens: 2,
       agent: settleAgent,
       scene: 1,
-      minDay: 75,
+      minDay: 60,
     },
     {
       id: "what-still-shows",
@@ -138,16 +141,24 @@ export function settlementSteps(
         everyone offsets, and every net can shrink toward zero. Most
         settlements sit between those extremes: whoever mixes incoming
         and outgoing obligations nets down, whoever doesn't, shows.</p>
-        <p>And the graph keeps its shape: settlements happen between people
-        who already do business, so recurring relationships — the community
-        structure — show through over time. Show an observer who your
-        friends are… The next chapter asks: what if <i>strangers</i>
-        shared a transaction too?</p>`,
+        <p>That is the truth's side. The observer can't tell which case
+        they are looking at: nothing on chain says how many payments one
+        settlement compressed, what their magnitudes were, or whether
+        any of them offset. For all the observer knows any of these may
+        be happening — which removes constraints from the
+        sub-transaction analysis, potentially leaving every
+        amount-consistent reading plausible. Other indicators — wallet
+        fingerprints, the graph around the transaction — can still
+        inform it.</p>
+        <p>Settlements happen between people who already do business,
+        so recurring relationships repeat on chain: over time the
+        community structure of the cluster graph becomes apparent in
+        the transaction graph.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
       scene: 1,
-      minDay: 75,
+      minDay: 60,
     },
   ];
 }

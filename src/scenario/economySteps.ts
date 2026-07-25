@@ -87,7 +87,7 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
         owner's color and a label saying what it was for. A real observer
         gets neither — only the transactions themselves.</p>
         <p>How much of the color can an observer <i>reconstruct</i> from
-        the shapes alone? That's the next chapter.</p>`,
+        the shapes alone?</p>`,
       focus,
       view: 1,
       scene: 1,

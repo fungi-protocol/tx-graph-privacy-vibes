@@ -99,7 +99,7 @@ export function payjoinSteps(
       view: 0,
       lens: 0,
       scene: 1,
-      minDay: 45,
+      minDay: 35,
       select: selectIt,
     },
     {
@@ -117,7 +117,7 @@ export function payjoinSteps(
       view: 0,
       lens: 1,
       scene: 1,
-      minDay: 45,
+      minDay: 35,
       select: selectIt,
     },
     {
@@ -145,7 +145,7 @@ export function payjoinSteps(
       view: 0,
       lens: 2,
       scene: 1,
-      minDay: 45,
+      minDay: 35,
       select: selectIt,
     },
     {
@@ -168,7 +168,7 @@ export function payjoinSteps(
       view: 1,
       lens: 1,
       scene: 1,
-      minDay: 45,
+      minDay: 35,
       select: selectIt,
     },
     {
@@ -222,7 +222,7 @@ export function payjoinSteps(
       view: 1,
       lens: 1,
       scene: 1,
-      minDay: 45,
+      minDay: 35,
       select: selectIt,
     },
     {
@@ -248,15 +248,12 @@ export function payjoinSteps(
         batcher, and this neighborhood has none — but they mark the path.
         And they show what the defense would need to work at scale: the
         collaborative shape has to be the <b>norm, not the exception</b>,
-        or each instance stands out as a fingerprint of its own.</p>
-        <p>The next chapter takes a different rung: what if the
-        neighborhood nets out several obligations in <i>one</i>
-        transaction — and some legs never touch the chain at all?</p>`,
+        or each instance stands out as a fingerprint of its own.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
       scene: 1,
-      minDay: 45,
+      minDay: 35,
       select: () => null, // the chapter widens back out: exhibit released
     },
   ];

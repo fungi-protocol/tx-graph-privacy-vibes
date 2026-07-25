@@ -98,9 +98,10 @@ test("payjoinDetection excludes only the exhibit's evidence and reads prior clus
 });
 
 test("detection verdicts across the tutorial seeds match the calibrated record", () => {
-  // both narration branches must stay reachable: seeds where the prior
-  // map is rich enough that the contradiction fires by the chapter's
-  // day, and seeds where the priors stay thin and the doubt stands
+  // both narration branches must stay reachable at the chapter's day
+  // (35 — where the prose's "around day 30" moves time): seeds where
+  // the prior map is rich enough that the contradiction fires, and
+  // seeds where the priors stay thin and the doubt stands
   const verdictAt = (seed: string, day: number): boolean => {
     const eco = new Economy(seed);
     eco.runTo(day);
@@ -108,8 +109,8 @@ test("detection verdicts across the tutorial seeds match the calibrated record",
     const tid = selectPayjoinExhibit(eco.events, eco.chain, price)!;
     return detectionFires(payjoinDetection(eco.chain, price, tid));
   };
-  assert.equal(verdictAt("golden", 45), true, "golden: detection fires at the chapter's day");
-  assert.equal(verdictAt("alpha", 45), true, "alpha: detection fires at the chapter's day");
+  assert.equal(verdictAt("golden", 35), true, "golden: detection fires at the chapter's day");
+  assert.equal(verdictAt("alpha", 35), true, "alpha: detection fires at the chapter's day");
   assert.equal(verdictAt("welcome", 115), false, "welcome: priors stay thin — the quiet branch");
 });
 

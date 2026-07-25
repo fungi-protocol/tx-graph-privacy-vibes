@@ -133,8 +133,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       html: `<p>From here on both drawings are yours: press <b>v</b> or use
         the button in the corner to flip between the card view and
         the graph view whenever you like.</p>
-        <p>That's the toolbox. Next: more people, more payments — and
-        someone watching.</p>`,
+        <p>That's the toolbox.</p>`,
       focus: pad(bip.bounds, 80),
       view: 1,
       scene: 0,

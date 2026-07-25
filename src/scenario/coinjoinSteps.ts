@@ -135,8 +135,7 @@ export function coinjoinSteps(
         they come back to it — across any number of joins.</p>
         <p>And ambiguity decays: every later spend says a little more, and
         whenever two post-coinjoin coins are linked, their candidate
-        origins can be <b>intersected</b> — the sets shrink fast. That
-        attack is the next chapter.</p>`,
+        origins can be <b>intersected</b> — the sets shrink fast.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,

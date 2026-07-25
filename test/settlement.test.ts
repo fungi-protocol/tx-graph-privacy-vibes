@@ -119,9 +119,9 @@ test("the chapter's exhibit settlement yields the narrated verdict on every tuto
   // naive-coinjoin guarantee.
   for (const seed of ["welcome", "golden", "gamma", "alpha", "silver"]) {
     const eco = new Economy(seed);
-    eco.runTo(75); // the chapter's minDay
+    eco.runTo(60); // the chapter's minDay
     const ev = selectSettlementExhibit(eco.events, eco.chain);
-    assert.ok(ev, `${seed}: no settlement exhibit by day 75`);
+    assert.ok(ev, `${seed}: no settlement exhibit by day 60`);
     const v = settlementVerdict(eco.chain, ev!.tid);
     assert.ok(v === "atomic" || v === "ambiguous",
       `${seed}: exhibit verdict "${v}" would make the title overclaim`);
