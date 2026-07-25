@@ -31,8 +31,8 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         <b>one coin of 1,000,000 sats</b> (sats — satoshis — are bitcoin's
         smallest unit; 100 million make one bitcoin).</p>
         <p>A bitcoin wallet doesn't hold a balance the way a bank account
-        does — it holds <b>coins</b>, each one a distinct object with a
-        fixed value.</p>
+        does — it holds <b>coins</b>, each one a distinct object whose
+        value was chosen when it was made.</p>
         <p class="tut-aside">(You can drag and zoom the view at any time —
         this tour will wait.)</p>`,
       focus: pad(r1, 120),
@@ -45,7 +45,9 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       html: `<p>Alice pays Bob <b>250,000 sats</b> for his used bike.</p>
         <p>She can't tear a piece off her coin — a transaction consumes its
         input coins <b>whole</b> (left side) and mints brand-new coins as
-        outputs (right side).</p>
+        outputs (right side). Think of every sat as a grain of gold: a
+        transaction melts the coins fed into it and casts the metal into
+        new coins of arbitrary weights.</p>
         <p>The line into the card is Alice's coin being spent; the boxes on
         the right are the coins that now exist instead of it.</p>`,
       focus: pad(t1, 90),
