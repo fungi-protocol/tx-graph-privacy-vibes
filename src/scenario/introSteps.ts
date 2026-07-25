@@ -122,9 +122,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         between the transaction that minted it and the one that spent it;
         unspent coins dangle at the right, and coins that entered from
         outside — like Alice's withdrawal — start at the left. Money still
-        flows left to right through time.</p>
-        <p>This drawing gets useful once the neighborhood shows up: it
-        stays readable when there are hundreds of coins.</p>`,
+        flows left to right through time.</p>`,
       focus: pad(bip.bounds, 80),
       view: 1,
       scene: 0,
