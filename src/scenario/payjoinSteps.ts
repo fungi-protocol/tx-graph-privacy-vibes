@@ -114,7 +114,7 @@ export function payjoinSteps(
         amount any more — the payee's own coin is stirred in — so the
         observer has nothing to grab.</p>`,
       focus: () => pad(payjoinFocus()),
-      view: 1,
+      view: 0,
       lens: 1,
       scene: 1,
       minDay: 45,
@@ -142,7 +142,7 @@ export function payjoinSteps(
         evidence, <b>likely</b> where it seeds the public heuristics — and
         gray where they are as blind as any outsider.</p>`,
       focus: () => pad(payjoinFocus()),
-      view: 1,
+      view: 0,
       lens: 2,
       scene: 1,
       minDay: 45,
