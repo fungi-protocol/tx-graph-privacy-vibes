@@ -161,7 +161,14 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         <p>This is the observer's real product. Not a pile of coins: a
         <b>social graph</b>. With complete clustering it would be the user
         network itself; incomplete, it is a <b>pseudonym graph</b> — several
-        vertices may still be one person.</p>`,
+        vertices may still be one person.</p>
+        <p>One honest trick in this drawing: the vertices' <b>shape</b> is
+        the observer's partition, but the <b>paint</b> is the town's truth
+        — each vertex wears its coins' true owners, which the observer
+        cannot see. A one-color vertex holds one person's coins; a vertex
+        wearing several colors welded different people together — a
+        <b>cluster collapse</b> you can spot at a glance. Flip the
+        heuristics on the left and watch the vertices merge and split.</p>`,
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,

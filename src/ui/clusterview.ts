@@ -23,15 +23,81 @@ export interface ClusterLayout {
   bounds: Rect;
 }
 
-/** how the active lens colors and names the contracted vertices — the
- *  same partition drawn as truth (owner names), inference ("cluster 3"),
- *  or one participant's ledger ("Heidi · known") */
+/** how the active lens NAMES the contracted vertices — truth (owner
+ *  names), inference ("cluster 3"), or one participant's ledger
+ *  ("Heidi · known"). The topology carries the lens's information;
+ *  PAINT is always the town's ground truth (the grading direction:
+ *  truth judging the partition, shown to the learner, never fed to any
+ *  analysis) — so a vertex the lens wrongly merged renders as a
+ *  multi-color disc, and cluster collapse is visible at a glance. */
 export interface ClusterPaint {
+  /** the true owner's color of one coin (edges, gliding coins) */
   color(id: CoinId): string;
+  /** the true owner mix of a vertex's members, fractions summing to 1,
+   *  largest first — one entry means the cluster is pure */
+  slices(rep: CoinId): { color: string; frac: number }[];
   /** caption under the disc; "" = an anonymous vertex, left unlabeled */
   label(rep: CoinId): string;
   /** short text inside the disc */
   center(rep: CoinId): string;
+}
+
+/** the true-owner color mix of a cluster's members, largest share
+ *  first — the pure "paint is ground truth" computation, shared by
+ *  every lens */
+export function truthSlices(
+  cl: Clustering,
+  rep: CoinId,
+  colorOf: (id: CoinId) => string,
+): { color: string; frac: number }[] {
+  const members = cl.members.get(rep) ?? [rep];
+  const byColor = new Map<string, number>();
+  for (const id of members) {
+    const c = colorOf(id);
+    byColor.set(c, (byColor.get(c) ?? 0) + 1);
+  }
+  return [...byColor.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([color, n]) => ({ color, frac: n / members.length }));
+}
+
+/** One vertex of the ANIMATED repartition: where a piece of a new
+ *  cluster disc starts when a heuristic toggle merges or splits the
+ *  map. Each new vertex begins as the fragments of the old discs its
+ *  members came from — a merge shows discs gliding together, a split
+ *  shows one disc coming apart — and every fragment converges on the
+ *  new disc. Purely cosmetic: both endpoints are honestly computed
+ *  partitions; the tween never feeds anything. */
+export interface ClusterTransition {
+  t: number; // 0 = old discs, 1 = settled new layout
+  fragments: Map<CoinId, { x: number; y: number; r: number }[]>;
+}
+
+/** start-state fragments for animating oldCl/oldClay -> newCl: for each
+ *  new cluster, one fragment per old disc its members came from, sized
+ *  by the share of that old disc it takes with it */
+export function transitionFragments(
+  oldCl: Clustering,
+  oldClay: ClusterLayout,
+  newCl: Clustering,
+): Map<CoinId, { x: number; y: number; r: number }[]> {
+  const out = new Map<CoinId, { x: number; y: number; r: number }[]>();
+  for (const [rep, members] of newCl.members) {
+    const byOld = new Map<CoinId, number>();
+    for (const id of members) {
+      const o = oldCl.rep.get(id);
+      if (o !== undefined) byOld.set(o, (byOld.get(o) ?? 0) + 1);
+    }
+    const frags: { x: number; y: number; r: number }[] = [];
+    for (const [o, n] of byOld) {
+      const node = oldClay.nodes.get(o);
+      if (!node) continue;
+      const share = n / oldCl.members.get(o)!.length;
+      frags.push({ x: node.x, y: node.y, r: Math.max(5, node.r * Math.sqrt(share)) });
+    }
+    if (frags.length > 0) out.set(rep, frags);
+  }
+  return out;
 }
 
 /** Ring layout: multi-coin clusters around an inner ellipse, largest
@@ -92,12 +158,15 @@ export function drawContraction(
   cl: Clustering,
   t: number,
   paint: ClusterPaint,
+  trans?: ClusterTransition,
 ): void {
+  const transT = trans ? trans.t : 1;
   const nodeOf = (id: CoinId): ClusterNode => clay.nodes.get(cl.rep.get(id)!)!;
 
-  // residual transfer edges (one per tx output whose source differs)
+  // residual transfer edges (one per tx output whose source differs);
+  // during a repartition tween they fade in with the settling discs
   ctx.save();
-  ctx.globalAlpha = Math.max(0, t * 0.75);
+  ctx.globalAlpha = Math.max(0, t * 0.75) * (0.25 + 0.75 * transT);
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
     const from = nodeOf(tx.inputs[0]!);
@@ -146,19 +215,51 @@ export function drawContraction(
     ctx.restore();
   }
 
-  // cluster discs
-  for (const node of clay.nodes.values()) {
-    ctx.globalAlpha = Math.min(1, 0.25 + 0.75 * t);
+  // cluster discs: paint is the ground truth — a pure cluster is one
+  // color, a wrongly-merged one shows every true owner as a pie slice
+  const disc = (x: number, y: number, r: number, slices: { color: string; frac: number }[]): void => {
+    if (slices.length <= 1) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = slices[0]?.color ?? "#e8e5da";
+      ctx.fill();
+    } else {
+      let a = -Math.PI / 2;
+      for (const s of slices) {
+        const a1 = a + s.frac * 2 * Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.arc(x, y, r, a, a1);
+        ctx.closePath();
+        ctx.fillStyle = s.color;
+        ctx.fill();
+        a = a1;
+      }
+    }
     ctx.beginPath();
-    ctx.arc(node.x, node.y, node.r * (0.4 + 0.6 * t), 0, 2 * Math.PI);
-    ctx.fillStyle = paint.color(node.rep);
-    ctx.fill();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1.5;
     ctx.stroke();
+  };
+  for (const node of clay.nodes.values()) {
+    ctx.globalAlpha = Math.min(1, 0.25 + 0.75 * t);
+    const r = node.r * (0.4 + 0.6 * t);
+    const slices = paint.slices(node.rep);
+    const frags = transT < 1 ? trans!.fragments.get(node.rep) : undefined;
+    if (frags && frags.length > 0) {
+      // repartition in flight: the old discs' pieces glide and grow
+      // into this vertex (merges converge, splits pull apart)
+      for (const f of frags) {
+        disc(f.x + (node.x - f.x) * transT, f.y + (node.y - f.y) * transT,
+          f.r + (r - f.r) * transT, slices);
+      }
+    } else {
+      disc(node.x, node.y, r, slices);
+    }
     const label = paint.label(node.rep);
-    if (t > 0.6 && label) {
-      ctx.globalAlpha = (t - 0.6) / 0.4;
+    if (t > 0.6 && transT > 0.6 && label) {
+      ctx.globalAlpha = ((t - 0.6) / 0.4) * ((transT - 0.6) / 0.4);
       const total = cl.members.get(node.rep)!
         .map((id) => chain.coins.get(id)!)
         .filter((c) => c.dest === null)

@@ -14,7 +14,7 @@ import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterColor, clusterLabel, CLUSTER_MISC, type Clustering } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
-import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout, type ClusterPaint } from "./ui/clusterview";
+import { layoutClusterGraph, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
@@ -225,12 +225,29 @@ function clusterLayout(): ClusterLayout {
   lensClustering();
   return collapseCache!.clay;
 }
+// In the contracted view the TOPOLOGY carries the lens's information
+// (its partition shapes the vertices), so paint is freed to be the
+// town's ground truth on every lens: each vertex wears the true owners
+// of its member coins, and a vertex the lens wrongly merged renders as
+// a multi-color disc — cluster collapse made visible. This is the
+// grading direction of the latent-truth rule (truth judging the
+// partition, drawn for the learner); no analysis reads it, and the
+// coin-graph views keep each lens's own bookkeeping palette.
 function lensClusterPaint(): ClusterPaint {
   const chain = active().chain;
+  const cl = lensClustering();
+  const truthColor = (id: string): string => {
+    const o = chain.coins.get(id)!.owner;
+    return o === null ? "#e8e5da" : ownerColor(o);
+  };
+  const base = {
+    color: truthColor,
+    slices: (rep: string) => truthSlices(cl, rep, truthColor),
+  };
   if (lens === 0) {
     const ownerOf = (id: string): number | null => chain.coins.get(id)!.owner;
     return {
-      color: (id) => { const o = ownerOf(id); return o === null ? "#e8e5da" : ownerColor(o); },
+      ...base,
       label: (rep) => { const o = ownerOf(rep); return o === null ? "outside town" : castList()[o]!.name; },
       center: (rep) => { const o = ownerOf(rep); return o === null ? "~" : castList()[o]!.name[0]!; },
     };
@@ -240,12 +257,7 @@ function lensClusterPaint(): ClusterPaint {
     const u = lensAgent ?? 0;
     const nameOf = (o: number | null): string => (o === null ? "a merchant" : castList()[o]!.name);
     return {
-      color: (id) => {
-        const a = k.coins.get(id);
-        if (!a) return CLUSTER_MISC;
-        const color = a.owner === null ? "#e8e5da" : ownerColor(a.owner);
-        return a.direct ? color : color + "88";
-      },
+      ...base,
       label: (rep) => {
         const a = k.coins.get(rep);
         if (!a) return "";
@@ -258,9 +270,8 @@ function lensClusterPaint(): ClusterPaint {
       },
     };
   }
-  const cl = clustering();
   return {
-    color: (id) => clusterColor(cl, id),
+    ...base,
     label: (rep) => clusterLabel(cl, rep),
     center: (rep) => (clusterLabel(cl, rep) ? String(cl.rank.get(rep)) : ""),
   };
@@ -347,6 +358,9 @@ let targetView: 0 | 1 = 0;
 // one (a helix collapsing into a circle): toggled orthogonally
 let collapsed = false;
 let collapseT = 0;
+// a live repartition tween (heuristic toggle while contracted); null
+// when the discs are settled
+let clusterTrans: ClusterTransition | null = null;
 
 const anim = new Animator();
 
@@ -375,7 +389,7 @@ function draw(): void {
   ctx.translate(-cam.x, -cam.y);
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
-      clusterLayout(), lensClustering(), collapseT, lensClusterPaint());
+      clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined);
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -538,10 +552,28 @@ function reflectOverlays(): void {
   });
 }
 reflectOverlays();
+// a heuristic toggle while the map is contracted repartitions the
+// vertices: animate the old discs merging into / splitting out of the
+// new ones (purely cosmetic — both endpoints are honestly computed
+// partitions, and the tween feeds nothing)
 function setOverlays(mask: number): void {
+  const before = collapsed && collapseT > 0.9 && collapseCache
+    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
   overlays = mask & OV_ALL;
   simRev += 1; // the observer's map — and every lens seeded from it — changes
   reflectOverlays();
+  if (before) {
+    const tr: ClusterTransition = {
+      t: 0,
+      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+    };
+    clusterTrans = tr;
+    anim.add(900, (t) => { tr.t = t; }, {
+      done: () => { if (clusterTrans === tr) clusterTrans = null; },
+    });
+    flyTo(clusterLayout().bounds);
+    kick();
+  }
   recomputeTrace();
   draw();
   void syncFragment();
