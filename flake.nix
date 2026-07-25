@@ -79,6 +79,33 @@
             '';
             installPhase = "touch $out";
           };
+          # NixOS VM: serve the built page and drive the whole tutorial
+          # with playwright's headless chromium (Linux only — VM tests
+          # need a Linux builder)
+          browser = pkgs.testers.runNixOSTest {
+            name = "browser-tutorial";
+            nodes.machine = _: {
+              virtualisation.memorySize = 3072;
+              virtualisation.cores = 2;
+              systemd.services.serve = {
+                wantedBy = [ "multi-user.target" ];
+                serviceConfig.ExecStart =
+                  "${pkgs.python3}/bin/python3 -m http.server 8000 --directory ${app}";
+              };
+              environment.systemPackages = [
+                (pkgs.python3.withPackages (ps: [ ps.playwright ]))
+              ];
+            };
+            testScript = ''
+              machine.wait_for_unit("serve.service")
+              machine.wait_for_open_port(8000)
+              machine.succeed(
+                  "PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers} "
+                  "PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true "
+                  "python3 ${./test/drive-tutorial.py} >&2"
+              )
+            '';
+          };
         in
         {
           devShells.default = pkgs.mkShell {
@@ -90,6 +117,8 @@
           checks = {
             inherit unit typecheck determinism;
             build = app;
+          } // lib.optionalAttrs pkgs.stdenv.isLinux {
+            inherit browser;
           };
         };
     };
