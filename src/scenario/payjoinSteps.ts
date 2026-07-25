@@ -93,9 +93,8 @@ export function payjoinSteps(
         <p>Look at this one: two inputs, two outputs, payment out, change
         back. At a glance, nothing marks it as different. That is the
         point.</p>
-        <p>Coordinating takes effort, so not everyone bothers every time —
-        each payer weighs fees, hassle, and how much the naked link
-        bothers them.</p>`,
+        <p>Coordinating takes effort, so not everyone bothers every
+        time.</p>`,
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 0,
