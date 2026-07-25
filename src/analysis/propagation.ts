@@ -10,9 +10,10 @@
 // candidate stands out; a mapping is accepted only when the standout
 // clears the threshold AND the reverse match agrees, otherwise the
 // analyst abstains. Each sweep examines EVERY unmapped cluster with the
-// complete current state — acceptance is global, not a walk along
-// adjacent edges — and each acceptance changes the scores the next
-// sweep sees.
+// complete current state — acceptance is graph-wide candidate
+// comparison, not a walk along adjacent edges (and no claim of joint
+// optimization over complete mappings is made either) — and each
+// acceptance changes the scores the next sweep sees.
 //
 // Honesty rules, per the numeric policy: scores, ranks and
 // eccentricities are shown as what they are — never normalized into
@@ -23,7 +24,14 @@
 // the paper identified for the sparse regime — not the definition or
 // ceiling of what a capable adversary can do.
 //
-// Deviations from the paper, disclosed:
+// Fidelity notes and deviations, disclosed:
+//   - Directed scoring per the listing: a mapped in-neighbor's image
+//     scores its out-neighbors, damped by the candidate's in-degree;
+//     a mapped out-neighbor's image scores its in-neighbors, damped
+//     by out-degree. Both town graphs are natively directed (payments
+//     and obligations have payers and payees).
+//   - Graphs are UNWEIGHTED, as in the paper's basic algorithm —
+//     adjacency only, no edge weights to leave half-used.
 //   - Eccentricity domain: the paper's listing initializes a zero
 //     score for EVERY right-graph node, so σ includes those zeros. We
 //     compute over the unmapped candidates (§5.2's prose scopes the
@@ -31,8 +39,6 @@
 //     zeros are padded to that domain. Positive-only σ — an earlier
 //     draft here — is a different statistic, systematically biased
 //     toward ACCEPTANCE in the sparse regime.
-//   - Both graphs are undirected here; the paper's are directed.
-//   - Edge weights define adjacency only; the damping uses degree.
 //   - Nodes are examined in graph order and acceptances apply
 //     mid-sweep, so the outcome is order-dependent (the paper's
 //     iteration shares that property).
@@ -44,32 +50,37 @@ import { type Chain, type CoinId } from "../model/chain";
 import { type Clustering } from "./clusters";
 import { type Edge } from "../scenario/cast";
 
-/** an undirected weighted graph over node ids */
-export interface WGraph {
+/** a directed, unweighted graph over node ids */
+export interface DGraph {
   nodes: string[];
-  /** node -> neighbor -> weight */
-  adj: Map<string, Map<string, number>>;
+  /** node -> nodes it has an edge TO */
+  out: Map<string, Set<string>>;
+  /** node -> nodes with an edge INTO it */
+  in: Map<string, Set<string>>;
 }
 
-function addEdge(g: WGraph, a: string, b: string, w: number): void {
-  if (a === b || w <= 0) return;
-  for (const [x, y] of [[a, b], [b, a]] as const) {
-    let m = g.adj.get(x);
-    if (!m) { m = new Map(); g.adj.set(x, m); }
-    m.set(y, (m.get(y) ?? 0) + w);
+function addEdge(g: DGraph, a: string, b: string): void {
+  if (a === b) return;
+  ensureNode(g, a);
+  ensureNode(g, b);
+  g.out.get(a)!.add(b);
+  g.in.get(b)!.add(a);
+}
+
+function ensureNode(g: DGraph, n: string): void {
+  if (!g.out.has(n)) {
+    g.out.set(n, new Set());
+    g.in.set(n, new Set());
+    g.nodes.push(n);
   }
-}
-
-function ensureNode(g: WGraph, n: string): void {
-  if (!g.adj.has(n)) { g.adj.set(n, new Map()); g.nodes.push(n); }
 }
 
 /**
  * The observer's pseudonym graph: nodes are the non-singleton clusters
- * of `cl` (named by representative coin), and an edge joins two
- * clusters whenever a transaction spends coins of one and creates
- * coins of the other — a visible payment between pseudonyms. Weight
- * counts such transactions. Built from the public chain alone.
+ * of `cl` (named by representative coin), and an edge runs from one
+ * cluster to another whenever a transaction spends the first cluster's
+ * coins and creates the second's — a visible payment between
+ * pseudonyms, payer to payee. Built from the public chain alone.
  *
  * Singleton clusters are excluded as a MODEL CHOICE, not by the
  * paper's warrant: §4.5's "no hope for singletons" covers degree-zero
@@ -80,8 +91,8 @@ function ensureNode(g: WGraph, n: string): void {
  * them: the payments into and out of those single coins. Read the
  * sweep's abstention counts knowing those edges are not on the board.
  */
-export function targetGraph(chain: Chain, cl: Clustering): WGraph {
-  const g: WGraph = { nodes: [], adj: new Map() };
+export function targetGraph(chain: Chain, cl: Clustering): DGraph {
+  const g: DGraph = { nodes: [], out: new Map(), in: new Map() };
   const clusterOf = (id: CoinId): string | null => {
     const r = cl.rep.get(id);
     if (r === undefined) return null;
@@ -95,7 +106,7 @@ export function targetGraph(chain: Chain, cl: Clustering): WGraph {
     const to = new Set(tx.outputs.map(clusterOf).filter((x): x is string => x !== null));
     for (const f of from) {
       for (const t of to) {
-        if (f !== t) addEdge(g, f, t, 1);
+        if (f !== t) addEdge(g, f, t);
       }
     }
   }
@@ -103,18 +114,18 @@ export function targetGraph(chain: Chain, cl: Clustering): WGraph {
 }
 
 /**
- * The auxiliary graph: recurring relationships, weighted by obligation
- * rate. What to pass matters: the paper's auxiliary graph comes from a
- * different, imperfect source, and propagation has to work despite the
- * mismatch — so an analyst's aux graph is built from a DEGRADED edge
- * list (see synthesisStaging's outsiderEdges), never the cast's own.
- * Passing the full list models an insider who knows every arrangement.
+ * The auxiliary graph: recurring relationships, payer to payee. What
+ * to pass matters: the paper's auxiliary graph comes from a different,
+ * imperfect source, and propagation has to work despite the mismatch —
+ * so an analyst's aux graph is built from a DEGRADED edge list (see
+ * synthesisStaging's outsiderEdges), never the cast's own. Passing the
+ * full list models an insider who knows every arrangement.
  */
-export function auxGraph(edges: Edge[], agents: number[]): WGraph {
-  const g: WGraph = { nodes: [], adj: new Map() };
+export function auxGraph(edges: Edge[], agents: number[]): DGraph {
+  const g: DGraph = { nodes: [], out: new Map(), in: new Map() };
   for (const u of agents) ensureNode(g, String(u));
   for (const e of edges) {
-    addEdge(g, String(e.payer), String(e.payee), e.rate ?? 1);
+    addEdge(g, String(e.payer), String(e.payee));
   }
   return g;
 }
@@ -160,24 +171,35 @@ function eccentricity(scores: number[], domain: number): number {
   return sd === 0 ? 0 : (max - max2) / sd;
 }
 
-/** score every unmapped `to`-node as a candidate image of `n`:
- *  each mapped neighbor of `n` whose image neighbors the candidate
- *  contributes, damped by the image's degree (√deg, as in the paper —
- *  a busy hub says less about any one neighbor) */
+/** score every unmapped `to`-node as a candidate image of `n`, per the
+ *  listing's directed two-pass: each mapped IN-neighbor of `n` lets its
+ *  image vouch for the image's OUT-neighbors (damped by the candidate's
+ *  in-degree — a much-paid candidate says less about any one payer),
+ *  and each mapped OUT-neighbor's image vouches for its IN-neighbors
+ *  (damped by out-degree) */
 function matchScores(
   n: string,
-  from: WGraph,
-  to: WGraph,
+  from: DGraph,
+  to: DGraph,
   mapping: Map<string, string>,
   mappedImages: Set<string>,
 ): Map<string, number> {
   const scores = new Map<string, number>();
-  for (const [nbr] of from.adj.get(n) ?? []) {
+  for (const nbr of from.in.get(n) ?? []) {
     const image = mapping.get(nbr);
     if (image === undefined) continue;
-    for (const [cand] of to.adj.get(image) ?? []) {
+    for (const cand of to.out.get(image) ?? []) {
       if (mappedImages.has(cand)) continue;
-      const damp = Math.sqrt(to.adj.get(cand)!.size || 1);
+      const damp = Math.sqrt(to.in.get(cand)!.size || 1);
+      scores.set(cand, (scores.get(cand) ?? 0) + 1 / damp);
+    }
+  }
+  for (const nbr of from.out.get(n) ?? []) {
+    const image = mapping.get(nbr);
+    if (image === undefined) continue;
+    for (const cand of to.in.get(image) ?? []) {
+      if (mappedImages.has(cand)) continue;
+      const damp = Math.sqrt(to.out.get(cand)!.size || 1);
       scores.set(cand, (scores.get(cand) ?? 0) + 1 / damp);
     }
   }
@@ -190,13 +212,11 @@ function matchScores(
  * that clear the eccentricity threshold and the reverse match, abstain
  * on the rest. Call again to let the accepted mappings re-score the
  * remainder; a step may accept nothing (a stall is a real outcome).
- * `theta` is the eccentricity threshold; the paper's revisiting of
- * already-accepted mappings is omitted at this scale (seeds are ground
- * truth here and sweeps are few).
+ * `theta` is the eccentricity threshold.
  */
 export function propagationStep(
-  target: WGraph,
-  aux: WGraph,
+  target: DGraph,
+  aux: DGraph,
   mapping: Map<string, string>,
   theta = 1.5,
 ): SweepResult {

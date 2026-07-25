@@ -1,30 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { auxGraph, propagationStep, targetGraph, type WGraph } from "../src/analysis/propagation";
+import { auxGraph, propagationStep, targetGraph, type DGraph } from "../src/analysis/propagation";
 import { clusterObserver } from "../src/analysis/clusters";
 import { clusterOwner, gradeAcceptances, outsiderEdges, pureClusterSeeds } from "../src/scenario/synthesisStaging";
 import { Economy } from "../src/engine/economy";
 import { type Edge } from "../src/scenario/cast";
 
-function graph(edges: [string, string][], extra: string[] = []): WGraph {
-  const g: WGraph = { nodes: [], adj: new Map() };
+// directed: [payer, payee] edges
+function graph(edges: [string, string][], extra: string[] = []): DGraph {
+  const g: DGraph = { nodes: [], out: new Map(), in: new Map() };
   const ensure = (n: string): void => {
-    if (!g.adj.has(n)) { g.adj.set(n, new Map()); g.nodes.push(n); }
+    if (!g.out.has(n)) { g.out.set(n, new Set()); g.in.set(n, new Set()); g.nodes.push(n); }
   };
   for (const [a, b] of edges) {
     ensure(a); ensure(b);
-    g.adj.get(a)!.set(b, (g.adj.get(a)!.get(b) ?? 0) + 1);
-    g.adj.get(b)!.set(a, (g.adj.get(b)!.get(a) ?? 0) + 1);
+    g.out.get(a)!.add(b);
+    g.in.get(b)!.add(a);
   }
   for (const n of extra) ensure(n);
   return g;
 }
 
 test("two corroborating mapped neighbors make a standout; the rest abstain", () => {
-  // cX trades with both seeded clusters; agent x trades with both
-  // seeded agents. The distractor y touches only one seed, so x stands
-  // out over the zero-padded candidate domain. The isolated cW has no
-  // mapped neighbors at all.
+  // cX is paid by both seeded clusters; agent x is paid by both
+  // seeded agents. The distractor y is paid by only one seed, so x
+  // stands out over the zero-padded candidate domain. The isolated cW
+  // has no mapped neighbors at all.
   const target = graph([["cA", "cX"], ["cB", "cX"]], ["cW"]);
   const aux = graph([["a", "x"], ["b", "x"], ["a", "y"]]);
   const res = propagationStep(target, aux, new Map([["cA", "a"], ["cB", "b"]]));
