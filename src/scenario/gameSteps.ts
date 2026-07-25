@@ -58,7 +58,7 @@ export function gameSteps(
     {
       id: "patience-pays",
       title: "Patience pays",
-      html: `<p>Judy waited — and the studio's debts came around: Heidi owed
+      html: `<p>Judy waited — and the studio's obligations came around: Heidi owed
         Ivan for shelves, Ivan owed Judy for the exhibition catalogue. The
         three net their obligations by building <b>one settlement</b>
         together. The rent is paid in
