@@ -68,11 +68,6 @@
   .dec-row .due.overdue { color: #e15759; opacity: 0.9; }
   .dec-plan { display: block; margin: 3px 0; cursor: pointer; }
   .dec-plan .terms { opacity: 0.55; font-size: 12px; margin-left: 4px; }
-  .play-btn { margin-left: auto; background: #33363e; color: #d8dade; flex: none;
-            border: 1px solid #4a4e57; border-radius: 5px; padding: 1px 8px;
-            font: inherit; font-size: 11px; cursor: pointer; align-self: center; }
-  .play-btn:hover { background: #3d414a; }
-  .play-btn.on { color: #edc948; border-color: #edc948; }
   .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%);
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }

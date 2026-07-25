@@ -461,7 +461,10 @@ function stepDay(): void {
 }
 dayBtn.addEventListener("click", stepDay);
 
-// --- manual play: the decision panel and the played agent ---
+// --- manual play: the decision panel and the played agent. No UI offers
+// a takeover any more — the machinery stays so fragments recorded with a
+// played agent (`m`/`i`) still restore and replay identically. A proper
+// play mode (single-agent privacy survival) is planned to replace it. ---
 const decisionsPanel = document.getElementById("decisions")!;
 function setManual(u: number | null, from?: number): void {
   if (u !== manual) {
@@ -474,12 +477,6 @@ function setManual(u: number | null, from?: number): void {
       eco.manualFrom = manualFrom;
     }
   }
-  castPanel.querySelectorAll(".play-btn").forEach((b) => {
-    const el = b as HTMLButtonElement;
-    const mine = Number(el.dataset["play"]) === u;
-    el.classList.toggle("on", mine);
-    el.textContent = mine ? "playing" : "play";
-  });
   if (scene === 1) dayBtn.textContent = dayLabel();
   renderDecisions();
   draw(); // the HUD names the played agent
@@ -855,9 +852,6 @@ const tutorial = new Tutorial(steps, {
     else applySelection(sel);
     draw();
   },
-  onPlay: (u, minDay) => {
-    setManual(u, u === null ? undefined : Math.max(economy().day + 1, minDay));
-  },
 });
 
 // --- cast panel + inspector ---
@@ -868,7 +862,6 @@ function renderCast(): void {
     `<div class="cast-row" data-u="${u}">
       <span class="swatch" style="background:${ownerColor(u)}"></span>
       <b>${p.name}</b> <span class="role">${p.role}</span>
-      <button class="play-btn${manual === u ? " on" : ""}" data-play="${u}" title="take ${p.name}'s decisions yourself">play</button>
     </div>`).join("");
 }
 renderCast();
@@ -883,13 +876,6 @@ castBtn.addEventListener("click", () => {
 });
 const inspector = document.getElementById("inspector")!;
 castPanel.addEventListener("click", (e) => {
-  const playBtn = (e.target as HTMLElement).closest(".play-btn") as HTMLElement | null;
-  if (playBtn) {
-    const u = Number(playBtn.dataset["play"]);
-    setScene(1, economy().day); // playing only means anything in the economy
-    setManual(manual === u ? null : u);
-    return;
-  }
   const row = (e.target as HTMLElement).closest(".cast-row") as HTMLElement | null;
   if (!row) return;
   const u = Number(row.dataset["u"]);
@@ -962,7 +948,7 @@ function applyParams(): void {
   interventions = interventions.filter((iv) => iv.payer < popNow);
   const day = scene === 1 ? economy().day : 0;
   rebuildEconomy(day);
-  setManual(manual); // refresh the cast panel's play buttons
+  setManual(manual); // refresh the day button and decisions panel
   toast("the world re-rolled — same story, different dice");
 }
 paramsBtn.addEventListener("click", () => {
@@ -1109,7 +1095,7 @@ async function init(): Promise<void> {
   setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
   if (state?.v === 2) setCollapsed(true, false);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
-  if (manual !== null) setManual(manual); // light the cast panel + decisions
+  if (manual !== null) setManual(manual); // light the decisions panel
   if (state?.ov !== undefined) {
     overlays = state.ov & OV_ALL;
     reflectOverlays();

@@ -17,7 +17,7 @@ MUST_SEE = [
     "Settling up",
     "Strangers share a transaction",
     "Two coins meet",
-    "Take the controls",
+    "Rent day",
     "The sandbox",
 ]
 
