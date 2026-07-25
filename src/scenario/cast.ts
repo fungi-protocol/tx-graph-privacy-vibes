@@ -117,7 +117,9 @@ export const PERSONAS: Persona[] = [
       "and her clients must not learn her rent. But she pays Heidi every " +
       "month from the same wallet her clients pay into, and the chain " +
       "keeps the receipts.",
-    roots: [1_250_000, 600_000, 330_000, 210_000],
+    // the steepest recurring burn in the cast (rent, ~850$ a pop), so
+    // her savings run deeper — insolvent tenants can't join settlements
+    roots: [2_600_000, 1_400_000, 600_000, 330_000, 210_000],
     stats: { privacy: 5, thrift: 2, hassle: 2 },
   },
 ];

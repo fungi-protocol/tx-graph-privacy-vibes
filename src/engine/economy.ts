@@ -10,7 +10,7 @@ import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
 
-export type PaymentForm = "unilateral" | "payjoin";
+export type PaymentForm = "unilateral" | "payjoin" | "settlement";
 
 export interface EconomyEvent {
   tid: string;
@@ -36,6 +36,8 @@ export interface Obligation {
 
 /** the day the neighborhood learns payjoin exists */
 export const PAYJOIN_DAY = 30;
+/** the day the neighborhood starts settling offsetting obligations together */
+export const SETTLE_DAY = 60;
 
 // directed, flavored community edges: who tends to owe whom, and for what
 const EDGES: { payer: number; payee: number; memos: [string, number, number][] }[] = [
@@ -181,6 +183,121 @@ export class Economy {
     return true;
   }
 
+  /**
+   * The oracle: find offsetting pending obligations that three (or two
+   * mutually indebted) participants could settle in one transaction.
+   * Coalitions simply arrive at a favorable structure — no negotiation
+   * is modeled. Prefers a 3-cycle, then a mutual pair, then a chain of
+   * two obligations through a middle participant. Anyone who sees no
+   * privacy benefit (privacy 0) never bothers coordinating.
+   */
+  private findSettlements(): Obligation[][] {
+    const ok = (o: Obligation): boolean =>
+      PERSONAS[o.payer]!.stats.privacy > 0 && PERSONAS[o.payee]!.stats.privacy > 0;
+    const os = this.pending.filter(ok);
+    const found: Obligation[][] = [];
+    // 3-cycles: Alice pays Bob, Bob pays Carol, Carol pays Alice
+    for (const a of os) for (const b of os) for (const c of os) {
+      if (a.payee !== b.payer || b.payee !== c.payer || c.payee !== a.payer) continue;
+      if (new Set([a.payer, b.payer, c.payer]).size !== 3) continue;
+      found.push([a, b, c]);
+    }
+    // mutual pairs: two parties owing each other
+    for (const a of os) for (const b of os) {
+      if (a === b || a.payer !== b.payee || a.payee !== b.payer) continue;
+      if (a.payer < b.payer) found.push([a, b]);
+    }
+    // chains: two obligations through a middle participant, three parties
+    for (const a of os) for (const b of os) {
+      if (a.payee !== b.payer || a.payer === b.payee) continue;
+      found.push([a, b]);
+    }
+    return found;
+  }
+
+  /**
+   * Settle a group of obligations in one transaction. Every participant
+   * contributes one coin and takes one output; only the net balances
+   * touch the chain. How much that hides depends on the shape: in a
+   * cycle no obligation amount appears anywhere, while a chain's
+   * endpoints still move roughly their gross amounts.
+   */
+  private settlement(obls: Obligation[], feerate: number): boolean {
+    const parts = [...new Set(obls.flatMap((o) => [o.payer, o.payee]))];
+    const net = new Map<number, number>(parts.map((u) => [u, 0]));
+    for (const o of obls) {
+      const v = this.sats(o.usd);
+      net.set(o.payer, net.get(o.payer)! - v);
+      net.set(o.payee, net.get(o.payee)! + v);
+    }
+    const n = parts.length;
+    // coins per participant: the smallest single coin that covers their
+    // net-out plus fee share, else their two largest together. The fee
+    // depends on the input count, so settle it in two passes.
+    let coins = new Map<number, CoinId[]>();
+    let fee = 0;
+    let shareOf: (u: number) => number = () => 0;
+    let assumed = n;
+    for (let pass = 0; pass < 4; pass++) {
+      fee = txfee(assumed, n, feerate);
+      const share = Math.floor(fee / n);
+      // the biggest net payer covers the rounding remainder
+      const biggest = parts.reduce((a, b) => (net.get(a)! <= net.get(b)! ? a : b));
+      shareOf = (u: number): number => share + (u === biggest ? fee - share * n : 0);
+      coins = new Map<number, CoinId[]>();
+      for (const u of parts) {
+        const need = -Math.min(0, net.get(u)!) + shareOf(u) + 294;
+        const mine = this.wallet(u)
+          .map((id) => this.chain.coins.get(id)!)
+          .sort((a, b) => b.value - a.value);
+        const single = [...mine].reverse().find((c) => c.value >= need);
+        if (single) coins.set(u, [single.id]);
+        else if (mine.length >= 2 && mine[0]!.value + mine[1]!.value >= need) {
+          coins.set(u, [mine[0]!.id, mine[1]!.id]);
+        } else return false;
+      }
+      const actual = [...coins.values()].reduce((s, c) => s + c.length, 0);
+      if (actual === assumed) break;
+      assumed = actual;
+      if (pass === 3) return false; // did not converge; give up cleanly
+    }
+    this.txn += 1;
+    const tid = `t${this.txn}`;
+    const names = parts.map((u) => PERSONAS[u]!.name);
+    const inValue = (u: number): number =>
+      coins.get(u)!.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
+    this.chain.addTx(tid, this.day,
+      parts.flatMap((u) => coins.get(u)!),
+      parts.map((u) => ({
+        owner: u,
+        value: inValue(u) + net.get(u)! - shareOf(u),
+        label: "after settling up",
+      })),
+      feerate, `${names.join(", ")} settle up — ${obls.length} obligations (net settlement)`);
+    // honest, shape-aware rationale: a pair hides nothing from its two
+    // insiders, a chain's endpoint nets stay close to their gross
+    // obligations, and only a cycle makes the amounts truly vanish
+    const why =
+      n === 2
+        ? `${names.join(" and ")} settle their mutual debts in one spend. ` +
+          "Outsiders see only the difference of the two obligations; between " +
+          "the two of them nothing is hidden — privacy within a transaction " +
+          "takes three or more parties."
+        : obls.length === n
+          ? `${names.join(", ")} settle a full cycle of obligations in a single ` +
+            "transaction. Only their net balances touch the chain; none of the " +
+            "obligation amounts appear anywhere. Outsiders see one transaction; " +
+            "each insider can still work out the edge they are not on."
+          : `${names.join(", ")} settle ${obls.length} obligations in a single ` +
+            "transaction. Only net balances touch the chain — though the " +
+            "endpoints' nets stay close to what they owed — and each insider " +
+            "can still work out the edge they are not on.";
+    for (const o of obls) {
+      this.events.push({ tid, day: this.day, payer: o.payer, payee: o.payee, memo: o.memo, form: "settlement", why });
+    }
+    return true;
+  }
+
   /** weigh wait / unilateral / payjoin for one pending obligation */
   private settle(obl: Obligation): boolean {
     const p = PERSONAS[obl.payer]!;
@@ -230,6 +347,32 @@ export class Economy {
           payer: edge.payer, payee: edge.payee, memo: memo[0], usd,
           due: this.day + 2 + this.rng.int(8),
         });
+      }
+    }
+    // rent day at the studio: the one cycle in the community graph
+    // (Judy -> Heidi -> Ivan -> Judy) gets its three obligations at once,
+    // so the tutorial's full-cycle settlement exists on every seed
+    if (this.day === SETTLE_DAY) {
+      this.pending.push(
+        { payer: 9, payee: 7, memo: "studio rent", usd: 850, due: this.day + 6 },
+        { payer: 7, payee: 8, memo: "display shelves", usd: Math.round((200 + this.rng.next() * 300) / 10) * 10, due: this.day + 6 },
+        { payer: 8, payee: 9, memo: "logo design", usd: Math.round((150 + this.rng.next() * 200) / 10) * 10, due: this.day + 6 },
+      );
+    }
+    // the oracle looks for offsetting obligations first (at most one
+    // settlement a day; word spreads on SETTLE_DAY). Groups that cannot
+    // fund their nets are skipped, not retried forever. A full cycle is
+    // never passed up — it is unambiguously favorable to everyone.
+    if (this.day >= SETTLE_DAY) {
+      const gate = this.rng.next() < 0.6;
+      const groups = this.findSettlements();
+      const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
+      for (const group of groups) {
+        if (!gate && group.length < 3) continue;
+        if (this.settlement(group, feerate)) {
+          this.pending = this.pending.filter((o) => !group.includes(o));
+          break;
+        }
       }
     }
     // each payer weighs its pending obligations; unpayable ones slip a day

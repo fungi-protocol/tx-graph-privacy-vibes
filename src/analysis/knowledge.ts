@@ -1,8 +1,10 @@
 // What one participant actually knows about the graph. Two sources:
 //   - their own wallet: every coin they ever owned, with its story;
 //   - every payment they took part in: a counterparty can eliminate
-//     their own inputs and outputs, so everything else in that
-//     transaction is attributable to the other party.
+//     their own inputs and outputs, so in a two-party transaction
+//     everything else is attributable to the other party; in a net
+//     settlement the participants coordinate openly, and a three-party
+//     insider can in any case solve the edge they are not on.
 // These are fixed points — they compound with every payment and never
 // decay. And they seed the same public heuristics an outsider runs: a
 // cluster that contains a coin the agent can attribute is attributed
@@ -41,15 +43,18 @@ export function agentKnowledge(
     if (c.owner === u) coins.set(c.id, { owner: u, direct: true });
   }
 
-  // payments taken part in: everything not one's own is the counterparty's
+  // payments taken part in: eliminating one's own coins attributes the
+  // rest — to the sole counterparty in a two-party form, and in a
+  // settlement to whoever contributed it (coordination plus arithmetic
+  // leave an insider no mystery about who signed what)
   for (const ev of events) {
     if (ev.payer !== u && ev.payee !== u) continue;
     const tx = chain.txs.get(ev.tid);
     if (!tx) continue;
     txs.add(ev.tid);
-    const other = ev.payer === u ? ev.payee : ev.payer;
     for (const id of [...tx.inputs, ...tx.outputs]) {
-      if (chain.coins.get(id)!.owner !== u) coins.set(id, { owner: other, direct: true });
+      const c = chain.coins.get(id)!;
+      if (c.owner !== u) coins.set(id, { owner: c.owner, direct: true });
     }
   }
 

@@ -11,6 +11,8 @@ export interface TutorialStep {
   view?: 0 | 1 | 2;
   /** which lens this step wants: 0 = all-seeing, 1 = observer, 2 = agent */
   lens?: 0 | 1 | 2;
+  /** lens 2: whose eyes (function = resolved late; undefined = app default) */
+  agent?: () => number | undefined;
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
@@ -23,7 +25,7 @@ export interface TutorialCallbacks {
   onFocus: (focus: Rect) => void;
   onStepChange?: (index: number) => void;
   onView?: (view: 0 | 1 | 2) => void;
-  onLens?: (lens: 0 | 1 | 2) => void;
+  onLens?: (lens: 0 | 1 | 2, agent?: number) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
 }
@@ -75,7 +77,7 @@ export class Tutorial {
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
-    if (animate) this.cb.onLens?.(step.lens ?? 0);
+    if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
     if (animate && step.focus) {
       this.cb.onFocus(typeof step.focus === "function" ? step.focus() : step.focus);
     }

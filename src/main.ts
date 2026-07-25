@@ -15,6 +15,7 @@ import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps } from "./scenario/payjoinSteps";
+import { settlementSteps } from "./scenario/settlementSteps";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
@@ -338,13 +339,36 @@ const steps = [
       return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
     },
   ),
+  ...settlementSteps(
+    () => active().bip.bounds,
+    () => {
+      // frame the first settlement (there is one by minDay 75); prefer a
+      // three-party one so the chapter's arithmetic plays out on screen
+      const s = active();
+      const ev = firstSettlement();
+      const r = ev ? s.bip.txs.get(ev.tid) : undefined;
+      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
+    },
+    () => firstSettlement()?.payer,
+  ),
 ];
+function firstSettlement(): { tid: string; payer: number } | undefined {
+  // prefer a full cycle (as many obligations as parties), then any
+  // three-party settlement, then whatever exists
+  const evs = eco?.events.filter((e) => e.form === "settlement") ?? [];
+  const count = (tid: string): number => evs.filter((e) => e.tid === tid).length;
+  return (
+    evs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length >= 3 && count(e.tid) >= 3) ??
+    evs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length >= 3) ??
+    evs[0]
+  );
+}
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
   onStepChange: () => void syncFragment(),
   onView: (view) => { if (view !== targetView) setView(view); },
-  onLens: (l) => {
-    if (l === 2) lensAgent = defaultLensAgent(); // the focused payjoin's payee
+  onLens: (l, a) => {
+    if (l === 2) lensAgent = a ?? defaultLensAgent(); // step's pick, else the payjoin payee
     if (l !== lens || l === 2) setLens(l);
   },
   onScene: (s, minDay) => setScene(s, minDay),
