@@ -59,7 +59,7 @@ export function settlementSteps(
         already knows to look for. And one transaction is cheaper than
         three.</p>`,
       focus: () => pad(settleFocus()),
-      view: 1,
+      view: 0,
       lens: 0,
       scene: 1,
       minDay: 60,
@@ -101,7 +101,7 @@ export function settlementSteps(
         matching game over amounts. ${verdictLine}</p>`;
       },
       focus: () => pad(settleFocus()),
-      view: 1,
+      view: 0,
       lens: 1,
       scene: 1,
       minDay: 60,
@@ -123,7 +123,7 @@ export function settlementSteps(
         payjoin, more of it: every settlement adds to what its insiders
         hold.</p>`,
       focus: () => pad(settleFocus()),
-      view: 1,
+      view: 0,
       lens: 2,
       agent: settleAgent,
       scene: 1,

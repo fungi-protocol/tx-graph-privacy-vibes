@@ -31,7 +31,7 @@ export function coinjoinSteps(
         puts in two coins and takes back what he put in, split into a
         round figure and the rest.</p>`,
       focus: () => pad(naiveFocus()),
-      view: 1,
+      view: 0,
       lens: 0,
       scene: 1,
       minDay: 90,
@@ -54,7 +54,7 @@ export function coinjoinSteps(
         — inputs grouped, outputs assigned. Carelessly chosen values are
         no better than a naive batch.</p>`,
       focus: () => pad(naiveFocus()),
-      view: 1,
+      view: 0,
       lens: 1,
       scene: 1,
       minDay: 90,
@@ -63,13 +63,21 @@ export function coinjoinSteps(
       id: "chosen-to-be-underdetermined",
       title: "Chosen to be underdetermined",
       html: `<p>The fix is to choose the values <b>on purpose</b>. Everyone
-        takes their whole balance back in <b>standard denominations</b> from
-        a shared menu — powers of 2, 1–2 times powers of 3, 1–2–5 times
-        powers of 10 — plus a residual too small to say anything.</p>
-        <p>Now the memo's <b>match rate</b> tells the story: how many input
-        combinations land within a whisker of some output combination. And a payment can ride along:
-        an obligation to someone outside the session, cut into the same
-        denominations as everything else.</p>`,
+        takes their balance back in <b>standard denominations</b> from a
+        shared menu — powers of 2, 1–2 times powers of 3, 1–2–5 times
+        powers of 10 — three or four of them approximating the balance,
+        plus an ordinary change output for the rest. And each participant
+        brings <b>several coins</b>, not one: small fragments consolidate
+        here, among strangers' inputs, instead of in a naked sweep later.</p>
+        <p>The values are picked against the session itself: a
+        decomposition scores well when combinations of the <b>other
+        participants' inputs</b> could explain its output combinations
+        — those are the readings an observer cannot pin on the chooser.
+        The memo's <b>match rate</b> reports the result: how many input
+        combinations land within a whisker of some output combination.
+        And a payment can ride along: an obligation to someone outside
+        the session, cut into the same denominations as everything
+        else.</p>`,
       focus: () => pad(denseFocus()),
       view: 0,
       lens: 0,

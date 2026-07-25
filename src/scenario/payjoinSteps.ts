@@ -165,7 +165,7 @@ export function payjoinSteps(
         doubt. And it was counted <i>ignoring the transaction's
         context</i>. The next step puts the context back.</p>`,
       focus: () => pad(payjoinFocus()),
-      view: 1,
+      view: 0,
       lens: 1,
       scene: 1,
       minDay: 35,
@@ -219,7 +219,7 @@ export function payjoinSteps(
           pseudonyms as the prize.</p>`;
       },
       focus: () => pad(payjoinFocus()),
-      view: 1,
+      view: 0,
       lens: 1,
       scene: 1,
       minDay: 35,

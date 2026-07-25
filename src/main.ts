@@ -987,12 +987,14 @@ const steps = [
   ...settlementSteps(
     () => active().bip.bounds,
     () => {
-      // frame the first settlement (there is one by minDay 60); prefer a
-      // three-party one so the chapter's arithmetic plays out on screen
+      // frame the first settlement (there is one by minDay 60) in
+      // whichever view the step asked for; prefer a three-party one so
+      // the chapter's arithmetic plays out on screen
       const s = active();
       const ev = firstSettlement();
-      const r = ev ? s.bip.txs.get(ev.tid) : undefined;
-      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
+      const r = ev ? txRectAt(s.layout, s.bip, ev.tid, targetView) : undefined;
+      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 }
+        : targetView === 1 ? s.bip.bounds : s.layout.bounds;
     },
     () => firstSettlement()?.payer,
     () => {
@@ -1002,7 +1004,13 @@ const steps = [
   ),
   ...coinjoinSteps(
     () => active().bip.bounds,
-    () => txRect(eco?.naiveTid),      // the careless first attempt (day 90)
+    () => {
+      // the careless first attempt (day 90), in the step's chosen view
+      const s = active();
+      const r = eco?.naiveTid ? txRectAt(s.layout, s.bip, eco.naiveTid, targetView) : undefined;
+      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 }
+        : targetView === 1 ? s.bip.bounds : s.layout.bounds;
+    },
     () => {
       // a denominated session, framed in whichever view the step asked for
       const s = active();
