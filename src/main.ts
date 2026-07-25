@@ -91,6 +91,7 @@ function economy(): Economy {
  *  seed, params, and recorded choices fully determine the result */
 function rebuildEconomy(toDay: number): void {
   eco = null; // economy() rebuilds and bumps simRev; caches expire with it
+  rideGen += 1;
   viewDay = null; // a fresh world starts at its frontier
   economy().runTo(toDay);
   simRev += 1;
@@ -117,6 +118,36 @@ function cursorDay(): number {
 function rewound(): boolean {
   return scene === 1 && eco !== null && viewDay !== null && viewDay < eco.day;
 }
+// tutorial time-lapse (#24): rather than teleporting into a precomputed
+// record, a chapter jump replays the recorded days through the cursor —
+// the reader watches time pass. Bumping the generation cancels a ride.
+let rideGen = 0;
+function rideDays(from: number, to: number): void {
+  const gen = ++rideGen;
+  viewDay = from;
+  simRev += 1;
+  const span = to - from;
+  const ms = Math.min(3000, 250 + 150 * span);
+  let shown = from;
+  const showDay = (d: number): void => {
+    shown = d;
+    viewDay = eco && d >= eco.day ? null : d;
+    simRev += 1;
+    recomputeTrace();
+    dayBtn.textContent = dayLabel();
+  };
+  anim.add(ms, (t) => {
+    if (gen !== rideGen) return;
+    const d = Math.min(to, from + Math.floor(span * t + 1e-9));
+    if (d !== shown) showDay(d);
+  }, { done: () => {
+    if (gen !== rideGen) return;
+    if (shown < to) showDay(to);
+    backBtn.style.display = scene === 1 && cursorDay() > 0 ? "block" : "none";
+    void syncFragment();
+  } });
+  kick();
+}
 let visCache: { rev: number; day: number; s: SceneData } | null = null;
 function active(): SceneData {
   if (scene !== 1 || !ecoScene) return intro;
@@ -133,6 +164,7 @@ function active(): SceneData {
 }
 /** move the cursor; everything derived from the visible world follows */
 function setViewDay(d: number | null): void {
+  rideGen += 1; // a hand on the dial cancels any tutorial time-lapse
   viewDay = d !== null && eco && d >= eco.day ? null : d;
   simRev += 1; // the visible chain changed, even though the record didn't
   recomputeTrace(); // a selection may have slipped beyond the cursor
@@ -536,13 +568,18 @@ function dayLabel(): string {
     ? `day ${economy().day} · end turn →`
     : `day ${economy().day} · next day →`;
 }
-function setScene(s: 0 | 1, minDay = 0): void {
+function setScene(s: 0 | 1, minDay = 0, ride = false): void {
+  let rideFrom = -1;
   if (s === 1) {
+    // the day the reader was looking at before anything moves
+    const before = eco ? cursorDay() : 0;
     economy().runTo(minDay);
     refreshEcoLayouts();
-    // the tutorial's exhibits live at its minDay: a cursor left behind
-    // would hide them, so it snaps forward (never re-rolls anything)
-    if (viewDay !== null && viewDay < minDay) viewDay = null;
+    // a tutorial jump forward replays the days rather than teleporting
+    // (#24); anything else snaps the cursor to the exhibit's day — the
+    // record is never re-rolled either way
+    if (ride && minDay > before) rideFrom = before;
+    else if (viewDay !== null && viewDay < minDay) viewDay = null;
     simRev += 1;
   }
   if (scene !== s) {
@@ -550,6 +587,7 @@ function setScene(s: 0 | 1, minDay = 0): void {
     simRev += 1;
     clearSelection();
   }
+  if (rideFrom >= 0) rideDays(rideFrom, minDay);
   dayBtn.style.display = s === 1 ? "block" : "none";
   backBtn.style.display = s === 1 && cursorDay() > 0 ? "block" : "none";
   if (s === 1) dayBtn.textContent = dayLabel();
@@ -1021,7 +1059,7 @@ const tutorial = new Tutorial(steps, {
   onOverlays: (ov) => {
     if (ov !== overlays) setOverlays(ov);
   },
-  onScene: (s, minDay) => setScene(s, minDay),
+  onScene: (s, minDay) => setScene(s, minDay, true),
   onSelect: (sel) => {
     if (sel === null) clearSelection();
     else applySelection(sel);
