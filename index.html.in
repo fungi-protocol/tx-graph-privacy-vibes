@@ -28,12 +28,43 @@
   .tut-nav button:hover:not(:disabled) { background: #3d414a; }
   .tut-nav button:disabled { opacity: 0.4; cursor: default; }
   .tut-skip { margin-left: auto; opacity: 0.7; }
-  #viewtoggle, #lens { position: fixed; left: 16px; background: #33363e; color: #d8dade;
+  #viewtoggle, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
                 border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
                 font: inherit; font-size: 13px; cursor: pointer; }
   #viewtoggle { top: 16px; }
   #lens { top: 56px; }
-  #viewtoggle:hover, #lens:hover { background: #3d414a; }
+  #paramsbtn { top: 96px; }
+  #viewtoggle:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
+  #params { position: fixed; left: 16px; top: 136px; display: none; width: 260px;
+            background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
+            padding: 12px 14px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
+  #params label { display: block; margin: 8px 0 2px; opacity: 0.8; }
+  #params label output { float: right; opacity: 0.7; }
+  #params input[type=range] { width: 100%; }
+  #params input[type=text] { width: 100%; box-sizing: border-box; background: #1c1e22;
+            color: #d8dade; border: 1px solid #4a4e57; border-radius: 6px;
+            padding: 5px 8px; font: inherit; font-size: 13px; }
+  #params .apply { margin-top: 10px; width: 100%; background: #33363e; color: #edc948;
+            border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 10px;
+            font: inherit; font-size: 13px; cursor: pointer; }
+  #params .apply:hover { background: #3d414a; }
+  #decisions { position: fixed; right: 16px; bottom: 64px; display: none; width: 330px;
+            max-height: 46vh; overflow-y: auto; background: #24262cf2;
+            border: 1px solid #3a3e46; border-radius: 10px; padding: 10px 12px;
+            box-shadow: 0 6px 24px #0006; font-size: 13px; }
+  #decisions h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+  #decisions h3 .who { color: #edc948; }
+  .dec-row { border-top: 1px solid #3a3e46; padding: 8px 0 4px; }
+  .dec-row .obl { font-weight: 600; }
+  .dec-row .due { opacity: 0.55; font-size: 12px; margin-left: 6px; }
+  .dec-row .due.overdue { color: #e15759; opacity: 0.9; }
+  .dec-plan { display: block; margin: 3px 0; cursor: pointer; }
+  .dec-plan .terms { opacity: 0.55; font-size: 12px; margin-left: 4px; }
+  .play-btn { margin-left: auto; background: #33363e; color: #d8dade; flex: none;
+            border: 1px solid #4a4e57; border-radius: 5px; padding: 1px 8px;
+            font: inherit; font-size: 11px; cursor: pointer; align-self: center; }
+  .play-btn:hover { background: #3d414a; }
+  .play-btn.on { color: #edc948; border-color: #edc948; }
   .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%);
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
@@ -70,6 +101,9 @@
 <div id="hud"></div>
 <button id="viewtoggle" title="flip between the block-explorer and bipartite drawings (v)">view: blocks</button>
 <button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
+<button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>
+<div id="params"></div>
+<div id="decisions"></div>
 <button id="castbtn" title="the neighborhood's character sheets">cast</button>
 <div id="cast"></div>
 <div id="inspector"></div>

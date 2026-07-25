@@ -13,6 +13,7 @@ import { PERSONAS, CARELESS } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
 import { decomps, radixBelow } from "../denom/denominations";
 import { subsetSums, ambiguity, subTransactionMapping } from "../analysis/subsetsum";
+import { ancestry } from "../analysis/ancestry";
 
 export type PaymentForm = "unilateral" | "payjoin" | "settlement" | "coinjoin";
 
@@ -46,6 +47,8 @@ export const SETTLE_DAY = 60;
 export const COINJOIN_DAY = 90;
 /** the day somebody consolidates coins from two different sessions */
 export const INTERSECT_DAY = 112;
+/** the day the studio's rent falls due again — the playable moment */
+export const GAME_DAY = 118;
 
 // directed, flavored community edges: who tends to owe whom, and for what
 const EDGES: { payer: number; payee: number; memos: [string, number, number][] }[] = [
@@ -101,9 +104,29 @@ export interface EconomyParams {
   oblRate: number;
   /** expected external purchases per person per day */
   extRate: number;
+  /** fee-market level: multiplies the drifting base feerate */
+  feeLevel: number;
+  /** fee-market volatility: scales the daily feerate drift */
+  feeVol: number;
+  /** initial wealth: multiplies everyone's starting coins */
+  wealth: number;
 }
 
-export const DEFAULT_PARAMS: EconomyParams = { oblRate: 0.09, extRate: 0.05 };
+export const DEFAULT_PARAMS: EconomyParams = {
+  oblRate: 0.09, extRate: 0.05, feeLevel: 1, feeVol: 1, wealth: 1,
+};
+
+/** which manual plans the played agent can pick from */
+export type ManualPlan = "wait" | "unilateral" | "payjoin";
+
+/** one recorded manual choice, replayed verbatim on fragment restore */
+export interface Intervention {
+  day: number;
+  payer: number;
+  memo: string;
+  due: number;
+  plan: ManualPlan;
+}
 
 export class Economy {
   chain = new Chain();
@@ -118,22 +141,33 @@ export class Economy {
   coinjoins = new Map<TxId, { density: number; determined: boolean }>();
   /** the first, carelessly valued coinjoin (injected on COINJOIN_DAY) */
   naiveTid: TxId | undefined;
+  /** the played agent, if any: their obligations follow recorded choices, not the dice */
+  manual: number | null = null;
+  /** the day the player took over — earlier days replay under the dice, so
+   *  a restored fragment reproduces the run no matter when play began */
+  manualFrom = 0;
+  /** the played agent's choices, replayed verbatim for deterministic restore */
+  interventions: Intervention[] = [];
+  readonly params: EconomyParams;
+  private consumed = new Set<Intervention>();
   private txn = 0;
   private rng: Rng;
   private price: number; // USD per BTC, drifts
   private feebase: number;
 
-  constructor(seed: string, private params: EconomyParams = DEFAULT_PARAMS) {
+  constructor(seed: string, params: Partial<EconomyParams> = {}) {
+    this.params = { ...DEFAULT_PARAMS, ...params };
     this.rng = new Rng(`${seed}/economy`);
     this.price = 103_000 + this.rng.next() * 3_000;
-    this.feebase = 1 + this.rng.next() * 2;
+    this.feebase = (1 + this.rng.next() * 2) * this.params.feeLevel;
     this.prices.push(this.price);
     let rc = 0;
     PERSONAS.forEach((p, u) => {
       for (const v of p.roots) {
         rc += 1;
         // Carol's origin is the one identified root in the story
-        this.chain.addRoot(`r${rc}`, v, u, u === CARELESS ? "exchange withdrawal" : "savings");
+        this.chain.addRoot(`r${rc}`, Math.round(v * this.params.wealth), u,
+          u === CARELESS ? "exchange withdrawal" : "savings");
       }
     });
   }
@@ -146,7 +180,8 @@ export class Economy {
     return this.chain.utxos().filter((c) => c.owner === u).map((c) => c.id);
   }
 
-  /** smallest-sufficient single coin, else the two largest; covers target + fee + dust change */
+  /** smallest-sufficient single coin, else the largest coins together (a
+   *  consolidation — the ⚠ kind), up to six; covers target + fee + dust change */
   private select(u: number, target: number, feerate: number, extraIn = 0): CoinId[] | null {
     const coins = this.wallet(u)
       .map((id) => this.chain.coins.get(id)!)
@@ -154,9 +189,13 @@ export class Economy {
     const need1 = target + txfee(1 + extraIn, 2, feerate) + 294;
     const single = [...coins].reverse().find((c) => c.value >= need1);
     if (single) return [single.id];
-    const need2 = target + txfee(2 + extraIn, 2, feerate) + 294;
-    if (coins.length >= 2 && coins[0]!.value + coins[1]!.value >= need2) {
-      return [coins[0]!.id, coins[1]!.id];
+    const picked: CoinId[] = [];
+    let sum = 0;
+    for (const c of coins.slice(0, 6)) {
+      picked.push(c.id);
+      sum += c.value;
+      if (picked.length >= 2 &&
+          sum >= target + txfee(picked.length + extraIn, 2, feerate) + 294) return picked;
     }
     return null;
   }
@@ -168,11 +207,19 @@ export class Economy {
     const fee = txfee(inputs.length, 2, feerate);
     this.txn += 1;
     const tid = `t${this.txn}`;
+    // the Python narratives' consolidation flag carries over: spending
+    // coins with separate pasts hands every observer evidence to weld them
+    const consolidates = new Set(inputs.map((id) => this.chain.coins.get(id)!.producer)).size > 1;
     this.chain.addTx(tid, this.day, inputs, [
       { owner: payee, value, label: memo },
       { owner: payer, value: inValue - value - fee, label: "change" },
-    ], feerate, `${PERSONAS[payer]!.name} pays ${payee === null ? "a merchant" : PERSONAS[payee]!.name} — ${memo}`);
-    this.events.push({ tid, day: this.day, payer, payee, memo, form: "unilateral", why: why(payer, payee, "unilateral", this.day) });
+    ], feerate, `${PERSONAS[payer]!.name} pays ${payee === null ? "a merchant" : PERSONAS[payee]!.name} — ${memo}${consolidates ? " ⚠" : ""}`);
+    this.events.push({
+      tid, day: this.day, payer, payee, memo, form: "unilateral",
+      why: why(payer, payee, "unilateral", this.day) + (consolidates
+        ? " ⚠ The spend consolidates coins with separate pasts — evidence for every observer to weld them into one, and proof for any counterparty who already knew either past."
+        : ""),
+    });
     return true;
   }
 
@@ -330,9 +377,27 @@ export class Economy {
         if (!prev || this.chain.coins.get(prev)!.value < c.value) bySession.set(c.producer, c.id);
       }
       if (bySession.size < 2) continue;
-      const picks = [...bySession.values()]
-        .sort((a, b) => this.chain.coins.get(b)!.value - this.chain.coins.get(a)!.value)
-        .slice(0, 2);
+      // pick the (largest-first) pair whose traced pasts each run through
+      // a session the other never touches — the property the chapter's
+      // intersection needs; consolidated wallets can share most history
+      const ranked = [...bySession.values()]
+        .sort((a, b) => this.chain.coins.get(b)!.value - this.chain.coins.get(a)!.value);
+      const sessionsOf = (id: CoinId): Set<TxId> => {
+        const a = ancestry(this.chain, id);
+        return new Set([...a.txs].filter((t) => this.coinjoins.has(t)));
+      };
+      const past = new Map(ranked.map((id) => [id, sessionsOf(id)]));
+      let picks: CoinId[] | null = null;
+      outer: for (let i = 0; i < ranked.length - 1; i++) {
+        for (let j = i + 1; j < ranked.length; j++) {
+          const [pa, pb] = [past.get(ranked[i]!)!, past.get(ranked[j]!)!];
+          if ([...pa].some((s) => !pb.has(s)) && [...pb].some((s) => !pa.has(s))) {
+            picks = [ranked[i]!, ranked[j]!];
+            break outer;
+          }
+        }
+      }
+      if (!picks) continue;
       const feerate = Number(this.feebase.toFixed(2));
       const fee = txfee(2, 1, feerate);
       const total = picks.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0) - fee;
@@ -342,7 +407,7 @@ export class Economy {
       const name = PERSONAS[u]!.name;
       this.chain.addTx(tid, this.day, picks, [
         { owner: u, value: total, label: "tidied-up savings" },
-      ], feerate, `${name} tidies up the wallet — two coinjoined coins in one spend`);
+      ], feerate, `${name} tidies up the wallet — two coinjoined coins in one spend ⚠`);
       this.events.push({
         tid, day: this.day, payer: u, payee: null,
         memo: "tidying up the wallet", form: "unilateral",
@@ -580,14 +645,13 @@ export class Economy {
   }
 
   /** weigh wait / unilateral / payjoin for one pending obligation */
-  private settle(obl: Obligation): boolean {
+  /** the costed plans an obligation's payer weighs — rng-free, so the UI
+   *  can preview exactly what the dice (or the player) will see */
+  plansFor(obl: Obligation, feerate: number, asOf = this.day): CostedPlan<ManualPlan>[] {
     const p = PERSONAS[obl.payer]!;
-    const value = this.sats(obl.usd);
-    const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
-    type Act = "wait" | "unilateral" | "payjoin";
-    const plans: CostedPlan<Act>[] = [];
-    if (obl.due > this.day) {
-      const urgency = urgencyCost(obl.due - this.day);
+    const plans: CostedPlan<ManualPlan>[] = [];
+    if (obl.due > asOf) {
+      const urgency = urgencyCost(obl.due - asOf);
       plans.push({ plan: "wait", cost: urgency, terms: { urgency } });
     }
     {
@@ -596,12 +660,54 @@ export class Economy {
       plans.push({ plan: "unilateral", cost: fee + naive, terms: { fee, naive } });
     }
     // someone who sees no privacy benefit never bothers coordinating
-    if (this.day >= PAYJOIN_DAY && p.stats.privacy > 0 && this.wallet(obl.payee).length > 0) {
+    if (asOf >= PAYJOIN_DAY && p.stats.privacy > 0 && this.wallet(obl.payee).length > 0) {
       const fee = feeCost(p, txfee(2, 2, feerate));
       const hassle = hassleCost(p);
       plans.push({ plan: "payjoin", cost: fee + hassle, terms: { fee, hassle } });
     }
-    const chosen = chooseWeighted(this.rng, plans);
+    return plans;
+  }
+
+  /** the played agent's pending decisions for the coming day, with the
+   *  same costed plans the dice would see — rng-free (previewed at the
+   *  current base feerate), so peeking never perturbs the run */
+  candidates(u: number): { obl: Obligation; feerate: number; plans: CostedPlan<ManualPlan>[] }[] {
+    const feerate = Number(this.feebase.toFixed(2));
+    return this.pending
+      .filter((o) => o.payer === u)
+      .map((obl) => ({ obl, feerate, plans: this.plansFor(obl, feerate, this.day + 1) }));
+  }
+
+  /** can the wallet fund this obligation right now? (rng-free, no side effects) */
+  canFund(u: number, usd: number, feerate: number, extraIn = 0): boolean {
+    return this.select(u, this.sats(usd), feerate, extraIn) !== null;
+  }
+
+  /** the played agent's recorded choice for this obligation today, if any */
+  private chosenFor(obl: Obligation): ManualPlan {
+    const iv = this.interventions.find((i) =>
+      !this.consumed.has(i) && i.day === this.day && i.payer === obl.payer &&
+      i.memo === obl.memo && i.due === obl.due);
+    if (iv) {
+      this.consumed.add(iv);
+      return iv.plan;
+    }
+    return "wait";
+  }
+
+  private settle(obl: Obligation): boolean {
+    const value = this.sats(obl.usd);
+    const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
+    if (obl.payer === this.manual && this.day >= this.manualFrom) {
+      // the played agent rolls no dice: wait unless the player chose
+      // otherwise, and pay up when the deadline arrives
+      const plan = this.chosenFor(obl);
+      if (plan === "payjoin" && this.day >= PAYJOIN_DAY &&
+          this.payjoin(obl.payer, obl.payee, value, obl.memo, feerate)) return true;
+      if (plan === "wait" && obl.due > this.day) return false;
+      return this.unilateral(obl.payer, obl.payee, value, obl.memo, feerate);
+    }
+    const chosen = chooseWeighted(this.rng, this.plansFor(obl, feerate));
     if (chosen.plan === "wait") return false;
     if (chosen.plan === "payjoin" && this.payjoin(obl.payer, obl.payee, value, obl.memo, feerate)) return true;
     return this.unilateral(obl.payer, obl.payee, value, obl.memo, feerate);
@@ -613,7 +719,9 @@ export class Economy {
     const before = this.events.length;
     // markets drift
     this.price = Math.min(110_000, Math.max(101_000, this.price * (1 + (this.rng.next() - 0.48) * 0.01)));
-    this.feebase = Math.min(8, Math.max(0.8, this.feebase * (1 + (this.rng.next() - 0.5) * 0.2)));
+    const fl = this.params.feeLevel;
+    this.feebase = Math.min(8 * fl, Math.max(0.8 * fl,
+      this.feebase * (1 + (this.rng.next() - 0.5) * 0.2 * this.params.feeVol)));
     this.prices[this.day] = this.price;
 
     // new internal obligations arrive with a few days' notice
@@ -638,6 +746,23 @@ export class Economy {
         { payer: 9, payee: 7, memo: "studio rent", usd: 850, due: this.day + 6 },
         { payer: 7, payee: 8, memo: "display shelves", usd: Math.round((200 + this.rng.next() * 300) / 10) * 10, due: this.day + 6 },
         { payer: 8, payee: 9, memo: "logo design", usd: Math.round((150 + this.rng.next() * 200) / 10) * 10, due: this.day + 6 },
+      );
+    }
+    // rent recurs: the studio cycle reassembles for the game chapter — the
+    // rent first, its offsetting legs two days later, so a player has real
+    // turns to weigh before the oracle can net them (rng-free amounts; the
+    // catalogue commission nearly offsets the rent, so a waiting Judy can
+    // fund her small net even on seeds where she is running dry)
+    if (this.day === GAME_DAY) {
+      // the landlord re-invoices: rent still owed rolls into the new bill,
+      // so the player faces exactly one rent — the one the chapter narrates
+      this.pending = this.pending.filter((o) => !(o.payer === 9 && o.memo === "studio rent"));
+      this.pending.push({ payer: 9, payee: 7, memo: "studio rent", usd: 850, due: this.day + 8 });
+    }
+    if (this.day === GAME_DAY + 2) {
+      this.pending.push(
+        { payer: 7, payee: 8, memo: "display shelves", usd: 480, due: this.day + 6 },
+        { payer: 8, payee: 9, memo: "exhibition catalogue", usd: 780, due: this.day + 6 },
       );
     }
     // the oracle looks for offsetting obligations first (at most one

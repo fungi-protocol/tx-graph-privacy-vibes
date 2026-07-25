@@ -4,6 +4,7 @@
 // accidental nondeterminism (or unintended behaviour change) trips the check.
 import { Rng } from "../core/prng";
 import { fnv1a } from "../core/digest";
+import { Economy } from "./economy";
 
 function main(): void {
   const argv = process.argv.slice(2);
@@ -16,8 +17,16 @@ function main(): void {
   const agents = rng.fork("agents");
   for (let k = 0; k < 100; k++) parts.push(String(agents.poisson(2.5)));
 
+  // the full economy at the pinned seed: every transaction, coin value,
+  // and event folds into the digest, so any behaviour change trips the check
+  const eco = new Economy(seed);
+  eco.runTo(130);
+  const world = [eco.chain.describe(),
+    ...eco.events.map((e) => `${e.day}/${e.tid}/${e.form}/${e.memo}`)];
+
   console.log(`seed ${seed}`);
   console.log(`rng-digest ${fnv1a(parts.join(","))}`);
+  console.log(`economy-digest day ${eco.day} txs ${eco.chain.order.length} ${fnv1a(world.join(";"))}`);
 }
 
 main();

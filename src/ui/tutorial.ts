@@ -20,6 +20,10 @@ export interface TutorialStep {
   /** something to select when the step becomes active (trace highlight);
    * null clears the selection; undefined leaves it alone */
   select?: () => { kind: "coin" | "tx"; id: string } | null | undefined;
+  /** hand an agent to the player (manual play); null returns the controls;
+   * undefined leaves it alone. Fired before the scene fast-forwards, so a
+   * played agent's obligations wait for the player from the first step. */
+  play?: number | null;
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -33,6 +37,10 @@ export interface TutorialCallbacks {
   onScene?: (scene: 0 | 1, minDay: number) => void;
   /** steps that trace something fire this after lens, before focus */
   onSelect?: (sel: { kind: "coin" | "tx"; id: string } | null) => void;
+  /** steps that hand over (or return) an agent's controls, before onScene;
+   *  minDay tells the app when the takeover should begin if the scene has
+   *  yet to fast-forward there */
+  onPlay?: (u: number | null, minDay: number) => void;
 }
 
 export class Tutorial {
@@ -80,6 +88,7 @@ export class Tutorial {
     this.body.innerHTML = step.html;
     this.prevBtn.disabled = this.index === 0;
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";
+    if (animate && step.play !== undefined) this.cb.onPlay?.(step.play, step.minDay ?? 0);
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());

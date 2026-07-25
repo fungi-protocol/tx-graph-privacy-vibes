@@ -60,9 +60,12 @@ test("the session itself never welds its change to its inputs", () => {
   // amount analyst (or a later co-spend) hands it back to its owner
   const eco = eco115();
   const cl = clusterObserver(eco.chain);
-  // unspent change only: a later co-spend may (rightly) weld via CIOH
+  // unspent change of underdetermined sessions only: a later co-spend may
+  // (rightly) weld via CIOH, and a determined session's amounts already
+  // hand the observer the full sub-transaction mapping
   const change = [...eco.chain.coins.values()].filter(
-    (c) => c.label === "coinjoin change" && c.dest === null);
+    (c) => c.label === "coinjoin change" && c.dest === null &&
+      !eco.coinjoins.get(c.producer!)!.determined);
   assert.ok(change.length > 0, "no unspent coinjoin change to test");
   for (const c of change) {
     const rep = cl.rep.get(c.id) ?? c.id;

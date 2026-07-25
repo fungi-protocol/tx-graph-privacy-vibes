@@ -1,12 +1,19 @@
 // URL-fragment codec: the entire shareable state travels as
 // #s=<base64url(deflate-raw(JSON))>. Everything needed to reproduce what
-// the user is looking at: the seed, the camera, the tutorial position, and
+// the user is looking at: the seed, parameter overrides, the played agent
+// and every recorded manual choice, the camera, the tutorial position, and
 // (for the right-click "copy reference" reviewing aid) a click position
-// plus the element under the cursor. Params and manual interventions join
-// in later milestones.
+// plus the element under the cursor.
 
 export interface FragmentState {
   seed: string;
+  /** economy parameter overrides, non-default values only:
+   *  o = oblRate, e = extRate, f = feeLevel, fv = feeVol, w = wealth */
+  p?: { o?: number; e?: number; f?: number; fv?: number; w?: number };
+  /** manual play: [played agent, day the player took over] */
+  m?: [number, number];
+  /** recorded manual choices, packed [day, payer, memo, due, plan] */
+  i?: [number, number, string, number, string][];
   /** tutorial step index; -1 or absent = tour hidden */
   t?: number;
   /** camera [x, y, scale] */

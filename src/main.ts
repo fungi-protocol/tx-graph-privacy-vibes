@@ -8,7 +8,7 @@ import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
 import { economySteps } from "./scenario/economySteps";
 import { PERSONAS, OWNER_COLORS, CARELESS } from "./scenario/cast";
-import { Economy } from "./engine/economy";
+import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type Intervention, type ManualPlan } from "./engine/economy";
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
@@ -20,6 +20,7 @@ import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
+import { gameSteps } from "./scenario/gameSteps";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
@@ -37,16 +38,40 @@ const introChain = buildIntroChain();
 const intro: SceneData = { chain: introChain, layout: layoutChain(introChain), bip: layoutBipartite(introChain) };
 
 let seed = "welcome";
+let params: Partial<EconomyParams> = {};
+let manual: number | null = null;
+let manualFrom = 0;
+let interventions: Intervention[] = [];
 let eco: Economy | null = null;
 let ecoScene: SceneData | null = null;
 let scene: 0 | 1 = 0;
 
 function economy(): Economy {
   if (!eco) {
-    eco = new Economy(seed);
+    eco = new Economy(seed, params);
+    eco.manual = manual;
+    eco.manualFrom = manualFrom;
+    eco.interventions = interventions;
     refreshEcoLayouts();
   }
   return eco;
+}
+/** rebuild the world from scratch and replay it to the given day — the
+ *  seed, params, and recorded choices fully determine the result */
+function rebuildEconomy(toDay: number): void {
+  eco = null;
+  clCache = null;
+  knCache = null;
+  m5Cache = null;
+  m6Cache = null;
+  originsCache = null;
+  economy().runTo(toDay);
+  refreshEcoLayouts();
+  recomputeTrace();
+  renderDecisions();
+  if (scene === 1) dayBtn.textContent = dayLabel();
+  draw();
+  void syncFragment();
 }
 function refreshEcoLayouts(): void {
   ecoScene = { chain: eco!.chain, layout: layoutChain(eco!.chain), bip: layoutBipartite(eco!.chain) };
@@ -181,7 +206,8 @@ function draw(): void {
 
   const hud = document.getElementById("hud")!;
   const dayPart = scene === 1 ? ` · day ${economy().day}` : "";
-  hud.textContent = `seed ${seed}${dayPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click: trace · shift-click: trace together · h: hide the rest · right-click: copy a reference${originsPart()}`;
+  const playPart = manual !== null ? ` · playing ${PERSONAS[manual]!.name}` : "";
+  hud.textContent = `seed ${seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click: trace · shift-click: trace together · h: hide the rest · right-click: copy a reference${originsPart()}`;
 }
 
 // counterfactual-path counting for the selected coin (memoized: the flow
@@ -244,6 +270,11 @@ window.addEventListener("keydown", (e) => {
 
 // --- scene switching + day stepping ---
 const dayBtn = document.getElementById("stepday") as HTMLButtonElement;
+function dayLabel(): string {
+  return manual !== null
+    ? `day ${economy().day} · end turn →`
+    : `day ${economy().day} · next day →`;
+}
 function setScene(s: 0 | 1, minDay = 0): void {
   if (s === 1) {
     economy().runTo(minDay);
@@ -254,18 +285,101 @@ function setScene(s: 0 | 1, minDay = 0): void {
     clearSelection();
   }
   dayBtn.style.display = s === 1 ? "block" : "none";
-  if (s === 1) dayBtn.textContent = `day ${economy().day} · next day →`;
+  if (s === 1) dayBtn.textContent = dayLabel();
+  renderDecisions();
   draw();
 }
 function stepDay(): void {
+  if (manual !== null) harvestChoices();
   economy().step();
   refreshEcoLayouts();
   recomputeTrace(); // recompute over the grown chain
-  dayBtn.textContent = `day ${economy().day} · next day →`;
+  dayBtn.textContent = dayLabel();
+  renderDecisions();
   draw();
   void syncFragment();
 }
 dayBtn.addEventListener("click", stepDay);
+
+// --- manual play: the decision panel and the played agent ---
+const decisionsPanel = document.getElementById("decisions")!;
+function setManual(u: number | null, from?: number): void {
+  if (u !== manual) {
+    manual = u;
+    // takeover starts tomorrow (or at the tutorial's target day): the past
+    // stays the dice's, so restores replay identically
+    manualFrom = u === null ? 0 : (from ?? economy().day + 1);
+    if (eco) {
+      eco.manual = manual;
+      eco.manualFrom = manualFrom;
+    }
+  }
+  castPanel.querySelectorAll(".play-btn").forEach((b) => {
+    const el = b as HTMLButtonElement;
+    const mine = Number(el.dataset["play"]) === u;
+    el.classList.toggle("on", mine);
+    el.textContent = mine ? "playing" : "play";
+  });
+  if (scene === 1) dayBtn.textContent = dayLabel();
+  renderDecisions();
+  void syncFragment();
+}
+const TERM_NAMES: Record<string, string> = {
+  urgency: "patience", fee: "fee", naive: "the link it writes", hassle: "hassle",
+};
+const PLAN_NAMES: Record<ManualPlan, string> = {
+  wait: "wait", unilateral: "pay now", payjoin: "payjoin",
+};
+function renderDecisions(): void {
+  if (manual === null || scene !== 1) {
+    decisionsPanel.style.display = "none";
+    return;
+  }
+  const e = economy();
+  const cands = e.candidates(manual);
+  const name = PERSONAS[manual]!.name;
+  const rows = cands.map((c, i) => {
+    const overdue = c.obl.due <= e.day + 1;
+    const who = c.obl.payee === null ? "a merchant" : PERSONAS[c.obl.payee]!.name;
+    // "wait" is the engine's default; an overdue obligation defaults to a
+    // forced payment either way, so only departures get recorded
+    const dflt = c.plans.some((p) => p.plan === "wait") ? "wait" : "unilateral";
+    const plans = c.plans.map((p) => {
+      const funded = p.plan === "wait" ||
+        e.canFund(manual!, c.obl.usd, c.feerate, p.plan === "payjoin" ? 1 : 0);
+      const terms = Object.entries(p.terms)
+        .map(([k, v]) => `${TERM_NAMES[k] ?? k} ${v.toFixed(1)}`).join(" + ");
+      const checked = p.plan === dflt ? " checked" : "";
+      return `<label class="dec-plan"><input type="radio" name="dec${i}" value="${p.plan}"${checked}${funded ? "" : " disabled"}>
+        ${PLAN_NAMES[p.plan]} <span class="terms">${funded
+          ? `(${terms} = ${p.cost.toFixed(1)})` : "(the wallet can't fund it)"}</span></label>`;
+    }).join("");
+    return `<div class="dec-row" data-i="${i}" data-default="${dflt}">
+      <span class="obl">${c.obl.memo} — $${c.obl.usd} to ${who}</span>
+      <span class="due${overdue ? " overdue" : ""}">${overdue ? "overdue" : `due day ${c.obl.due}`}</span>
+      ${plans}</div>`;
+  }).join("");
+  const balance = e.chain.utxos().filter((c) => c.owner === manual).reduce((s, c) => s + c.value, 0);
+  decisionsPanel.innerHTML = `<h3><span class="who">${name}</span>'s decisions —
+    end the turn to lock them in</h3>
+    <p class="role">wallet: ${fmtSats(balance)} sats</p>${rows ||
+    `<p class="role">nothing pending — end the turn and the town moves on</p>`}`;
+  decisionsPanel.style.display = "block";
+}
+/** read the panel's radio choices and record them for the coming day */
+function harvestChoices(): void {
+  const e = economy();
+  const cands = e.candidates(manual!);
+  decisionsPanel.querySelectorAll(".dec-row").forEach((row) => {
+    const i = Number((row as HTMLElement).dataset["i"]);
+    const c = cands[i];
+    if (!c) return;
+    const pick = (row.querySelector("input:checked") as HTMLInputElement | null)?.value as ManualPlan | undefined;
+    // only departures from the engine's default behavior are recorded
+    if (!pick || pick === (row as HTMLElement).dataset["default"]) return;
+    interventions.push({ day: e.day + 1, payer: c.obl.payer, memo: c.obl.memo, due: c.obl.due, plan: pick });
+  });
+}
 
 // --- selection: click to trace; shift-click to trace coins together ---
 // Joint traces follow the corrected semantics: the intersection of the
@@ -423,6 +537,10 @@ const steps = [
     () => m5Moments().cross,  // a spend linking two sessions' pasts
     () => m5Moments().toxic,  // coinjoin change spent beside a mixed coin
   ),
+  ...gameSteps(
+    () => active().bip.bounds,
+    () => gameSettlement(),   // the settlement that pays the played rent
+  ),
 ];
 function txRect(tid: string | undefined): Rect {
   const s = active();
@@ -492,6 +610,24 @@ function m5Moments(): { coin?: Focused; cross?: Focused; toxic?: Focused } {
   return found;
 }
 
+// --- chapter 8: the settlement that pays the played rent. The GAME_DAY
+// cycle (rent, shelves, catalogue) settles by GAME_DAY+3 on every seed
+// when Judy waits (probed); the finder frames its whole traced past.
+let m6Cache: { n: number; hit?: Focused } | null = null;
+function gameSettlement(): Focused | undefined {
+  const chain = eco?.chain;
+  if (!chain) return undefined;
+  if (m6Cache && m6Cache.n === chain.order.length) return m6Cache.hit;
+  m6Cache = { n: chain.order.length };
+  const ev = eco!.events.find((e) =>
+    e.form === "settlement" && e.payer === 9 && e.memo === "studio rent" && e.day >= GAME_DAY);
+  if (ev && chain.txs.has(ev.tid)) {
+    const t = traceTx(chain, ev.tid);
+    m6Cache.hit = { id: ev.tid, rect: traceBounds(t.partial.coins, t.partial.txs) };
+  }
+  return m6Cache.hit;
+}
+
 function firstSettlement(): { tid: string; payer: number } | undefined {
   // prefer a full cycle (as many obligations as parties), then any
   // three-party settlement, then whatever exists
@@ -517,6 +653,9 @@ const tutorial = new Tutorial(steps, {
     else applySelection(sel);
     draw();
   },
+  onPlay: (u, minDay) => {
+    setManual(u, u === null ? undefined : Math.max(economy().day + 1, minDay));
+  },
 });
 
 // --- cast panel + inspector ---
@@ -526,6 +665,7 @@ castPanel.innerHTML = PERSONAS.map((p, u) =>
   `<div class="cast-row" data-u="${u}">
     <span class="swatch" style="background:${OWNER_COLORS[u]}"></span>
     <b>${p.name}</b> <span class="role">${p.role}</span>
+    <button class="play-btn" data-play="${u}" title="take ${p.name}'s decisions yourself">play</button>
   </div>`).join("");
 castBtn.addEventListener("click", () => {
   const open = getComputedStyle(castPanel).display !== "none";
@@ -534,6 +674,13 @@ castBtn.addEventListener("click", () => {
 });
 const inspector = document.getElementById("inspector")!;
 castPanel.addEventListener("click", (e) => {
+  const playBtn = (e.target as HTMLElement).closest(".play-btn") as HTMLElement | null;
+  if (playBtn) {
+    const u = Number(playBtn.dataset["play"]);
+    setScene(1, economy().day); // playing only means anything in the economy
+    setManual(manual === u ? null : u);
+    return;
+  }
   const row = (e.target as HTMLElement).closest(".cast-row") as HTMLElement | null;
   if (!row) return;
   const u = Number(row.dataset["u"]);
@@ -556,6 +703,60 @@ castPanel.addEventListener("click", (e) => {
   inspector.style.display = "block";
 });
 
+// --- params panel: re-roll the world ---
+const paramsBtn = document.getElementById("paramsbtn") as HTMLButtonElement;
+const paramsPanel = document.getElementById("params")!;
+interface Knob { key: keyof EconomyParams; label: string; min: number; max: number; step: number }
+const KNOBS: Knob[] = [
+  { key: "feeLevel", label: "fee market level", min: 0.5, max: 4, step: 0.1 },
+  { key: "feeVol", label: "fee volatility", min: 0, max: 3, step: 0.1 },
+  { key: "wealth", label: "starting wealth", min: 0.25, max: 4, step: 0.25 },
+  { key: "oblRate", label: "obligations / edge / day", min: 0, max: 0.3, step: 0.01 },
+  { key: "extRate", label: "purchases / person / day", min: 0, max: 0.2, step: 0.01 },
+];
+function renderParams(): void {
+  paramsPanel.innerHTML = KNOBS.map((k) => {
+    const v = params[k.key] ?? DEFAULT_PARAMS[k.key];
+    return `<label>${k.label} <output>${v}</output>
+      <input type="range" data-key="${k.key}" min="${k.min}" max="${k.max}" step="${k.step}" value="${v}"></label>`;
+  }).join("") + `
+    <label>seed <input type="text" class="seed" value="${seed.replace(/"/g, "&quot;")}"></label>
+    <button class="apply">re-roll the world</button>`;
+  paramsPanel.querySelectorAll("input[type=range]").forEach((el) => {
+    el.addEventListener("input", () => {
+      (el.parentElement!.querySelector("output"))!.textContent = (el as HTMLInputElement).value;
+    });
+  });
+  paramsPanel.querySelector(".apply")!.addEventListener("click", applyParams);
+}
+function applyParams(): void {
+  const next: Partial<EconomyParams> = {};
+  paramsPanel.querySelectorAll("input[type=range]").forEach((el) => {
+    const input = el as HTMLInputElement;
+    const key = input.dataset["key"] as keyof EconomyParams;
+    const v = Number(input.value);
+    if (v !== DEFAULT_PARAMS[key]) next[key] = v;
+  });
+  const newSeed = (paramsPanel.querySelector(".seed") as HTMLInputElement).value.trim() || "welcome";
+  if (newSeed !== seed) {
+    // a different world: recorded choices belong to the old one
+    interventions = [];
+    manual = null;
+    manualFrom = 0;
+  }
+  seed = newSeed;
+  params = next;
+  const day = scene === 1 ? economy().day : 0;
+  rebuildEconomy(day);
+  setManual(manual); // refresh the cast panel's play buttons
+  toast("the world re-rolled — same story, different dice");
+}
+paramsBtn.addEventListener("click", () => {
+  const open = getComputedStyle(paramsPanel).display !== "none";
+  if (!open) renderParams();
+  paramsPanel.style.display = open ? "none" : "block";
+});
+
 // --- fragment sync ---
 let syncTimer: number | undefined;
 async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
@@ -571,6 +772,18 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (scene === 1) {
     state.sc = 1;
     state.n = economy().day;
+  }
+  const P: [keyof EconomyParams, keyof NonNullable<FragmentState["p"]>][] = [
+    ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["wealth", "w"],
+  ];
+  const p: NonNullable<FragmentState["p"]> = {};
+  for (const [key, short] of P) {
+    if (params[key] !== undefined && params[key] !== DEFAULT_PARAMS[key]) p[short] = params[key];
+  }
+  if (Object.keys(p).length > 0) state.p = p;
+  if (manual !== null) state.m = [manual, manualFrom];
+  if (interventions.length > 0) {
+    state.i = interventions.map((iv) => [iv.day, iv.payer, iv.memo, iv.due, iv.plan]);
   }
   if (ref) state.ref = ref;
   const frag = await encodeFragment(state);
@@ -657,8 +870,24 @@ async function init(): Promise<void> {
   resize();
   const state = await decodeFragment(location.hash).catch(() => null);
   if (state?.seed) seed = state.seed;
+  if (state?.p) {
+    if (state.p.o !== undefined) params.oblRate = state.p.o;
+    if (state.p.e !== undefined) params.extRate = state.p.e;
+    if (state.p.f !== undefined) params.feeLevel = state.p.f;
+    if (state.p.fv !== undefined) params.feeVol = state.p.fv;
+    if (state.p.w !== undefined) params.wealth = state.p.w;
+  }
+  if (state?.m && PERSONAS[state.m[0]]) {
+    manual = state.m[0];
+    manualFrom = state.m[1];
+  }
+  if (state?.i) {
+    interventions = state.i.map(([day, payer, memo, due, plan]) =>
+      ({ day, payer, memo, due, plan: plan as ManualPlan }));
+  }
   setView(state?.v === 1 || state?.v === 2 ? state.v : 0, false);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
+  if (manual !== null) setManual(manual); // light the cast panel + decisions
   // lens after scene: the agent lens defaults to a payee the economy knows
   if (state?.l === 1 || state?.l === 2) {
     if (state.l === 2 && typeof state.a === "number" && PERSONAS[state.a]) lensAgent = state.a;
