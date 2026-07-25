@@ -88,6 +88,19 @@ export const DEFAULT_PARAMS: EconomyParams = {
   oblRate: 0.09, extRate: 0.05, feeLevel: 1, feeVol: 1, wealth: 1, pop: BASE_POP,
 };
 
+/** the parameters that can change while the world runs: rates and the fee
+ *  market are read fresh each day, so a dated change touches only days
+ *  from its date forward. wealth, pop, and the seed are world identity —
+ *  changing them means a different town, not a turn of events in this one */
+export type LiveParams = Pick<EconomyParams, "oblRate" | "extRate" | "feeLevel" | "feeVol">;
+
+/** one dated parameter change: in effect from `day` onward, applied on
+ *  top of the base params (and any earlier patches, in day order) */
+export interface ParamPatch {
+  day: number;
+  patch: Partial<LiveParams>;
+}
+
 /** which manual plans the played agent can pick from */
 export type ManualPlan = "wait" | "unilateral" | "payjoin";
 
@@ -119,6 +132,11 @@ export class Economy {
   manualFrom = 0;
   /** the played agent's choices, replayed verbatim for deterministic restore */
   interventions: Intervention[] = [];
+  /** dated parameter changes, replayed like interventions: the schedule and
+   *  the fee market read the params in effect for each day, so a change
+   *  never rewrites the days already lived — set before runTo, like the
+   *  other replay inputs */
+  timeline: ParamPatch[] = [];
   /** scheduled obligations rolled into a re-invoice, never paid — recorded
    *  so the schedule's full universe stays auditable */
   cancelled: string[] = [];
@@ -161,6 +179,18 @@ export class Economy {
           p.rootLabel ?? (u === CARELESS ? "exchange withdrawal" : "savings"));
       }
     });
+  }
+
+  /** the parameters in effect on a given day: the base params with every
+   *  timeline patch dated on or before that day applied, in day order.
+   *  Construction (starting wealth, the cast) always uses the base params —
+   *  patches only steer days still to come */
+  paramsAt(day: number): EconomyParams {
+    let p = this.params;
+    for (const t of [...this.timeline].sort((a, b) => a.day - b.day)) {
+      if (t.day <= day) p = { ...p, ...t.patch };
+    }
+    return p;
   }
 
   private sats(usd: number): number {
@@ -839,13 +869,17 @@ export class Economy {
     // markets drift on their own stream: two draws a day, no more, so the
     // series depends on the seed alone no matter what behavior does
     this.price = Math.min(110_000, Math.max(101_000, this.price * (1 + (this.market.next() - 0.48) * 0.01)));
-    const fl = this.params.feeLevel;
+    // params are read fresh each day: a dated patch steers the fee band and
+    // the schedule from its day forward, and the days already lived — whose
+    // per-day streams never saw it — replay bit-identically
+    const dayParams = this.paramsAt(this.day);
+    const fl = dayParams.feeLevel;
     this.feebase = Math.min(8 * fl, Math.max(0.8 * fl,
-      this.feebase * (1 + (this.market.next() - 0.5) * 0.2 * this.params.feeVol)));
+      this.feebase * (1 + (this.market.next() - 0.5) * 0.2 * dayParams.feeVol)));
     this.prices[this.day] = this.price;
 
     // the day's schedule is pure — seed and parameters only (schedule.ts)
-    const sched = scheduleForDay(this.seed, this.params, this.cast, this.edges, this.day);
+    const sched = scheduleForDay(this.seed, dayParams, this.cast, this.edges, this.day);
     if (this.day === GAME_DAY) {
       // the landlord re-invoices: rent still owed rolls into the new bill,
       // so the player faces exactly one rent — the one the chapter narrates

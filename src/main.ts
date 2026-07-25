@@ -8,7 +8,7 @@ import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
 import { economySteps } from "./scenario/economySteps";
 import { PERSONAS, CARELESS, MAX_POP, ownerColor, type Persona } from "./scenario/cast";
-import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type Intervention, type ManualPlan } from "./engine/economy";
+import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams, type ParamPatch, type Intervention, type ManualPlan } from "./engine/economy";
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
@@ -48,12 +48,16 @@ const intro: SceneData = { chain: introChain, layout: layoutChain(introChain), b
 const session: {
   seed: string;
   params: Partial<EconomyParams>;
+  /** dated parameter changes, in effect from their day forward (#17): the
+   *  engine reads the params per day, so the past replays untouched */
+  timeline: ParamPatch[];
   manual: number | null;
   manualFrom: number;
   interventions: Intervention[];
 } = {
   seed: "welcome",
   params: {},
+  timeline: [],
   manual: null,
   manualFrom: 0,
   interventions: [],
@@ -76,6 +80,7 @@ function economy(): Economy {
     eco.manual = session.manual;
     eco.manualFrom = session.manualFrom;
     eco.interventions = session.interventions;
+    eco.timeline = session.timeline; // shared: dated changes land in both
     simRev += 1;
     setCastNames(eco.cast.map((p) => p.name)); // captions track the live town
     refreshEcoLayouts();
@@ -953,14 +958,23 @@ const KNOBS: Knob[] = [
   { key: "extRate", label: "purchases / person / day", min: 0, max: 0.2, step: 0.01 },
   { key: "pop", label: "population", min: 10, max: MAX_POP, step: 1 },
 ];
+const LIVE_KEYS: (keyof LiveParams)[] = ["oblRate", "extRate", "feeLevel", "feeVol"];
+function isLive(key: keyof EconomyParams): key is keyof LiveParams {
+  return (LIVE_KEYS as string[]).includes(key);
+}
 function renderParams(): void {
+  // rates and fees show the values in effect tomorrow — the timeline's
+  // latest word — while wealth, pop, and the seed show the world's identity
+  const eff = scene === 1 && eco ? eco.paramsAt(eco.day + 1) : null;
   paramsPanel.innerHTML = KNOBS.map((k) => {
-    const v = session.params[k.key] ?? DEFAULT_PARAMS[k.key];
+    const v = eff && isLive(k.key) ? eff[k.key] : session.params[k.key] ?? DEFAULT_PARAMS[k.key];
     return `<label>${k.label} <output>${v}</output>
       <input type="range" data-key="${k.key}" min="${k.min}" max="${k.max}" step="${k.step}" value="${v}"></label>`;
   }).join("") + `
     <label>seed <input type="text" class="seed" value="${session.seed.replace(/"/g, "&quot;")}"></label>
-    <button class="apply">re-roll the world</button>`;
+    <button class="apply">${eff ? "apply" : "re-roll the world"}</button>` + (eff ? `
+    <p class="hint">rates and fees change from tomorrow — the days already
+    lived stand. a new seed, wealth, or population re-rolls the world.</p>` : "");
   paramsPanel.querySelectorAll("input[type=range]").forEach((el) => {
     el.addEventListener("input", () => {
       (el.parentElement!.querySelector("output"))!.textContent = (el as HTMLInputElement).value;
@@ -969,17 +983,38 @@ function renderParams(): void {
   paramsPanel.querySelector(".apply")!.addEventListener("click", applyParams);
 }
 function applyParams(): void {
-  const next: Partial<EconomyParams> = {};
+  const read: Partial<EconomyParams> = {};
   paramsPanel.querySelectorAll("input[type=range]").forEach((el) => {
     const input = el as HTMLInputElement;
-    const key = input.dataset["key"] as keyof EconomyParams;
-    const v = Number(input.value);
-    if (v !== DEFAULT_PARAMS[key]) next[key] = v;
+    read[input.dataset["key"] as keyof EconomyParams] = Number(input.value);
   });
   const newSeed = (paramsPanel.querySelector(".seed") as HTMLInputElement).value.trim() || "welcome";
+  // seed, wealth, and population are the world's identity — changing them
+  // re-rolls. Rates and fees while the world runs are dated changes: they
+  // steer the days ahead and leave the days already lived untouched.
+  const identity = newSeed !== session.seed ||
+    read.wealth !== (session.params.wealth ?? DEFAULT_PARAMS.wealth) ||
+    read.pop !== (session.params.pop ?? DEFAULT_PARAMS.pop);
+  if (scene === 1 && eco && !identity) {
+    const current = eco.paramsAt(eco.day + 1);
+    const patch: Partial<LiveParams> = {};
+    for (const key of LIVE_KEYS) {
+      if (read[key] !== undefined && read[key] !== current[key]) patch[key] = read[key];
+    }
+    if (Object.keys(patch).length === 0) return;
+    session.timeline.push({ day: eco.day + 1, patch }); // eco shares the array
+    toast(`the change takes effect on day ${eco.day + 1} — the past stands`);
+    void syncFragment();
+    return;
+  }
+  const next: Partial<EconomyParams> = {};
+  for (const [key, v] of Object.entries(read) as [keyof EconomyParams, number][]) {
+    if (v !== DEFAULT_PARAMS[key]) next[key] = v;
+  }
   if (newSeed !== session.seed) {
-    // a different world: recorded choices belong to the old one
+    // a different world: recorded choices and dated changes belong to the old one
     session.interventions = [];
+    session.timeline = [];
     session.manual = null;
     session.manualFrom = 0;
   }
@@ -1031,6 +1066,18 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
     if (session.params[key] !== undefined && session.params[key] !== DEFAULT_PARAMS[key]) p[short] = session.params[key];
   }
   if (Object.keys(p).length > 0) state.p = p;
+  if (session.timeline.length > 0) {
+    const SHORT: [keyof LiveParams, "o" | "e" | "f" | "fv"][] = [
+      ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"],
+    ];
+    state.pt = session.timeline.map((t) => {
+      const patch: NonNullable<FragmentState["pt"]>[number][1] = {};
+      for (const [key, short] of SHORT) {
+        if (t.patch[key] !== undefined) patch[short] = t.patch[key];
+      }
+      return [t.day, patch];
+    });
+  }
   if (session.manual !== null) state.m = [session.manual, session.manualFrom];
   if (session.interventions.length > 0) {
     state.i = session.interventions.map((iv) => [iv.day, iv.id, iv.plan]);
@@ -1127,6 +1174,16 @@ async function init(): Promise<void> {
     if (state.p.fv !== undefined) session.params.feeVol = state.p.fv;
     if (state.p.w !== undefined) session.params.wealth = state.p.w;
     if (state.p.pp !== undefined) session.params.pop = state.p.pp;
+  }
+  if (state?.pt) {
+    session.timeline = state.pt.map(([day, p]) => {
+      const patch: Partial<LiveParams> = {};
+      if (p.o !== undefined) patch.oblRate = p.o;
+      if (p.e !== undefined) patch.extRate = p.e;
+      if (p.f !== undefined) patch.feeLevel = p.f;
+      if (p.fv !== undefined) patch.feeVol = p.fv;
+      return { day, patch };
+    });
   }
   if (state?.m && state.m[0] < (state.p?.pp ?? PERSONAS.length)) {
     session.manual = state.m[0];

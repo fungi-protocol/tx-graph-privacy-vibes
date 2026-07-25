@@ -49,6 +49,7 @@
             border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 10px;
             font: inherit; font-size: 13px; cursor: pointer; }
   #params .apply:hover { background: #3d414a; }
+  #params .hint { margin: 8px 0 0; font-size: 11px; line-height: 1.4; opacity: 0.55; }
   #overlays { position: fixed; left: 16px; top: 176px; display: none; width: 210px;
             background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
             padding: 10px 12px; box-shadow: 0 6px 24px #0006; font-size: 13px; }

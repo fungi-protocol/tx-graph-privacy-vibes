@@ -96,3 +96,23 @@ test("migrations key on the declared version", () => {
   const future = sanitize({ seed: "ok", sv: 99, n: 7, someFutureField: true });
   assert.deepEqual(future, { seed: "ok", n: 7 });
 });
+
+test("dated parameter patches round-trip and are clamped like the base params", async () => {
+  const fragment = await encodeFragment({
+    seed: "welcome",
+    pt: [[31, { f: 3 }], [60, { o: 0.2, e: 0.1 }]],
+  });
+  const state = await decodeFragment(fragment);
+  assert.deepEqual(state, { seed: "welcome", pt: [[31, { f: 3 }], [60, { o: 0.2, e: 0.1 }]] });
+
+  const hostile = sanitize({
+    seed: "x",
+    pt: [
+      [0, { f: 2 }],            // day below 1: clamped to 1, like every bound
+      [40, { f: 99, o: -5 }],   // values clamped into the knob ranges
+      [50, { w: 2, pp: 40 }],   // identity params are not live: ignored
+      "junk", [60, null],       // malformed entries skipped
+    ],
+  });
+  assert.deepEqual(hostile?.pt, [[1, { f: 2 }], [40, { o: 0, f: 4 }]]);
+});

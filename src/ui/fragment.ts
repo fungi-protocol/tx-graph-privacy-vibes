@@ -23,6 +23,10 @@ export interface FragmentState {
   /** economy parameter overrides, non-default values only:
    *  o = oblRate, e = extRate, f = feeLevel, fv = feeVol, w = wealth, pp = pop */
   p?: { o?: number; e?: number; f?: number; fv?: number; w?: number; pp?: number };
+  /** dated parameter changes: [day, patch] applied from that day forward;
+   *  only the live knobs (o, e, f, fv) — wealth, pop, and the seed are
+   *  world identity and never change mid-run */
+  pt?: [number, { o?: number; e?: number; f?: number; fv?: number }][];
   /** manual play: [played agent, day the player took over] */
   m?: [number, number];
   /** recorded manual choices, packed [day, obligation id, plan] — the id is
@@ -135,6 +139,21 @@ export function sanitize(raw: unknown): FragmentState | null {
     };
     const entries = Object.entries(clamped).filter(([, v]) => v !== undefined);
     if (entries.length) out.p = Object.fromEntries(entries);
+  }
+  if (Array.isArray(r.pt)) {
+    const pt: NonNullable<FragmentState["pt"]> = [];
+    for (const it of (r.pt as unknown[]).slice(0, 200)) {
+      if (!Array.isArray(it) || typeof it[1] !== "object" || it[1] === null) continue;
+      const day = num(it[0], 1, MAX_DAY, true);
+      if (day === undefined) continue;
+      const p = it[1] as Record<string, unknown>;
+      const clamped = {
+        o: num(p.o, 0, 0.3), e: num(p.e, 0, 0.2), f: num(p.f, 0.5, 4), fv: num(p.fv, 0, 3),
+      };
+      const entries = Object.entries(clamped).filter(([, v]) => v !== undefined);
+      if (entries.length) pt.push([day, Object.fromEntries(entries)]);
+    }
+    if (pt.length) out.pt = pt;
   }
   if (Array.isArray(r.m)) {
     const u = num(r.m[0], 0, MAX_AGENT, true), day = num(r.m[1], 0, MAX_DAY, true);
