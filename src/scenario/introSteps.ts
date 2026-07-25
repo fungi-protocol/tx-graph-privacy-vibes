@@ -37,6 +37,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         this tour will wait.)</p>`,
       focus: pad(r1, 120),
       view: 0,
+      scene: 0,
     },
     {
       id: "whole-coins",
@@ -49,6 +50,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         the right are the coins that now exist instead of it.</p>`,
       focus: pad(t1, 90),
       view: 0,
+      scene: 0,
     },
     {
       id: "change",
@@ -62,6 +64,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         shrewd those guesses can get.</p>`,
       focus: pad(union(t1o2, t1), 70),
       view: 0,
+      scene: 0,
     },
     {
       id: "fees",
@@ -74,6 +77,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         the rate climbs; patient spenders wait for quiet moments.</p>`,
       focus: pad(t1, 90),
       view: 0,
+      scene: 0,
     },
     {
       id: "utxos",
@@ -85,6 +89,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         from and where it went stays public, forever, for everyone.</p>`,
       focus: pad(all, 60),
       view: 0,
+      scene: 0,
     },
     {
       id: "chain-remembers",
@@ -99,6 +104,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         people can do about it — is the rest of this story.</p>`,
       focus: pad(union(coinAnchor(layout, "r1")!, t2), 60),
       view: 0,
+      scene: 0,
     },
     {
       id: "two-drawings",
@@ -115,6 +121,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         stays readable when there are hundreds of coins.</p>`,
       focus: pad(bip.bounds, 80),
       view: 1,
+      scene: 0,
     },
     {
       id: "toggle-freely",
@@ -126,6 +133,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         someone watching.</p>`,
       focus: pad(bip.bounds, 80),
       view: 1,
+      scene: 0,
     },
   ];
 }

@@ -36,12 +36,41 @@
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
   .toast.gone { opacity: 0; }
+  #stepday { position: fixed; right: 16px; bottom: 16px; display: none;
+             background: #33363e; color: #edc948; border: 1px solid #4a4e57;
+             border-radius: 6px; padding: 8px 14px; font: inherit; font-size: 13px;
+             cursor: pointer; }
+  #stepday:hover { background: #3d414a; }
+  #castbtn { position: fixed; left: 16px; bottom: 36px; background: #33363e; color: #d8dade;
+             border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
+             font: inherit; font-size: 13px; cursor: pointer; }
+  #castbtn:hover { background: #3d414a; }
+  #cast { position: fixed; left: 16px; bottom: 76px; display: none; width: 210px;
+          max-height: 50vh; overflow-y: auto; background: #24262cf2;
+          border: 1px solid #3a3e46; border-radius: 10px; padding: 8px;
+          box-shadow: 0 6px 24px #0006; }
+  .cast-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px;
+              border-radius: 6px; cursor: pointer; }
+  .cast-row:hover { background: #33363e; }
+  .cast-row .role, #inspector .role { opacity: 0.55; font-size: 12px; }
+  .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+            align-self: center; flex: none; }
+  #inspector { position: fixed; left: 240px; bottom: 76px; display: none; width: 300px;
+               background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
+               padding: 12px 14px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
+  #inspector p { margin: 0.5em 0; }
+  .coin-chip { display: inline-block; border-radius: 10px; padding: 2px 8px;
+               font-size: 11px; font-weight: 600; color: #111; margin: 2px 2px 0 0; }
 </style>
 </head>
 <body>
 <canvas id="view"></canvas>
 <div id="hud"></div>
 <button id="viewtoggle" title="flip between the block-explorer and bipartite drawings (v)">view: blocks</button>
+<button id="castbtn" title="the neighborhood's character sheets">cast</button>
+<div id="cast"></div>
+<div id="inspector"></div>
+<button id="stepday" title="advance the simulation by one day">next day →</button>
 <!--APP_JS-->
 </body>
 </html>

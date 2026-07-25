@@ -5,16 +5,24 @@ export interface TutorialStep {
   id: string;
   title: string;
   html: string;
-  /** world rect to frame when the step becomes active */
-  focus?: { x: number; y: number; w: number; h: number };
+  /** world rect to frame when the step becomes active (function = resolved late) */
+  focus?: Rect | (() => Rect);
   /** which view this step wants: 0 = block explorer, 1 = bipartite */
   view?: 0 | 1;
+  /** which scene this step plays in: 0 = intro story, 1 = the economy */
+  scene?: 0 | 1;
+  /** economy steps may require the simulation to have reached this day */
+  minDay?: number;
 }
 
+export interface Rect { x: number; y: number; w: number; h: number }
+
 export interface TutorialCallbacks {
-  onFocus: (focus: NonNullable<TutorialStep["focus"]>) => void;
+  onFocus: (focus: Rect) => void;
   onStepChange?: (index: number) => void;
   onView?: (view: 0 | 1) => void;
+  /** scene change + fast-forward requirement, fired before focus */
+  onScene?: (scene: 0 | 1, minDay: number) => void;
 }
 
 export class Tutorial {
@@ -62,8 +70,11 @@ export class Tutorial {
     this.body.innerHTML = step.html;
     this.prevBtn.disabled = this.index === 0;
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";
+    if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
-    if (animate && step.focus) this.cb.onFocus(step.focus);
+    if (animate && step.focus) {
+      this.cb.onFocus(typeof step.focus === "function" ? step.focus() : step.focus);
+    }
     this.cb.onStepChange?.(this.index);
     this.panel.style.display = "block";
   }

@@ -13,6 +13,10 @@ export interface FragmentState {
   cam?: [number, number, number];
   /** view: 0 = block explorer (default), 1 = bipartite */
   v?: number;
+  /** scene: 0 = intro story (default), 1 = the economy */
+  sc?: number;
+  /** economy day (scene 1 only) */
+  n?: number;
   /** copy-reference: world position clicked + element selector under cursor */
   ref?: { wx: number; wy: number; sel?: string };
 }

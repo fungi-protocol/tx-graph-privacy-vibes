@@ -50,7 +50,11 @@ export function txRectAt(block: Layout, bip: BipLayout, id: string, t: number): 
 
 export interface MorphDrawOptions {
   hover?: Hit | null;
+  /** ancestry highlight: everything else is gently dimmed (not too dim) */
+  highlight?: { coins: Set<string>; txs: Set<string> } | null;
 }
+
+const DIM = 0.3;
 
 export function drawMorph(
   ctx: CanvasRenderingContext2D,
@@ -62,6 +66,9 @@ export function drawMorph(
 ): void {
   const hover = opts.hover ?? null;
   const hoverCoin = hover?.kind === "coin" ? hover.id : null;
+  const hl = opts.highlight ?? null;
+  const coinAlpha = (id: string): number => (hl && !hl.coins.has(id) ? DIM : 1);
+  const txAlpha = (id: string): number => (hl && !hl.txs.has(id) ? DIM : 1);
   const coinAt = (id: string): Rect => coinRectAt(block, bip, id, t)!;
   const txAt = (id: string): Rect => txRectAt(block, bip, id, t)!;
 
@@ -77,10 +84,12 @@ export function drawMorph(
       const slot = block.coinBoxes.find((cb) => cb.coin === cid && cb.role === "in")?.rect;
       const to = lerpRect(slot ?? txr, txr, t);
       const emphasized = hoverCoin === cid;
+      ctx.globalAlpha = coinAlpha(cid);
       bezier(ctx, from.x + from.w, from.y + from.h / 2, to.x, to.y + to.h / 2);
       ctx.strokeStyle = coinColor(coin) + (emphasized ? "" : "b0");
       ctx.lineWidth = emphasized ? 3.5 : 1.8;
       ctx.stroke();
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -95,6 +104,7 @@ export function drawMorph(
         const coin = chain.coins.get(cid)!;
         const to = coinAt(cid);
         const emphasized = hoverCoin === cid;
+        ctx.globalAlpha = t * coinAlpha(cid);
         bezier(ctx, txr.x + txr.w, txr.y + txr.h / 2, to.x, to.y + to.h / 2);
         ctx.strokeStyle = coinColor(coin) + (emphasized ? "" : "b0");
         ctx.lineWidth = emphasized ? 3.5 : 1.8;
@@ -108,6 +118,7 @@ export function drawMorph(
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
     const frame = txAt(tid);
+    ctx.globalAlpha = txAlpha(tid);
     rounded(ctx, frame, lerp(8, 10, t));
     ctx.fillStyle = "#26292f";
     ctx.fill();
@@ -119,7 +130,7 @@ export function drawMorph(
     if (t < 0.5) {
       // card header: memo and fee
       ctx.save();
-      ctx.globalAlpha = 1 - 2 * t;
+      ctx.globalAlpha = (1 - 2 * t) * txAlpha(tid);
       ctx.fillStyle = "#9aa0ab";
       ctx.font = "12px system-ui, sans-serif";
       ctx.fillText(`${tid} — ${tx.memo ?? "transaction"}`, frame.x + 10, frame.y + 17);
@@ -131,7 +142,7 @@ export function drawMorph(
       // square node: bare id; memo and fee move to the caption below so
       // no information is lost relative to the card
       ctx.save();
-      ctx.globalAlpha = 2 * t - 1;
+      ctx.globalAlpha = (2 * t - 1) * txAlpha(tid);
       ctx.fillStyle = "#9aa0ab";
       ctx.font = "600 13px system-ui, sans-serif";
       ctx.textAlign = "center";
@@ -145,15 +156,16 @@ export function drawMorph(
       ctx.textAlign = "left";
     }
   }
+  ctx.globalAlpha = 1;
 
   // --- fading duplicate input slots (block view only) ---
   if (t < 0.99) {
     ctx.save();
-    ctx.globalAlpha = 1 - t;
     for (const cb of block.coinBoxes) {
       if (cb.role !== "in") continue;
       const coin = chain.coins.get(cb.coin)!;
       const rect = lerpRect(cb.rect, coinAt(cb.coin), t);
+      ctx.globalAlpha = (1 - t) * coinAlpha(cb.coin);
       drawCoinBox(ctx, coin, rect, hoverCoin === cb.coin, false, t);
     }
     ctx.restore();
@@ -163,6 +175,7 @@ export function drawMorph(
   for (const coin of chain.coins.values()) {
     const rect = coinAt(coin.id);
     const unspent = coin.dest === null;
+    ctx.globalAlpha = coinAlpha(coin.id);
     drawCoinBox(ctx, coin, rect, hoverCoin === coin.id, unspent, t);
     // caption: whose coin / what for
     ctx.fillStyle = "#8b919c";
@@ -172,6 +185,7 @@ export function drawMorph(
     ctx.fillText(caption, rect.x + rect.w / 2, rect.y + rect.h + 12);
     ctx.textAlign = "left";
   }
+  ctx.globalAlpha = 1;
 }
 
 function drawCoinBox(

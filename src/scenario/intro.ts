@@ -4,16 +4,9 @@
 import { Chain } from "../model/chain";
 import { txfee } from "../core/sats";
 
-export const CAST = ["Alice", "Bob"] as const;
+export { CAST, OWNER_COLORS, OWNER_TEXT, EXTERNAL_COLOR } from "./cast";
 export const ALICE = 0;
 export const BOB = 1;
-
-// tableau10, as in the diagram-E visual language
-export const OWNER_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b4", "#59a14f",
-  "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"];
-export const OWNER_TEXT = ["#fff", "#111", "#fff", "#111", "#fff",
-  "#111", "#fff", "#111", "#fff", "#111"];
-export const EXTERNAL_COLOR = "#fafafa";
 
 export function buildIntroChain(): Chain {
   const chain = new Chain();
