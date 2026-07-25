@@ -102,7 +102,7 @@
 <body>
 <canvas id="view"></canvas>
 <div id="hud"></div>
-<button id="viewtoggle" title="flip between the block-explorer and bipartite drawings (v)">view: blocks</button>
+<button id="viewtoggle" title="flip between the transaction-card and graph drawings (v)">view: cards</button>
 <button id="clusterbtn" title="collapse each cluster's coins into one vertex — the observer's user graph (c)">clusters</button>
 <button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
 <button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>

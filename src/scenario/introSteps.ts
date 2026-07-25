@@ -127,7 +127,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       id: "toggle-freely",
       title: "Toggle freely",
       html: `<p>From here on both drawings are yours: press <b>v</b> or use
-        the button in the corner to flip between the block-explorer view and
+        the button in the corner to flip between the card view and
         the graph view whenever you like.</p>
         <p>That's the toolbox. Next: more people, more payments — and
         someone watching.</p>`,

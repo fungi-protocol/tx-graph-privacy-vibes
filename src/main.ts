@@ -266,7 +266,7 @@ function originsPart(): string {
 
 // --- view toggle ---
 const viewBtn = document.getElementById("viewtoggle") as HTMLButtonElement;
-const VIEW_NAMES = ["view: blocks", "view: graph"] as const;
+const VIEW_NAMES = ["view: cards", "view: graph"] as const;
 function setView(view: 0 | 1, animate = true): void {
   targetView = view;
   viewBtn.textContent = VIEW_NAMES[view];
