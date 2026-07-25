@@ -9,7 +9,9 @@ import { introSteps } from "./scenario/introSteps";
 import { economySteps } from "./scenario/economySteps";
 import { PERSONAS, OWNER_COLORS, CARELESS } from "./scenario/cast";
 import { Economy } from "./engine/economy";
-import { ancestry, txAncestry, type Ancestry } from "./analysis/ancestry";
+import { ancestry } from "./analysis/ancestry";
+import { traceCoins, traceTx, type Trace } from "./analysis/trace";
+import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterColor, clusterLabel, CLUSTER_MISC, type Clustering } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout } from "./ui/clusterview";
@@ -17,6 +19,7 @@ import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
+import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
@@ -121,8 +124,13 @@ function agentPaint(): Paint {
 
 let cam: Camera = { x: 0, y: 0, scale: 1 };
 let hover: Hit | null = null;
-let selected: Hit | null = null;
-let highlight: Ancestry | null = null;
+type Selection =
+  | { kind: "coins"; ids: string[] }
+  | { kind: "tx"; id: string }
+  | { kind: "cluster"; id: string };
+let selection: Selection | null = null;
+let highlight: Trace | null = null;
+let hideDim = false;
 let ping: { wx: number; wy: number; t: number } | null = null;
 let viewT = 0;          // 0 = block explorer, 1 = bipartite, 2 = clusters
 let targetView: 0 | 1 | 2 = 0;
@@ -154,7 +162,7 @@ function draw(): void {
   ctx.translate(-cam.x, -cam.y);
   if (viewT <= 1) {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
-      hover, highlight,
+      hover, highlight, hideDim,
       ...(lens === 1 ? { paint: observerPaint() } : lens === 2 ? { paint: agentPaint() } : {}),
     });
   } else {
@@ -173,7 +181,26 @@ function draw(): void {
 
   const hud = document.getElementById("hud")!;
   const dayPart = scene === 1 ? ` · day ${economy().day}` : "";
-  hud.textContent = `seed ${seed}${dayPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click: trace · right-click: copy a reference`;
+  hud.textContent = `seed ${seed}${dayPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click: trace · shift-click: trace together · h: hide the rest · right-click: copy a reference${originsPart()}`;
+}
+
+// counterfactual-path counting for the selected coin (memoized: the flow
+// network is rebuilt per chain growth, not per frame)
+let originsCache: { id: string; n: number; text: string } | null = null;
+function originsPart(): string {
+  if (selection?.kind !== "coins" || selection.ids.length !== 1) return "";
+  const id = selection.ids[0]!;
+  const s = active();
+  if (!originsCache || originsCache.id !== id || originsCache.n !== s.chain.order.length) {
+    const o = counterfactualOrigins(s.chain, id);
+    originsCache = {
+      id,
+      n: s.chain.order.length,
+      text: o.roots.length === 0 ? "" :
+        ` · ${id}: ${o.roots.length} candidate origin${o.roots.length === 1 ? "" : "s"}, ${o.robust.size} by two disjoint routes`,
+    };
+  }
+  return originsCache.text;
 }
 
 // --- view toggle ---
@@ -202,6 +229,7 @@ function setLens(l: 0 | 1 | 2): void {
     l === 0 ? "lens: all-seeing" :
     l === 1 ? "lens: observer" :
     `lens: ${PERSONAS[lensAgent ?? 0]!.name}'s`;
+  recomputeTrace(); // the joint-trace intersection is cluster-wise under the observer
   draw();
   void syncFragment();
 }
@@ -211,6 +239,7 @@ window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === "v") setView(((targetView + 1) % 3) as 0 | 1 | 2);
   if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
+  if (e.key === "h") { hideDim = !hideDim; draw(); }
 });
 
 // --- scene switching + day stepping ---
@@ -231,32 +260,57 @@ function setScene(s: 0 | 1, minDay = 0): void {
 function stepDay(): void {
   economy().step();
   refreshEcoLayouts();
-  if (highlight && selected) applySelection(selected); // recompute over grown chain
+  recomputeTrace(); // recompute over the grown chain
   dayBtn.textContent = `day ${economy().day} · next day →`;
   draw();
   void syncFragment();
 }
 dayBtn.addEventListener("click", stepDay);
 
-// --- selection: click to trace ancestry ---
+// --- selection: click to trace; shift-click to trace coins together ---
+// Joint traces follow the corrected semantics: the intersection of the
+// ancestries fully lit, their union partly lit, the rest dimmed (or
+// hidden). Under the observer lens the intersection is cluster-wise —
+// candidate origins are clusters, not coins.
 function clearSelection(): void {
-  selected = null;
+  selection = null;
   highlight = null;
 }
-function applySelection(hit: Hit): void {
+function recomputeTrace(): void {
+  if (!selection) {
+    highlight = null;
+    return;
+  }
   const s = active();
-  selected = hit;
-  if (hit.kind === "coin") highlight = ancestry(s.chain, hit.id);
-  else if (hit.kind === "tx") highlight = txAncestry(s.chain, hit.id);
-  else {
+  const cl = lens === 1 ? clustering() : undefined;
+  if (selection.kind === "coins") {
+    const live = selection.ids.filter((id) => s.chain.coins.has(id));
+    highlight = live.length > 0 ? traceCoins(s.chain, live, cl) : null;
+  } else if (selection.kind === "tx") {
+    highlight = s.chain.txs.has(selection.id) ? traceTx(s.chain, selection.id, cl) : null;
+  } else {
     // cluster: its member coins and the transactions that spend them
-    const members = new Set(clustering().members.get(hit.id) ?? []);
+    const members = new Set(clustering().members.get(selection.id) ?? []);
     const txs = new Set<string>();
     for (const tid of s.chain.order) {
       if (s.chain.txs.get(tid)!.inputs.some((c) => members.has(c))) txs.add(tid);
     }
-    highlight = { coins: members, txs };
+    highlight = { full: { coins: members, txs }, partial: { coins: members, txs } };
   }
+}
+function applySelection(hit: Hit, shift = false): void {
+  if (shift && hit.kind === "coin" && selection?.kind === "coins") {
+    // toggle the coin in the joint trace
+    const ids = selection.ids.includes(hit.id)
+      ? selection.ids.filter((id) => id !== hit.id)
+      : [...selection.ids, hit.id];
+    selection = ids.length > 0 ? { kind: "coins", ids } : null;
+  } else if (hit.kind === "coin") {
+    selection = { kind: "coins", ids: [hit.id] };
+  } else {
+    selection = { kind: hit.kind, id: hit.id };
+  }
+  recomputeTrace();
 }
 
 /** hit-test whatever the current view phase shows */
@@ -363,6 +417,12 @@ const steps = [
       return owner ?? undefined;
     },
   ),
+  ...intersectionSteps(
+    () => active().bip.bounds,
+    () => m5Moments().coin,   // a coinjoined coin worth tracing
+    () => m5Moments().cross,  // a spend linking two sessions' pasts
+    () => m5Moments().toxic,  // coinjoin change spent beside a mixed coin
+  ),
 ];
 function txRect(tid: string | undefined): Rect {
   const s = active();
@@ -380,6 +440,58 @@ function denseCoinjoin(): string | undefined {
   }
   return best;
 }
+/** bounding box over a set of coins and txs in the bipartite layout */
+function traceBounds(coins: Iterable<string>, txs: Iterable<string>): Rect {
+  const s = active();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const eat = (r: Rect | undefined): void => {
+    if (!r) return;
+    x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y);
+    x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h);
+  };
+  for (const c of coins) eat(s.bip.coins.get(c));
+  for (const t of txs) eat(s.bip.txs.get(t));
+  if (x0 > x1) return s.bip.bounds;
+  return { x: x0 - 120, y: y0 - 120, w: x1 - x0 + 240, h: y1 - y0 + 240 };
+}
+
+// --- chapter 7: its three moments. The linking spend is injected on
+// INTERSECT_DAY (economy.intersectSpend), so it exists on every seed;
+// the toxic-change spend arises naturally by day ~105 (probed across
+// seeds). Rects frame the whole traced past, not just the vertex.
+let m5Cache: { n: number; coin?: Focused; cross?: Focused; toxic?: Focused } | null = null;
+function m5Moments(): { coin?: Focused; cross?: Focused; toxic?: Focused } {
+  const chain = eco?.chain;
+  if (!chain) return {};
+  if (m5Cache && m5Cache.n === chain.order.length) return m5Cache;
+  const sessions = new Set(eco!.coinjoins.keys());
+  const found: typeof m5Cache = { n: chain.order.length };
+  const slip = eco!.events.find((e) => e.memo === "tidying up the wallet");
+  if (slip && chain.txs.has(slip.tid)) {
+    const t = traceTx(chain, slip.tid);
+    found.cross = { id: slip.tid, rect: traceBounds(t.partial.coins, t.partial.txs) };
+    const cid = chain.txs.get(slip.tid)!.inputs[0]!;
+    const a = ancestry(chain, cid);
+    found.coin = { id: cid, rect: traceBounds(a.coins, a.txs) };
+  }
+  for (const tid of chain.order) {
+    if (found.toxic) break;
+    const tx = chain.txs.get(tid)!;
+    if (tx.inputs.length < 2 || sessions.has(tid)) continue;
+    const hasChange = tx.inputs.some((c) => chain.coins.get(c)!.label === "coinjoin change");
+    const hasMixed = tx.inputs.some((c) => {
+      const coin = chain.coins.get(c)!;
+      return coin.label !== "coinjoin change" && coin.producer !== null && sessions.has(coin.producer);
+    });
+    if (hasChange && hasMixed) {
+      const t = traceTx(chain, tid);
+      found.toxic = { id: tid, rect: traceBounds(t.partial.coins, t.partial.txs) };
+    }
+  }
+  m5Cache = found;
+  return found;
+}
+
 function firstSettlement(): { tid: string; payer: number } | undefined {
   // prefer a full cycle (as many obligations as parties), then any
   // three-party settlement, then whatever exists
@@ -400,6 +512,11 @@ const tutorial = new Tutorial(steps, {
     if (l !== lens || l === 2) setLens(l);
   },
   onScene: (s, minDay) => setScene(s, minDay),
+  onSelect: (sel) => {
+    if (sel === null) clearSelection();
+    else applySelection(sel);
+    draw();
+  },
 });
 
 // --- cast panel + inspector ---
@@ -492,11 +609,11 @@ canvas.addEventListener("pointerup", (e) => {
   if (dragging && moved) {
     syncFragmentSoon();
   } else if (dragging) {
-    // a click: select and trace, or clear
+    // a click: select and trace (shift-click builds a joint trace), or clear
     const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
     const hit = hitAt(wx, wy);
-    if (hit) applySelection(hit);
-    else clearSelection();
+    if (hit) applySelection(hit, e.shiftKey);
+    else if (!e.shiftKey) clearSelection();
     draw();
   }
   dragging = false;

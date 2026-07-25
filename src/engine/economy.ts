@@ -44,6 +44,8 @@ export const PAYJOIN_DAY = 30;
 export const SETTLE_DAY = 60;
 /** the day word crosses community lines: strangers can share a transaction */
 export const COINJOIN_DAY = 90;
+/** the day somebody consolidates coins from two different sessions */
+export const INTERSECT_DAY = 112;
 
 // directed, flavored community edges: who tends to owe whom, and for what
 const EDGES: { payer: number; payee: number; memos: [string, number, number][] }[] = [
@@ -307,6 +309,52 @@ export class Economy {
       this.events.push({ tid, day: this.day, payer: o.payer, payee: o.payee, memo: o.memo, form: "settlement", why });
     }
     return true;
+  }
+
+  /**
+   * Day INTERSECT_DAY: the linking mistake chapter 7 narrates. A session
+   * regular tidies their wallet, spending two coins whose pasts run
+   * through different sessions in one transaction — the classic slip
+   * wallet coin-selection makes all the time. Deliberately rng-free
+   * (deterministic pick, base feerate) so the injection leaves the
+   * seeded stream untouched.
+   */
+  private intersectSpend(): void {
+    for (let u = 0; u < PERSONAS.length; u++) {
+      // largest spendable output per session; the naive join doesn't count
+      const bySession = new Map<TxId, CoinId>();
+      for (const c of this.chain.utxos()) {
+        if (c.owner !== u || c.producer === null || c.producer === this.naiveTid) continue;
+        if (!this.coinjoins.has(c.producer)) continue;
+        const prev = bySession.get(c.producer);
+        if (!prev || this.chain.coins.get(prev)!.value < c.value) bySession.set(c.producer, c.id);
+      }
+      if (bySession.size < 2) continue;
+      const picks = [...bySession.values()]
+        .sort((a, b) => this.chain.coins.get(b)!.value - this.chain.coins.get(a)!.value)
+        .slice(0, 2);
+      const feerate = Number(this.feebase.toFixed(2));
+      const fee = txfee(2, 1, feerate);
+      const total = picks.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0) - fee;
+      if (total < 294) continue;
+      this.txn += 1;
+      const tid = `t${this.txn}`;
+      const name = PERSONAS[u]!.name;
+      this.chain.addTx(tid, this.day, picks, [
+        { owner: u, value: total, label: "tidied-up savings" },
+      ], feerate, `${name} tidies up the wallet — two coinjoined coins in one spend`);
+      this.events.push({
+        tid, day: this.day, payer: u, payee: null,
+        memo: "tidying up the wallet", form: "unilateral",
+        why: `${name} merges two coins to keep the wallet simple — but their ` +
+          "pasts run through different coinjoin sessions. Anyone can now " +
+          "intersect the two candidate-origin sets: the owner must sit in " +
+          "both, so the candidates collapse to the overlap — usually far " +
+          "smaller than either set — and each session's other participants " +
+          "are thinned out by elimination.",
+      });
+      return;
+    }
   }
 
   /**
@@ -617,6 +665,9 @@ export class Economy {
       const parts = this.pickStrangers();
       if (parts) this.coinjoin(parts, Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2)));
     }
+    // the consolidation slip that makes intersection attacks concrete;
+    // rng-free so the seeded stream is unchanged by its presence
+    if (this.day === INTERSECT_DAY) this.intersectSpend();
     // each payer weighs its pending obligations; unpayable ones slip a day
     this.pending = this.pending.filter((obl) => {
       const paid = this.settle(obl);

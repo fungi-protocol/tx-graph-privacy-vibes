@@ -69,13 +69,22 @@ export function txRectAt(block: Layout, bip: BipLayout, id: string, t: number): 
 
 export interface MorphDrawOptions {
   hover?: Hit | null;
-  /** ancestry highlight: everything else is gently dimmed (not too dim) */
-  highlight?: { coins: Set<string>; txs: Set<string> } | null;
+  /**
+   * joint-trace highlight: the intersection (full) at full strength, the
+   * union (partial) partly lit, everything else gently dimmed (not too
+   * dim) — or hidden entirely when hideDim is set
+   */
+  highlight?: {
+    full: { coins: Set<string>; txs: Set<string> };
+    partial: { coins: Set<string>; txs: Set<string> };
+  } | null;
+  hideDim?: boolean;
   /** knowledge lens; defaults to the omniscient paint */
   paint?: Paint;
 }
 
 const DIM = 0.3;
+const PARTIAL = 0.55;
 
 export function drawMorph(
   ctx: CanvasRenderingContext2D,
@@ -88,9 +97,12 @@ export function drawMorph(
   const hover = opts.hover ?? null;
   const hoverCoin = hover?.kind === "coin" ? hover.id : null;
   const hl = opts.highlight ?? null;
+  const dim = opts.hideDim ? 0 : DIM;
   const paint = opts.paint ?? OMNISCIENT;
-  const coinAlpha = (id: string): number => (hl && !hl.coins.has(id) ? DIM : 1);
-  const txAlpha = (id: string): number => (hl && !hl.txs.has(id) ? DIM : 1);
+  const coinAlpha = (id: string): number =>
+    !hl ? 1 : hl.full.coins.has(id) ? 1 : hl.partial.coins.has(id) ? PARTIAL : dim;
+  const txAlpha = (id: string): number =>
+    !hl ? 1 : hl.full.txs.has(id) ? 1 : hl.partial.txs.has(id) ? PARTIAL : dim;
   const coinAt = (id: string): Rect => coinRectAt(block, bip, id, t)!;
   const txAt = (id: string): Rect => txRectAt(block, bip, id, t)!;
 

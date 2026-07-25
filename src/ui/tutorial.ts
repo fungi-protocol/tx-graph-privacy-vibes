@@ -17,6 +17,9 @@ export interface TutorialStep {
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
   minDay?: number;
+  /** something to select when the step becomes active (trace highlight);
+   * null clears the selection; undefined leaves it alone */
+  select?: () => { kind: "coin" | "tx"; id: string } | null | undefined;
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -28,6 +31,8 @@ export interface TutorialCallbacks {
   onLens?: (lens: 0 | 1 | 2, agent?: number) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
+  /** steps that trace something fire this after lens, before focus */
+  onSelect?: (sel: { kind: "coin" | "tx"; id: string } | null) => void;
 }
 
 export class Tutorial {
@@ -78,6 +83,10 @@ export class Tutorial {
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
+    if (animate && step.select) {
+      const sel = step.select();
+      if (sel !== undefined) this.cb.onSelect?.(sel);
+    }
     if (animate && step.focus) {
       this.cb.onFocus(typeof step.focus === "function" ? step.focus() : step.focus);
     }
