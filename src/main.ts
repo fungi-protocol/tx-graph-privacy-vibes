@@ -40,11 +40,24 @@ interface SceneData { chain: Chain; layout: Layout; bip: BipLayout }
 const introChain = buildIntroChain();
 const intro: SceneData = { chain: introChain, layout: layoutChain(introChain), bip: layoutBipartite(introChain) };
 
-let seed = "welcome";
-let params: Partial<EconomyParams> = {};
-let manual: number | null = null;
-let manualFrom = 0;
-let interventions: Intervention[] = [];
+// The replay inputs: everything the world is rebuilt from, in one place.
+// URL sync reads it, fragment restore and the params panel write it, and
+// rebuildEconomy replays from it — no parallel globals to fall out of
+// step. The #17 parameter timeline (dated patches) lands as one more
+// field here, not as another loose variable.
+const session: {
+  seed: string;
+  params: Partial<EconomyParams>;
+  manual: number | null;
+  manualFrom: number;
+  interventions: Intervention[];
+} = {
+  seed: "welcome",
+  params: {},
+  manual: null,
+  manualFrom: 0,
+  interventions: [],
+};
 let eco: Economy | null = null;
 const castList = (): Persona[] => eco ? eco.cast : PERSONAS;
 let ecoScene: SceneData | null = null;
@@ -59,10 +72,10 @@ let simRev = 0;
 
 function economy(): Economy {
   if (!eco) {
-    eco = new Economy(seed, params);
-    eco.manual = manual;
-    eco.manualFrom = manualFrom;
-    eco.interventions = interventions;
+    eco = new Economy(session.seed, session.params);
+    eco.manual = session.manual;
+    eco.manualFrom = session.manualFrom;
+    eco.interventions = session.interventions;
     simRev += 1;
     setCastNames(eco.cast.map((p) => p.name)); // captions track the live town
     refreshEcoLayouts();
@@ -246,8 +259,8 @@ function draw(): void {
 
   const hud = document.getElementById("hud")!;
   const dayPart = scene === 1 ? ` · day ${economy().day}` : "";
-  const playPart = manual !== null ? ` · playing ${castList()[manual]!.name}` : "";
-  hud.textContent = `seed ${seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click coins: trace together (gold ring = shared origins) · h: hide the rest · right-click: copy a reference${originsPart()}`;
+  const playPart = session.manual !== null ? ` · playing ${castList()[session.manual]!.name}` : "";
+  hud.textContent = `seed ${session.seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click coins: trace together (gold ring = shared origins) · h: hide the rest · right-click: copy a reference${originsPart()}`;
 }
 
 // counterfactual-path counting for the selected coin (memoized: the flow
@@ -409,7 +422,7 @@ window.addEventListener("keydown", (e) => {
 // --- scene switching + day stepping ---
 const dayBtn = document.getElementById("stepday") as HTMLButtonElement;
 function dayLabel(): string {
-  return manual !== null
+  return session.manual !== null
     ? `day ${economy().day} · end turn →`
     : `day ${economy().day} · next day →`;
 }
@@ -443,7 +456,7 @@ function selectionRect(): Rect | null {
 
 let dayGen = 0;
 function stepDay(): void {
-  if (manual !== null) harvestChoices();
+  if (session.manual !== null) harvestChoices();
   // a new day re-lays the whole graph: everything already on screen glides
   // to its new frame (new transactions appear in place), and the selection
   // is held steady on screen throughout the glide
@@ -497,14 +510,14 @@ dayBtn.addEventListener("click", stepDay);
 // play mode (single-agent privacy survival) is planned to replace it. ---
 const decisionsPanel = document.getElementById("decisions")!;
 function setManual(u: number | null, from?: number): void {
-  if (u !== manual) {
-    manual = u;
+  if (u !== session.manual) {
+    session.manual = u;
     // takeover starts tomorrow (or at the tutorial's target day): the past
     // stays the dice's, so restores replay identically
-    manualFrom = u === null ? 0 : (from ?? economy().day + 1);
+    session.manualFrom = u === null ? 0 : (from ?? economy().day + 1);
     if (eco) {
-      eco.manual = manual;
-      eco.manualFrom = manualFrom;
+      eco.manual = session.manual;
+      eco.manualFrom = session.manualFrom;
     }
   }
   if (scene === 1) dayBtn.textContent = dayLabel();
@@ -519,13 +532,13 @@ const PLAN_NAMES: Record<ManualPlan, string> = {
   wait: "wait", unilateral: "pay now", payjoin: "payjoin",
 };
 function renderDecisions(): void {
-  if (manual === null || scene !== 1) {
+  if (session.manual === null || scene !== 1) {
     decisionsPanel.style.display = "none";
     return;
   }
   const e = economy();
-  const cands = e.candidates(manual);
-  const name = castList()[manual]!.name;
+  const cands = e.candidates(session.manual);
+  const name = castList()[session.manual]!.name;
   const rows = cands.map((c, i) => {
     const overdue = c.obl.due <= e.day + 1;
     const who = c.obl.payee === null ? "a merchant" : castList()[c.obl.payee]!.name;
@@ -534,7 +547,7 @@ function renderDecisions(): void {
     const dflt = c.plans.some((p) => p.plan === "wait") ? "wait" : "unilateral";
     const plans = c.plans.map((p) => {
       const funded = p.plan === "wait" ||
-        e.canFund(manual!, c.obl.usd, c.feerate, p.plan === "payjoin" ? 1 : 0);
+        e.canFund(session.manual!, c.obl.usd, c.feerate, p.plan === "payjoin" ? 1 : 0);
       const terms = Object.entries(p.terms)
         .map(([k, v]) => `${TERM_NAMES[k] ?? k} ${v.toFixed(1)}`).join(" + ");
       const checked = p.plan === dflt ? " checked" : "";
@@ -547,7 +560,7 @@ function renderDecisions(): void {
       <span class="due${overdue ? " overdue" : ""}">${overdue ? "overdue" : `due day ${c.obl.due}`}</span>
       ${plans}</div>`;
   }).join("");
-  const balance = e.chain.utxos().filter((c) => c.owner === manual).reduce((s, c) => s + c.value, 0);
+  const balance = e.chain.utxos().filter((c) => c.owner === session.manual).reduce((s, c) => s + c.value, 0);
   decisionsPanel.innerHTML = `<h3><span class="who">${name}</span>'s decisions —
     end the turn to lock them in</h3>
     <p class="role">wallet: ${fmtSats(balance)} sats</p>${rows ||
@@ -557,7 +570,7 @@ function renderDecisions(): void {
 /** read the panel's radio choices and record them for the coming day */
 function harvestChoices(): void {
   const e = economy();
-  const cands = e.candidates(manual!);
+  const cands = e.candidates(session.manual!);
   decisionsPanel.querySelectorAll(".dec-row").forEach((row) => {
     const i = Number((row as HTMLElement).dataset["i"]);
     const c = cands[i];
@@ -565,7 +578,7 @@ function harvestChoices(): void {
     const pick = (row.querySelector("input:checked") as HTMLInputElement | null)?.value as ManualPlan | undefined;
     // only departures from the engine's default behavior are recorded
     if (!pick || pick === (row as HTMLElement).dataset["default"]) return;
-    interventions.push({ day: e.day + 1, id: c.obl.id, plan: pick });
+    session.interventions.push({ day: e.day + 1, id: c.obl.id, plan: pick });
   });
 }
 
@@ -942,11 +955,11 @@ const KNOBS: Knob[] = [
 ];
 function renderParams(): void {
   paramsPanel.innerHTML = KNOBS.map((k) => {
-    const v = params[k.key] ?? DEFAULT_PARAMS[k.key];
+    const v = session.params[k.key] ?? DEFAULT_PARAMS[k.key];
     return `<label>${k.label} <output>${v}</output>
       <input type="range" data-key="${k.key}" min="${k.min}" max="${k.max}" step="${k.step}" value="${v}"></label>`;
   }).join("") + `
-    <label>seed <input type="text" class="seed" value="${seed.replace(/"/g, "&quot;")}"></label>
+    <label>seed <input type="text" class="seed" value="${session.seed.replace(/"/g, "&quot;")}"></label>
     <button class="apply">re-roll the world</button>`;
   paramsPanel.querySelectorAll("input[type=range]").forEach((el) => {
     el.addEventListener("input", () => {
@@ -964,22 +977,22 @@ function applyParams(): void {
     if (v !== DEFAULT_PARAMS[key]) next[key] = v;
   });
   const newSeed = (paramsPanel.querySelector(".seed") as HTMLInputElement).value.trim() || "welcome";
-  if (newSeed !== seed) {
+  if (newSeed !== session.seed) {
     // a different world: recorded choices belong to the old one
-    interventions = [];
-    manual = null;
-    manualFrom = 0;
+    session.interventions = [];
+    session.manual = null;
+    session.manualFrom = 0;
   }
-  seed = newSeed;
-  params = next;
+  session.seed = newSeed;
+  session.params = next;
   // a shrunken town: choices recorded for agents who no longer exist go
-  const popNow = Math.max(10, Math.min(MAX_POP, params.pop ?? 10));
-  if (manual !== null && manual >= popNow) { manual = null; manualFrom = 0; }
+  const popNow = Math.max(10, Math.min(MAX_POP, session.params.pop ?? 10));
+  if (session.manual !== null && session.manual >= popNow) { session.manual = null; session.manualFrom = 0; }
   // choices anchor to stable schedule IDs: one that names an edge the
   // smaller town lacks simply never matches, so no filtering is needed
   const day = scene === 1 ? economy().day : 0;
   rebuildEconomy(day);
-  setManual(manual); // refresh the day button and decisions panel
+  setManual(session.manual); // refresh the day button and decisions panel
   toast("the world re-rolled — same story, different dice");
 }
 paramsBtn.addEventListener("click", () => {
@@ -996,7 +1009,7 @@ paramsBtn.addEventListener("click", () => {
 let syncTimer: number | undefined;
 async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   const state: FragmentState = {
-    seed,
+    seed: session.seed,
     cam: [Math.round(cam.x), Math.round(cam.y), Number(cam.scale.toFixed(3))],
   };
   const t = tutorial.currentIndex;
@@ -1015,12 +1028,12 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   ];
   const p: NonNullable<FragmentState["p"]> = {};
   for (const [key, short] of P) {
-    if (params[key] !== undefined && params[key] !== DEFAULT_PARAMS[key]) p[short] = params[key];
+    if (session.params[key] !== undefined && session.params[key] !== DEFAULT_PARAMS[key]) p[short] = session.params[key];
   }
   if (Object.keys(p).length > 0) state.p = p;
-  if (manual !== null) state.m = [manual, manualFrom];
-  if (interventions.length > 0) {
-    state.i = interventions.map((iv) => [iv.day, iv.id, iv.plan]);
+  if (session.manual !== null) state.m = [session.manual, session.manualFrom];
+  if (session.interventions.length > 0) {
+    state.i = session.interventions.map((iv) => [iv.day, iv.id, iv.plan]);
   }
   if (ref) state.ref = ref;
   const frag = await encodeFragment(state);
@@ -1106,26 +1119,26 @@ canvas.addEventListener("contextmenu", (e) => {
 async function init(): Promise<void> {
   resize();
   const state = await decodeFragment(location.hash).catch(() => null);
-  if (state?.seed) seed = state.seed;
+  if (state?.seed) session.seed = state.seed;
   if (state?.p) {
-    if (state.p.o !== undefined) params.oblRate = state.p.o;
-    if (state.p.e !== undefined) params.extRate = state.p.e;
-    if (state.p.f !== undefined) params.feeLevel = state.p.f;
-    if (state.p.fv !== undefined) params.feeVol = state.p.fv;
-    if (state.p.w !== undefined) params.wealth = state.p.w;
-    if (state.p.pp !== undefined) params.pop = state.p.pp;
+    if (state.p.o !== undefined) session.params.oblRate = state.p.o;
+    if (state.p.e !== undefined) session.params.extRate = state.p.e;
+    if (state.p.f !== undefined) session.params.feeLevel = state.p.f;
+    if (state.p.fv !== undefined) session.params.feeVol = state.p.fv;
+    if (state.p.w !== undefined) session.params.wealth = state.p.w;
+    if (state.p.pp !== undefined) session.params.pop = state.p.pp;
   }
   if (state?.m && state.m[0] < (state.p?.pp ?? PERSONAS.length)) {
-    manual = state.m[0];
-    manualFrom = state.m[1];
+    session.manual = state.m[0];
+    session.manualFrom = state.m[1];
   }
   if (state?.i) {
-    interventions = state.i.map(([day, id, plan]) => ({ day, id, plan: plan as ManualPlan }));
+    session.interventions = state.i.map(([day, id, plan]) => ({ day, id, plan: plan as ManualPlan }));
   }
   setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
   if (state?.v === 2) setCollapsed(true, false);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
-  if (manual !== null) setManual(manual); // light the decisions panel
+  if (session.manual !== null) setManual(session.manual); // light the decisions panel
   if (state?.ov !== undefined) {
     overlays = state.ov & OV_ALL;
     simRev += 1;
