@@ -22,6 +22,16 @@
 import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { subTransactionMapping } from "./subsetsum";
 
+/** one observation the observer's map rests on: a method applied to a
+ *  transaction welded these coins together */
+export interface Weld {
+  method: "cioh" | "change" | "subtx";
+  /** the base observation: the transaction the method looked at */
+  tx: TxId;
+  /** the coins this single observation welds into one owner */
+  coins: CoinId[];
+}
+
 export interface Clustering {
   /** coin -> its cluster's representative coin */
   rep: Map<CoinId, CoinId>;
@@ -31,6 +41,11 @@ export interface Clustering {
   rank: Map<CoinId, number>;
   /** tx -> the output the observer guessed to be change */
   changeGuess: Map<TxId, CoinId>;
+  /** the evidence ledger: every weld, in the order it was made. Welds
+   *  citing the same tx are correlated by construction — one
+   *  observation, however many features it feeds — so disabling a
+   *  method (or distrusting an observation) drops them together. */
+  welds: Weld[];
 }
 
 /** Which heuristics the observer is running; all on by default. */
@@ -70,6 +85,7 @@ export function clusterObserver(
   };
 
   const changeGuess = new Map<TxId, CoinId>();
+  const welds: Weld[] = [];
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
     // multi-output spends get the sub-transaction treatment first: a unique
@@ -85,8 +101,12 @@ export function clusterObserver(
       if (map.kind === "unique") {
         for (const part of map.parts) {
           const anchor = tx.inputs[part.ins[0]!]!;
-          for (const i of part.ins) union(tx.inputs[i]!, anchor);
-          for (const o of part.outs) union(tx.outputs[o]!, anchor);
+          const coins = [
+            ...part.ins.map((i) => tx.inputs[i]!),
+            ...part.outs.map((o) => tx.outputs[o]!),
+          ];
+          for (const c of coins) union(c, anchor);
+          welds.push({ method: "subtx", tx: tid, coins });
         }
         continue;
       }
@@ -96,8 +116,9 @@ export function clusterObserver(
       // atomic: no way to split it — fall through to plain CIOH
     }
     // CIOH: all inputs of one transaction, one owner
-    if (cioh) {
+    if (cioh && tx.inputs.length >= 2) {
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
+      welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }
     // round-USD change identification
     const price = change ? usdPrice?.(tx.timestep) : undefined;
@@ -112,6 +133,7 @@ export function clusterObserver(
       if (change) {
         changeGuess.set(tid, change);
         union(change, tx.inputs[0]!);
+        welds.push({ method: "change", tx: tid, coins: [change, tx.inputs[0]!] });
       }
     }
   }
@@ -130,7 +152,7 @@ export function clusterObserver(
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess };
+  return { rep, members, rank, changeGuess, welds };
 }
 
 /** assemble a Clustering from a coin -> group assignment; coins keyed
@@ -159,7 +181,7 @@ function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Cluste
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess: new Map() };
+  return { rep, members, rank, changeGuess: new Map(), welds: [] };
 }
 
 /**
