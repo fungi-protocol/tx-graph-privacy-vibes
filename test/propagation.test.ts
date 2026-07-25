@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { auxGraph, propagationStep, targetGraph, type WGraph } from "../src/analysis/propagation";
 import { clusterObserver } from "../src/analysis/clusters";
+import { clusterOwner, gradeAcceptances, outsiderEdges, pureClusterSeeds } from "../src/scenario/synthesisStaging";
 import { Economy } from "../src/engine/economy";
 import { type Edge } from "../src/scenario/cast";
 
-function graph(edges: [string, string][]): WGraph {
+function graph(edges: [string, string][], extra: string[] = []): WGraph {
   const g: WGraph = { nodes: [], adj: new Map() };
   const ensure = (n: string): void => {
     if (!g.adj.has(n)) { g.adj.set(n, new Map()); g.nodes.push(n); }
@@ -15,22 +16,37 @@ function graph(edges: [string, string][]): WGraph {
     g.adj.get(a)!.set(b, (g.adj.get(a)!.get(b) ?? 0) + 1);
     g.adj.get(b)!.set(a, (g.adj.get(b)!.get(a) ?? 0) + 1);
   }
+  for (const n of extra) ensure(n);
   return g;
 }
 
-test("a seed propagates along matching structure: one sweep maps the line", () => {
-  // pseudonym graph and relationship graph are the same path; one seed
-  // in the middle identifies everyone — each acceptance re-scores the
-  // rest within the sweep (global state, not a frontier walk)
-  const target = graph([["c0", "c1"], ["c1", "c2"], ["c2", "c3"]]);
-  const aux = graph([["0", "1"], ["1", "2"], ["2", "3"]]);
-  const res = propagationStep(target, aux, new Map([["c1", "1"]]));
-  assert.deepEqual([...res.accepted.entries()].sort(),
-    [["c0", "0"], ["c2", "2"], ["c3", "3"]]);
-  for (const v of res.verdicts) {
-    assert.equal(v.outcome.kind, "accepted");
-    assert.ok(v.eccentricity >= 1.5);
-  }
+test("two corroborating mapped neighbors make a standout; the rest abstain", () => {
+  // cX trades with both seeded clusters; agent x trades with both
+  // seeded agents. The distractor y touches only one seed, so x stands
+  // out over the zero-padded candidate domain. The isolated cW has no
+  // mapped neighbors at all.
+  const target = graph([["cA", "cX"], ["cB", "cX"]], ["cW"]);
+  const aux = graph([["a", "x"], ["b", "x"], ["a", "y"]]);
+  const res = propagationStep(target, aux, new Map([["cA", "a"], ["cB", "b"]]));
+  assert.deepEqual([...res.accepted.entries()], [["cX", "x"]]);
+  const cx = res.verdicts.find((v) => v.node === "cX")!;
+  assert.ok(Number.isFinite(cx.eccentricity) && cx.eccentricity >= 1.5);
+  const cw = res.verdicts.find((v) => v.node === "cW")!;
+  assert.equal(cw.outcome.kind, "abstained");
+  assert.equal((cw.outcome as { reason: string }).reason, "no-signal");
+});
+
+test("a single positive candidate earns a finite eccentricity over the padded domain", () => {
+  // the retired convention gave a lone positive score infinite
+  // eccentricity; the paper's domain pads the other unmapped candidates
+  // as zeros, so the standout is finite — and can still be accepted
+  const target = graph([["c0", "c1"], ["c2", "c3"]]);
+  const aux = graph([["0", "1"], ["2", "3"]]);
+  const res = propagationStep(target, aux, new Map([["c0", "0"]]));
+  const c1 = res.verdicts.find((v) => v.node === "c1")!;
+  assert.equal(c1.outcome.kind, "accepted");
+  assert.ok(Number.isFinite(c1.eccentricity), "eccentricity must be finite");
+  assert.ok(c1.eccentricity >= 1.5);
 });
 
 test("symmetry earns an abstention: two indistinguishable candidates, no acceptance", () => {
@@ -48,11 +64,11 @@ test("symmetry earns an abstention: two indistinguishable candidates, no accepta
 
 test("the reverse match vetoes a one-sided standout", () => {
   // two pseudonym clusters both trade with the seed, but the town knows
-  // only ONE counterparty: each cluster's forward score points at that
-  // one agent, and the reverse match cannot tell the clusters apart —
-  // abstain, both times
+  // only ONE counterparty (plus an uninvolved agent to stand out over):
+  // each cluster's forward score points at that one agent, and the
+  // reverse match cannot tell the clusters apart — abstain, both times
   const target = graph([["cA", "cX"], ["cB", "cX"]]);
-  const aux = graph([["a", "x"]]);
+  const aux = graph([["a", "x"]], ["b"]);
   const res = propagationStep(target, aux, new Map([["cX", "x"]]));
   assert.equal(res.accepted.size, 0);
   const reasons = res.verdicts.map((v) =>
@@ -72,37 +88,46 @@ test("no mapped neighbors means no signal, not a guess", () => {
   }
 });
 
-test("the town's graphs are buildable and one sweep runs with honest outcomes", () => {
+test("the town's graphs are buildable and one sweep runs with honest, graded outcomes", () => {
   const eco = new Economy("golden");
   eco.runTo(115);
   const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
   const tg = targetGraph(eco.chain, cl);
   assert.ok(tg.nodes.length >= 5, `only ${tg.nodes.length} pseudonym nodes`);
   const agents = eco.cast.map((_, i) => i);
-  const aux = auxGraph(eco.edges as Edge[], agents);
-  assert.ok(aux.adj.get("1")!.size >= 1, "Bob has relationships");
-  // seed: the two largest clusters, identified by their majority owner
-  // (out-of-band knowledge, as seeds always are)
+  // the outsider's degraded proxy: only the big arrangements are
+  // known, never the cast's own edge list
+  const known = outsiderEdges(eco.edges as Edge[], 300);
+  assert.ok(known.length < (eco.edges as Edge[]).length,
+    "degradation must actually drop relationships");
+  assert.ok(known.length > 0, "the outsider must know something");
+  const aux = auxGraph(known, agents);
+  // seeds: the largest PURE clusters — a mixed cluster has no single
+  // true image, so staging may not seed one (out-of-band knowledge,
+  // as seeds always are; purity checked against latent truth)
   const owner = (id: string): number | null => eco.chain.coins.get(id)!.owner;
-  const majority = (r: string): string => {
-    const counts = new Map<number, number>();
-    for (const id of cl.members.get(r)!) {
-      const o = owner(id);
-      if (o !== null) counts.set(o, (counts.get(o) ?? 0) + 1);
-    }
-    return String([...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0]);
-  };
-  const big = [...cl.members.entries()].filter(([, m]) => m.length >= 2)
-    .sort((a, b) => b[1].length - a[1].length).slice(0, 2).map(([r]) => r);
-  const seeds = new Map(big.map((r) => [r, majority(r)]));
+  const seeds = pureClusterSeeds(cl, owner, 2);
+  assert.equal(seeds.size, 2, "two pure seed clusters must exist");
+  for (const rep of seeds.keys()) {
+    assert.notEqual(clusterOwner(cl, rep, owner), null, "seed cluster must be pure");
+  }
   const res = propagationStep(tg, aux, seeds);
   assert.ok(res.verdicts.length >= 3, "sweep examined almost nothing");
-  // every acceptance carried a real standout and a reverse agreement;
-  // abstentions are first-class and expected at this scale
+  // every acceptance carried a real, finite standout and a reverse
+  // agreement; abstentions are first-class and expected at this scale
   for (const v of res.verdicts) {
     if (v.outcome.kind === "accepted") {
-      assert.ok(v.eccentricity >= 1.5, `${v.node}: accepted below threshold`);
+      assert.ok(Number.isFinite(v.eccentricity) && v.eccentricity >= 1.5,
+        `${v.node}: accepted without a finite standout`);
       assert.equal(v.ranked[0]!.candidate, v.outcome.mapped);
     }
+  }
+  // grade what was accepted against latent truth — truth judges the
+  // analysis, never feeds it. False and undefined acceptances are
+  // legitimate outcomes; the grade just has to be well-defined
+  const grades = gradeAcceptances(cl, res.accepted, owner);
+  assert.equal(grades.size, res.accepted.size);
+  for (const g of grades.values()) {
+    assert.ok(["correct", "false", "undefined"].includes(g));
   }
 });

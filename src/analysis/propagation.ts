@@ -22,6 +22,24 @@
 // source-grounded way to synthesize evidence — the concrete approach
 // the paper identified for the sparse regime — not the definition or
 // ceiling of what a capable adversary can do.
+//
+// Deviations from the paper, disclosed:
+//   - Eccentricity domain: the paper's listing initializes a zero
+//     score for EVERY right-graph node, so σ includes those zeros. We
+//     compute over the unmapped candidates (§5.2's prose scopes the
+//     step to unmapped nodes, and mapped images can never score);
+//     zeros are padded to that domain. Positive-only σ — an earlier
+//     draft here — is a different statistic, systematically biased
+//     toward ACCEPTANCE in the sparse regime.
+//   - Both graphs are undirected here; the paper's are directed.
+//   - Edge weights define adjacency only; the damping uses degree.
+//   - Nodes are examined in graph order and acceptances apply
+//     mid-sweep, so the outcome is order-dependent (the paper's
+//     iteration shares that property).
+//   - theta = 1.5 is this demonstration's choice; the paper explores
+//     thresholds rather than fixing one.
+//   - The paper's revisiting of already-accepted mappings is omitted
+//     at this scale (seeds are ground truth here and sweeps are few).
 import { type Chain, type CoinId } from "../model/chain";
 import { type Clustering } from "./clusters";
 import { type Edge } from "../scenario/cast";
@@ -52,6 +70,15 @@ function ensureNode(g: WGraph, n: string): void {
  * clusters whenever a transaction spends coins of one and creates
  * coins of the other — a visible payment between pseudonyms. Weight
  * counts such transactions. Built from the public chain alone.
+ *
+ * Singleton clusters are excluded as a MODEL CHOICE, not by the
+ * paper's warrant: §4.5's "no hope for singletons" covers degree-zero
+ * nodes, and a one-coin cluster does have payment edges. The reason
+ * here is scale — at toy size, hundreds of one-coin pseudonyms with a
+ * single edge each would drown the demonstration in no-signal
+ * abstentions without changing any acceptance. What is discarded with
+ * them: the payments into and out of those single coins. Read the
+ * sweep's abstention counts knowing those edges are not on the board.
  */
 export function targetGraph(chain: Chain, cl: Clustering): WGraph {
   const g: WGraph = { nodes: [], adj: new Map() };
@@ -76,10 +103,12 @@ export function targetGraph(chain: Chain, cl: Clustering): WGraph {
 }
 
 /**
- * The auxiliary graph: the town's recurring relationships, as anyone
- * who knows the town does — who rents from whom, who fixes whose
- * bikes. Nodes are agent indices (as strings); weights follow the
- * relationship's obligation rate.
+ * The auxiliary graph: recurring relationships, weighted by obligation
+ * rate. What to pass matters: the paper's auxiliary graph comes from a
+ * different, imperfect source, and propagation has to work despite the
+ * mismatch — so an analyst's aux graph is built from a DEGRADED edge
+ * list (see synthesisStaging's outsiderEdges), never the cast's own.
+ * Passing the full list models an insider who knows every arrangement.
  */
 export function auxGraph(edges: Edge[], agents: number[]): WGraph {
   const g: WGraph = { nodes: [], adj: new Map() };
@@ -95,7 +124,9 @@ export interface NodeVerdict {
   node: string;
   /** candidates ranked by score, best first (score shown as-is) */
   ranked: { candidate: string; score: number }[];
-  /** (max − max₂) / σ over the candidate scores; NaN with <2 candidates */
+  /** (max − max₂)/σ over the zero-padded candidate domain (every
+   *  unmapped candidate counts, non-scoring ones as zeros); NaN when
+   *  the domain has fewer than two candidates */
   eccentricity: number;
   outcome:
     | { kind: "accepted"; mapped: string }
@@ -109,21 +140,23 @@ export interface SweepResult {
   accepted: Map<string, string>;
 }
 
-/** (max − max₂)/σ, the paper's standout measure, with two small-graph
- *  conventions the paper never needed: a single positive candidate is a
- *  standout with no competition (∞ — the reverse gate still applies),
- *  and a tie for the top (σ of identical scores, or max = max₂) is no
- *  standout at all (0). */
-function eccentricity(scores: number[]): number {
-  if (scores.length === 0) return NaN;
-  if (scores.length === 1) return scores[0]! > 0 ? Infinity : NaN;
-  const max = Math.max(...scores);
-  const rest = [...scores];
+/** (max − max₂)/σ, the paper's standout measure, computed over the
+ *  full candidate domain: `domain` is the number of unmapped candidate
+ *  nodes, and non-scoring candidates count as zeros (the paper's
+ *  listing initializes a zero score per node; σ includes those zeros).
+ *  A single positive score among zeros thus earns a finite, honest
+ *  eccentricity — no special case. With fewer than two candidates in
+ *  the domain there is nothing to stand out against: NaN. */
+function eccentricity(scores: number[], domain: number): number {
+  if (domain < 2) return NaN;
+  const padded = [...scores];
+  while (padded.length < domain) padded.push(0);
+  const max = Math.max(...padded);
+  const rest = [...padded];
   rest.splice(rest.indexOf(max), 1);
   const max2 = Math.max(...rest);
-  if (max === max2) return 0;
-  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const sd = Math.sqrt(scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length);
+  const mean = padded.reduce((a, b) => a + b, 0) / padded.length;
+  const sd = Math.sqrt(padded.reduce((a, b) => a + (b - mean) ** 2, 0) / padded.length);
   return sd === 0 ? 0 : (max - max2) / sd;
 }
 
@@ -180,7 +213,8 @@ export function propagationStep(
     const ranked = [...scores.entries()]
       .map(([candidate, score]) => ({ candidate, score }))
       .sort((a, b) => b.score - a.score || (a.candidate < b.candidate ? -1 : 1));
-    const ecc = eccentricity(ranked.map((r) => r.score));
+    const domain = aux.nodes.filter((n) => !images.has(n)).length;
+    const ecc = eccentricity(ranked.map((r) => r.score), domain);
     const verdict = (outcome: NodeVerdict["outcome"]): void => {
       verdicts.push({ node, ranked, eccentricity: ecc, outcome });
     };
@@ -190,7 +224,8 @@ export function propagationStep(
     // reverse match: map the candidate back and demand it lands here
     const back = matchScores(best, aux, target, inverse, new Set(inverse.values()));
     const backRanked = [...back.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
-    const backEcc = eccentricity(backRanked.map(([, s]) => s));
+    const backDomain = target.nodes.filter((n) => !work.has(n)).length;
+    const backEcc = eccentricity(backRanked.map(([, s]) => s), backDomain);
     if (backRanked.length === 0 || backRanked[0]![0] !== node || !(backEcc >= theta)) {
       verdict({ kind: "abstained", reason: "reverse-mismatch" });
       continue;
