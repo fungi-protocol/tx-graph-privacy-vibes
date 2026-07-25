@@ -903,7 +903,7 @@ export class Economy {
     // income lands as new root coins: money entering from outside town,
     // with no on-chain past, just like the pre-story savings
     for (const inf of sched.inflows) {
-      this.chain.addRoot(`r.${inf.id}`, this.sats(inf.usd), inf.owner, inf.memo);
+      this.chain.addRoot(`r.${inf.id}`, this.sats(inf.usd), inf.owner, inf.memo, this.day);
     }
     // the oracle looks for offsetting obligations first (at most one
     // settlement a day; word spreads on SETTLE_DAY). Groups that cannot

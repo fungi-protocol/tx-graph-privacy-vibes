@@ -73,11 +73,13 @@
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
   .toast.gone { opacity: 0; }
-  #stepday { position: fixed; right: 16px; bottom: 16px; display: none;
+  #stepday, #backday { position: fixed; bottom: 16px; display: none;
              background: #33363e; color: #edc948; border: 1px solid #4a4e57;
              border-radius: 6px; padding: 8px 14px; font: inherit; font-size: 13px;
              cursor: pointer; }
-  #stepday:hover { background: #3d414a; }
+  #stepday { right: 16px; bottom: 16px; }
+  #backday { right: 16px; bottom: 58px; color: #d8dade; }
+  #stepday:hover, #backday:hover { background: #3d414a; }
   #castbtn { position: fixed; left: 16px; bottom: 36px; background: #33363e; color: #d8dade;
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
              font: inherit; font-size: 13px; cursor: pointer; }
@@ -113,6 +115,7 @@
 <button id="castbtn" title="the neighborhood's character sheets">cast</button>
 <div id="cast"></div>
 <div id="inspector"></div>
+<button id="backday" title="rewind the view one day — the record stays; stepping forward replays it">← back a day</button>
 <button id="stepday" title="advance the simulation by one day">next day →</button>
 <!--APP_JS-->
 </body>

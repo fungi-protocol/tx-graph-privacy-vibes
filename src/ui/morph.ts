@@ -291,7 +291,10 @@ export function drawMorph(
     ctx.save();
     for (const cb of block.coinBoxes) {
       if (cb.role !== "in") continue;
-      const coin = chain.coins.get(cb.coin)!;
+      // the layout may cover more history than the chain shows (the time
+      // cursor draws a truncated chain over full-history frames)
+      const coin = chain.coins.get(cb.coin);
+      if (!coin) continue;
       const rect = lerpRect(cb.rect, coinAt(cb.coin), t);
       ctx.globalAlpha = (1 - t) * coinAlpha(cb.coin);
       drawCoinBox(ctx, coin, rect, hoverCoin === cb.coin, false, t, paint);
@@ -358,7 +361,8 @@ export function hitTestMorph(
   }
   if (t < 0.5) {
     for (const cb of block.coinBoxes) {
-      if (cb.role === "in" && inRect(cb.rect)) return { kind: "coin", id: cb.coin };
+      // slots for coins the chain does not show (time cursor) are not hits
+      if (cb.role === "in" && chain.coins.has(cb.coin) && inRect(cb.rect)) return { kind: "coin", id: cb.coin };
     }
   }
   for (const tid of chain.order) {

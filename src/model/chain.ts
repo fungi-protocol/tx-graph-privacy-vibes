@@ -14,6 +14,8 @@ export interface Coin {
   producer: TxId | null;   // null = root (entered the slice from outside)
   dest: TxId | null;       // null = unspent
   label?: string;          // narrative tag, e.g. "exchange withdrawal"
+  /** the day a root entered from outside; undefined = pre-story savings */
+  entered?: number;
 }
 
 export interface Tx {
@@ -31,10 +33,10 @@ export class Chain {
   txs = new Map<TxId, Tx>();
   order: TxId[] = [];      // insertion order = confirmation order
 
-  addRoot(id: CoinId, value: Sats, owner: Owner, label?: string): Coin {
+  addRoot(id: CoinId, value: Sats, owner: Owner, label?: string, entered?: number): Coin {
     if (this.coins.has(id)) throw new Error(`duplicate coin ${id}`);
     if (value <= 0) throw new Error(`coin ${id} value ${value}`);
-    const coin: Coin = { id, value, owner, producer: null, dest: null, label };
+    const coin: Coin = { id, value, owner, producer: null, dest: null, label, entered };
     this.coins.set(id, coin);
     return coin;
   }
@@ -92,6 +94,30 @@ export class Chain {
 
   utxos(): Coin[] {
     return [...this.coins.values()].filter((c) => c.dest === null);
+  }
+
+  /**
+   * The chain as it stood at the end of `day` — the time cursor's view.
+   * Transactions after the cursor vanish; a coin whose spend lies in the
+   * future reads as unspent again. Coins and txs at or before the cursor
+   * are shared (not copied), so positions looked up by id in a
+   * full-history layout still resolve: rewinding hides later data
+   * without moving anything that stays visible.
+   */
+  through(day: number): Chain {
+    const c = new Chain();
+    for (const tid of this.order) {
+      const tx = this.txs.get(tid)!;
+      if (tx.timestep > day) continue;
+      c.txs.set(tid, tx);
+      c.order.push(tid);
+    }
+    for (const coin of this.coins.values()) {
+      if (coin.producer !== null ? !c.txs.has(coin.producer) : (coin.entered ?? 0) > day) continue;
+      const spentLater = coin.dest !== null && !c.txs.has(coin.dest);
+      c.coins.set(coin.id, spentLater ? { ...coin, dest: null } : coin);
+    }
+    return c;
   }
 
   /** Stable content digest input for determinism checks. */

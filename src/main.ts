@@ -91,6 +91,7 @@ function economy(): Economy {
  *  seed, params, and recorded choices fully determine the result */
 function rebuildEconomy(toDay: number): void {
   eco = null; // economy() rebuilds and bumps simRev; caches expire with it
+  viewDay = null; // a fresh world starts at its frontier
   economy().runTo(toDay);
   simRev += 1;
   refreshEcoLayouts();
@@ -104,8 +105,41 @@ function rebuildEconomy(toDay: number): void {
 function refreshEcoLayouts(): void {
   ecoScene = { chain: eco!.chain, layout: layoutChain(eco!.chain), bip: layoutBipartite(eco!.chain) };
 }
+// --- the time cursor (#17): rewinding is a display filter, not a rebuild.
+// The layout stays the full history's; transactions after the cursor are
+// hidden, and a coin whose spend lies in the future draws as unspent.
+// Stepping forward re-reveals recorded days; past the frontier it extends
+// the simulation. null = riding the frontier.
+let viewDay: number | null = null;
+function cursorDay(): number {
+  return viewDay ?? eco?.day ?? 0;
+}
+function rewound(): boolean {
+  return scene === 1 && eco !== null && viewDay !== null && viewDay < eco.day;
+}
+let visCache: { rev: number; day: number; s: SceneData } | null = null;
 function active(): SceneData {
-  return scene === 1 && ecoScene ? ecoScene : intro;
+  if (scene !== 1 || !ecoScene) return intro;
+  if (!rewound()) return ecoScene;
+  const day = cursorDay();
+  if (!visCache || visCache.rev !== simRev || visCache.day !== day) {
+    visCache = {
+      rev: simRev,
+      day,
+      s: { chain: ecoScene.chain.through(day), layout: ecoScene.layout, bip: ecoScene.bip },
+    };
+  }
+  return visCache.s;
+}
+/** move the cursor; everything derived from the visible world follows */
+function setViewDay(d: number | null): void {
+  viewDay = d !== null && eco && d >= eco.day ? null : d;
+  simRev += 1; // the visible chain changed, even though the record didn't
+  recomputeTrace(); // a selection may have slipped beyond the cursor
+  dayBtn.textContent = dayLabel();
+  backBtn.style.display = scene === 1 && cursorDay() > 0 ? "block" : "none";
+  draw();
+  void syncFragment();
 }
 
 // --- lenses: 0 = all-seeing, 1 = third-party observer, 2 = one agent's view ---
@@ -221,7 +255,10 @@ function knowledge(): Knowledge {
   const s = active();
   const u = lensAgent ?? 0;
   if (!knCache || knCache.rev !== simRev || knCache.u !== u) {
-    knCache = { rev: simRev, u, k: agentKnowledge(s.chain, eco?.events ?? [], u, clustering(), eco?.coinjoins.keys()) };
+    // under the time cursor, the ledger too only reaches the visible day
+    const events = (eco?.events ?? []).filter((e) => s.chain.txs.has(e.tid));
+    const cjs = eco ? [...eco.coinjoins.keys()].filter((t) => s.chain.txs.has(t)) : undefined;
+    knCache = { rev: simRev, u, k: agentKnowledge(s.chain, events, u, clustering(), cjs) };
   }
   return knCache.k;
 }
@@ -321,7 +358,9 @@ function draw(): void {
   ctx.restore();
 
   const hud = document.getElementById("hud")!;
-  const dayPart = scene === 1 ? ` · day ${economy().day}` : "";
+  const dayPart = scene === 1
+    ? (rewound() ? ` · day ${cursorDay()} (of ${economy().day} recorded)` : ` · day ${economy().day}`)
+    : "";
   const playPart = session.manual !== null ? ` · playing ${castList()[session.manual]!.name}` : "";
   hud.textContent = `seed ${session.seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click coins: trace together (gold ring = shared origins) · h: hide the rest · right-click: copy a reference${originsPart()}`;
 }
@@ -490,7 +529,9 @@ window.addEventListener("keydown", (e) => {
 
 // --- scene switching + day stepping ---
 const dayBtn = document.getElementById("stepday") as HTMLButtonElement;
+const backBtn = document.getElementById("backday") as HTMLButtonElement;
 function dayLabel(): string {
+  if (rewound()) return `day ${cursorDay()} of ${economy().day} · replay →`;
   return session.manual !== null
     ? `day ${economy().day} · end turn →`
     : `day ${economy().day} · next day →`;
@@ -499,6 +540,9 @@ function setScene(s: 0 | 1, minDay = 0): void {
   if (s === 1) {
     economy().runTo(minDay);
     refreshEcoLayouts();
+    // the tutorial's exhibits live at its minDay: a cursor left behind
+    // would hide them, so it snaps forward (never re-rolls anything)
+    if (viewDay !== null && viewDay < minDay) viewDay = null;
     simRev += 1;
   }
   if (scene !== s) {
@@ -507,6 +551,7 @@ function setScene(s: 0 | 1, minDay = 0): void {
     clearSelection();
   }
   dayBtn.style.display = s === 1 ? "block" : "none";
+  backBtn.style.display = s === 1 && cursorDay() > 0 ? "block" : "none";
   if (s === 1) dayBtn.textContent = dayLabel();
   renderDecisions();
   draw();
@@ -525,6 +570,12 @@ function selectionRect(): Rect | null {
 
 let dayGen = 0;
 function stepDay(): void {
+  // behind the frontier the day is already on record: stepping just
+  // reveals it — nothing is re-simulated, the layout does not move
+  if (rewound()) {
+    setViewDay(cursorDay() + 1);
+    return;
+  }
   if (session.manual !== null) harvestChoices();
   // a new day re-lays the whole graph: everything already on screen glides
   // to its new frame (new transactions appear in place), and the selection
@@ -567,11 +618,16 @@ function stepDay(): void {
     holdCam();
   }
   dayBtn.textContent = dayLabel();
+  backBtn.style.display = cursorDay() > 0 ? "block" : "none";
   renderDecisions();
   draw();
   void syncFragment();
 }
 dayBtn.addEventListener("click", stepDay);
+backBtn.addEventListener("click", () => {
+  if (scene !== 1 || cursorDay() <= 0) return;
+  setViewDay(cursorDay() - 1);
+});
 
 // --- manual play: the decision panel and the played agent. No UI offers
 // a takeover any more — the machinery stays so fragments recorded with a
@@ -1128,7 +1184,9 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
   if (scene === 1) {
     state.sc = 1;
-    state.n = economy().day;
+    // the displayed day: a rewound reference restores to what you see,
+    // and determinism replays the hidden future identically on demand
+    state.n = cursorDay();
   }
   const P: [keyof EconomyParams, keyof NonNullable<FragmentState["p"]>][] = [
     ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["fx", "x"], ["wealth", "w"], ["pop", "pp"],
