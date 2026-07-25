@@ -25,6 +25,7 @@ import { setCastNames, OMNISCIENT } from "./scenario/omniscient";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, coinRectAt, txRectAt } from "./ui/morph";
+import { blendLayout, blendBip } from "./ui/blend";
 import { commonInputFill, type Paint } from "./ui/paint";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
@@ -434,25 +435,47 @@ function selectionRect(): Rect | null {
   return null;
 }
 
+let dayGen = 0;
 function stepDay(): void {
   if (manual !== null) harvestChoices();
-  // a new day re-lays the whole graph: hold the selection steady on screen
+  // a new day re-lays the whole graph: everything already on screen glides
+  // to its new frame (new transactions appear in place), and the selection
+  // is held steady on screen throughout the glide
   const before = selectionRect();
   const hold = before
     ? worldToScreen(cam, canvas.clientWidth, canvas.clientHeight,
         before.x + before.w / 2, before.y + before.h / 2)
     : null;
+  const prev = ecoScene;
   economy().step();
   refreshEcoLayouts();
   recomputeTrace(); // recompute over the grown chain
-  const after = hold ? selectionRect() : null;
-  if (after && hold) {
+  const target = ecoScene!;
+  const holdCam = (): void => {
+    if (!hold) return;
+    const r = selectionRect();
+    if (!r) return;
     const w = canvas.clientWidth, h = canvas.clientHeight;
     cam = {
       ...cam,
-      x: after.x + after.w / 2 - (hold[0] - w / 2) / cam.scale,
-      y: after.y + after.h / 2 - (hold[1] - h / 2) / cam.scale,
+      x: r.x + r.w / 2 - (hold[0] - w / 2) / cam.scale,
+      y: r.y + r.h / 2 - (hold[1] - h / 2) / cam.scale,
     };
+  };
+  if (prev) {
+    const gen = ++dayGen; // a day stepped mid-glide takes over from here
+    anim.add(650, (t) => {
+      if (gen !== dayGen) return;
+      ecoScene = t >= 1 ? target : {
+        chain: target.chain,
+        layout: blendLayout(prev.layout, target.layout, t),
+        bip: blendBip(prev.bip, target.bip, t),
+      };
+      holdCam();
+    });
+    kick();
+  } else {
+    holdCam();
   }
   dayBtn.textContent = dayLabel();
   renderDecisions();
