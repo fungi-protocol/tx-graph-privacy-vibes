@@ -19,6 +19,19 @@
 // however many features it feeds), and a re-run with a method disabled
 // drops every weld that method produced — the double-counting guard
 // lives in input construction, not in a fusion layer.
+//
+// Two boundaries to keep straight when teaching from this ledger:
+//   - Welds are OWNERSHIP claims, and a weld can add an assumption on
+//     top of its method's verdict (a subtx weld's verdict proves value
+//     flow; `assumption: "one-owner-per-part"` is the observer's added
+//     reading — see the Weld doc comment). support() exhibits the
+//     welds, assumptions included; it does not launder them into facts.
+//   - withoutMethod() measures METHOD-LEVEL survival: does some other
+//     TECHNIQUE still link the coins? That is not independent
+//     observation-level support — disabling subtx can expose CIOH on
+//     the very same transaction, one observation read two ways. A
+//     surviving claim means blocking that method wouldn't have helped,
+//     not that a second independent observation corroborates it.
 import { type Chain, type CoinId } from "../model/chain";
 import { clusterObserver, type Clustering, type Heuristics, type Weld } from "./clusters";
 
@@ -82,7 +95,10 @@ export const METHODS: Method[] = ["cioh", "change", "subtx"];
  *  with `method` disabled? A deterministic full re-run, not a DAG
  *  reachability check: removing a method can change what the other
  *  methods see (a sub-transaction verdict suppresses CIOH on that tx,
- *  for example), and only the re-run gets those interactions right. */
+ *  for example), and only the re-run gets those interactions right.
+ *  Survival means another TECHNIQUE still links the coins — possibly
+ *  reading the same transaction — not that an independent observation
+ *  supports the claim. */
 export function withoutMethod(
   chain: Chain,
   usdPrice: ((day: number) => number | undefined) | undefined,

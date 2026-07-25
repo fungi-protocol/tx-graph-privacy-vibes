@@ -23,13 +23,30 @@ import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { subTransactionMapping } from "./subsetsum";
 
 /** one observation the observer's map rests on: a method applied to a
- *  transaction welded these coins together */
+ *  transaction welded these coins together.
+ *
+ *  Every weld is an OWNERSHIP claim, and none of the methods proves
+ *  ownership outright. CIOH and the change guess are ownership
+ *  inferences from the start. The sub-transaction verdict is subtler:
+ *  what a unique partition PROVES is value flow — which inputs funded
+ *  which outputs — and reading each part as one owner is an assumption
+ *  the observer layers on top (a part can still be a payment with
+ *  change inside it). The `assumption` field names that extra step, so
+ *  anything teaching from this ledger can state separately what the
+ *  verdict establishes and what the observer assumes. This is also why
+ *  `Clustering.welds` is a ledger of ownership claims, not a complete
+ *  general evidence ledger — the underlying flow verdicts live in the
+ *  sub-transaction analysis itself. */
 export interface Weld {
   method: "cioh" | "change" | "subtx";
   /** the base observation: the transaction the method looked at */
   tx: TxId;
   /** the coins this single observation welds into one owner */
   coins: CoinId[];
+  /** the assumption the weld adds beyond what the method's verdict
+   *  establishes; present on subtx welds, whose verdict alone proves
+   *  flow, not ownership */
+  assumption?: "one-owner-per-part";
 }
 
 export interface Clustering {
@@ -106,7 +123,13 @@ export function clusterObserver(
             ...part.outs.map((o) => tx.outputs[o]!),
           ];
           for (const c of coins) union(c, anchor);
-          welds.push({ method: "subtx", tx: tid, coins });
+          // the unique partition proves the FLOW; welding the part into
+          // one owner adds the assumption that each sub-transaction is a
+          // self-contained single-owner action. Right for this town's
+          // coinjoins (each part is one participant's balance moving),
+          // fallible in general — and named on the weld so the ledger
+          // never attributes the ownership conclusion to the model itself
+          welds.push({ method: "subtx", tx: tid, coins, assumption: "one-owner-per-part" });
         }
         continue;
       }
