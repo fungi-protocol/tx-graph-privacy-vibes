@@ -122,6 +122,9 @@ export class Economy {
   /** scheduled obligations rolled into a re-invoice, never paid — recorded
    *  so the schedule's full universe stays auditable */
   cancelled: string[] = [];
+  /** obligations whose payer could not fund them on their due day (the due
+   *  date slipped) — the solvency check pins this empty at the defaults */
+  underfunded: string[] = [];
   readonly params: EconomyParams;
   /** the town: the fixed ten, plus archetypes/townsfolk when pop > 10 */
   readonly cast: Persona[];
@@ -836,6 +839,11 @@ export class Economy {
       this.pending = this.pending.filter((o) => !stale.includes(o));
     }
     this.pending.push(...sched.obligations);
+    // income lands as new root coins: money entering from outside town,
+    // with no on-chain past, just like the pre-story savings
+    for (const inf of sched.inflows) {
+      this.chain.addRoot(`r.${inf.id}`, this.sats(inf.usd), inf.owner, inf.memo);
+    }
     // the oracle looks for offsetting obligations first (at most one
     // settlement a day; word spreads on SETTLE_DAY). Groups that cannot
     // fund their nets are skipped, not retried forever. A full cycle is
@@ -876,9 +884,13 @@ export class Economy {
       }
     }
     // each payer weighs its pending obligations; unpayable ones slip a day
+    // (at the due date every path pays if it can, so a slip = underfunded)
     this.pending = this.pending.filter((obl) => {
       const paid = this.settle(obl);
-      if (!paid && obl.due <= this.day) obl.due = this.day + 1;
+      if (!paid && obl.due <= this.day) {
+        this.underfunded.push(obl.id);
+        obl.due = this.day + 1;
+      }
       return !paid;
     });
     // external purchases from the schedule, paid on the spot; how eagerly

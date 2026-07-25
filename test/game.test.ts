@@ -82,8 +82,10 @@ test("wealth scales everyone's starting coins", () => {
 });
 
 test("consolidation spends carry the warning flag", () => {
-  const eco = new Economy("golden");
-  eco.runTo(130);
+  // small starting coins force multi-coin spends before the first payday;
+  // probed across seeds — richer defaults may go long stretches without one
+  const eco = new Economy("golden", { wealth: 0.25 });
+  eco.runTo(40);
   const flagged = eco.events.filter((e) => e.why.includes("⚠"));
   assert.ok(flagged.length > 0, "no consolidation was ever flagged");
   for (const e of flagged.filter((f) => f.form === "unilateral")) {

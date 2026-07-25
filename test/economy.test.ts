@@ -43,13 +43,20 @@ test("the economy actually transacts, and stays in bounds", () => {
   }
 });
 
-test("every root is savings; wealth only shrinks by fees", () => {
+test("conservation: every sat in a UTXO came from a root, less fees", () => {
+  // the economy is open — income roots arrive from outside town — so the
+  // invariant is against everything that ever entered, not the day-0 total
   const eco = new Economy("golden");
-  const total0 = eco.chain.utxos().reduce((s, c) => s + c.value, 0);
   eco.runTo(30);
   const fees = [...eco.chain.txs.values()].reduce((s, t) => s + t.fee, 0);
-  const total1 = eco.chain.utxos().reduce((s, c) => s + c.value, 0);
-  assert.equal(total1 + fees, total0);
+  const entered = [...eco.chain.coins.values()]
+    .filter((c) => c.producer === null)
+    .reduce((s, c) => s + c.value, 0);
+  const held = eco.chain.utxos().reduce((s, c) => s + c.value, 0);
+  assert.equal(held + fees, entered);
+  // and income did arrive: pay period one has passed
+  assert.ok([...eco.chain.coins.values()].some((c) => c.producer === null && c.id.startsWith("r.")),
+    "no income root ever landed");
 });
 
 test("ancestry walks back to roots and only roots lack producers", () => {

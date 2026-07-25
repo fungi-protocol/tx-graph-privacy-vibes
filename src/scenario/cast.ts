@@ -17,6 +17,8 @@ export interface Persona {
   community: number;
   /** how the pre-story savings read on chain (default "savings") */
   rootLabel?: string;
+  /** how income from outside town reads on chain (default "outside income") */
+  income?: string;
   /** pays all obligations due on a day in one multi-output transaction */
   batches?: boolean;
   /** character-sheet stats, 0–5, feeding the (deliberately simple) cost terms */
@@ -50,7 +52,7 @@ export const COMMUNITIES: number[][] = [[0, 1, 2, 3], [4, 5, 6], [7, 8, 9]];
 
 export const PERSONAS: Persona[] = [
   {
-    name: "Alice", role: "salaried", community: 0,
+    name: "Alice", role: "salaried", community: 0, income: "salary",
     concern: "Everyone she pays — the handyman, the web designer, the " +
       "merchants — can walk her coins backwards and size up her savings. " +
       "Paying unilaterally, each purchase hands its recipient a thread " +
@@ -59,7 +61,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 2, hassle: 2 },
   },
   {
-    name: "Bob", role: "handyman", community: 0,
+    name: "Bob", role: "handyman", community: 0, income: "out-of-town job",
     concern: "Clients pay him for jobs. He does not want one client " +
       "comparing his rates with another's, or tracing how much he has " +
       "saved. Every unilateral receipt is a thread anyone he ever worked " +
@@ -68,7 +70,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 3, hassle: 2 },
   },
   {
-    name: "Carol", role: "pays the obvious way", community: 0,
+    name: "Carol", role: "pays the obvious way", community: 0, income: "salary",
     concern: "Believes she has nothing to hide: withdrew from a KYC " +
       "exchange and pays everyone unilaterally. Every spend links straight " +
       "back to her identified withdrawal — she is the baseline the others " +
@@ -77,7 +79,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 0, thrift: 2, hassle: 4 },
   },
   {
-    name: "Dave", role: "freelance web developer", community: 0,
+    name: "Dave", role: "freelance web developer", community: 0, income: "overseas client",
     concern: "Clients pay him, and he pays subcontractors. He does not " +
       "want client X learning that client Y exists, or a subcontractor " +
       "reading his margin. Unilaterally, money received from Y touches Z " +
@@ -86,7 +88,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 4, thrift: 2, hassle: 2 },
   },
   {
-    name: "Erin", role: "freelancer for the bike shop", community: 1,
+    name: "Erin", role: "freelancer for the bike shop", community: 1, income: "remote gig",
     concern: "Her main client is the bike shop. She does not want the shop " +
       "seeing whom she hires or how she spends her pay — but her receipts " +
       "from the shop and her spending share one wallet, and the chain " +
@@ -95,7 +97,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 2, hassle: 3 },
   },
   {
-    name: "Frank", role: "photographer", community: 1,
+    name: "Frank", role: "photographer", community: 1, income: "photo licensing",
     concern: "Irregular gig income. Some months are thin, and he would " +
       "rather his counterparties not know which. A wallet that pays " +
       "unilaterally publishes his cash flow to anyone who transacts " +
@@ -104,7 +106,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 2, thrift: 4, hassle: 3 },
   },
   {
-    name: "Grace", role: "bike shop", community: 1,
+    name: "Grace", role: "bike shop", community: 1, income: "till revenue",
     concern: "A business wallet is a magnet: revenue volume, payroll and " +
       "supplier margins all live in one cluster. Customers see her " +
       "supplier payments; suppliers can size her revenue. One identified " +
@@ -113,7 +115,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 3, hassle: 1 },
   },
   {
-    name: "Heidi", role: "potter, owns the studio", community: 2,
+    name: "Heidi", role: "potter, owns the studio", community: 2, income: "gallery sales",
     concern: "Her tenant pays her rent into the same wallet she pays the " +
       "carpenter and the designer from. She does not want Judy gauging " +
       "her finances, nor the people she hires seeing her rental income. " +
@@ -122,7 +124,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 2, hassle: 2 },
   },
   {
-    name: "Ivan", role: "carpenter", community: 2,
+    name: "Ivan", role: "carpenter", community: 2, income: "out-of-town job",
     concern: "Rate privacy between clients, and materials purchases that " +
       "do not let a client estimate his markup. The lumber yard receipt " +
       "sits one hop from the invoice it was bought for.",
@@ -130,7 +132,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 2, thrift: 3, hassle: 3 },
   },
   {
-    name: "Judy", role: "designer, rents from Heidi", community: 2,
+    name: "Judy", role: "designer, rents from Heidi", community: 2, income: "client retainer",
     concern: "The sharpest case: her landlord must not assess her income, " +
       "and her clients must not learn her rent. But she pays Heidi every " +
       "month from the same wallet her clients pay into, and the chain " +
@@ -178,7 +180,7 @@ interface Archetype {
 const ARCHETYPES: Archetype[] = [
   {
     persona: {
-      name: "Kai", role: "miner, mostly holds",
+      name: "Kai", role: "miner, mostly holds", income: "coinbase reward",
       concern: "Block rewards, held for years. Coinbase outputs have no " +
         "past at all — the block that made them is public, so every " +
         "thread he starts from them begins, unmistakably, at him. He " +
@@ -195,7 +197,7 @@ const ARCHETYPES: Archetype[] = [
   },
   {
     persona: {
-      name: "Lena", role: "market stall, high volume",
+      name: "Lena", role: "market stall, high volume", income: "till revenue",
       concern: "A steady run of small sales, all into one till. Any single " +
         "customer who identifies one sale can read the whole till — volume, " +
         "regulars, the supplier she underpays.",
@@ -211,7 +213,7 @@ const ARCHETYPES: Archetype[] = [
   },
   {
     persona: {
-      name: "Max", role: "privacy maximalist",
+      name: "Max", role: "privacy maximalist", income: "consulting retainer",
       concern: "Treats every link as a leak: coordinates whenever the menu " +
         "offers it, never declines a session, never consolidates. The town's " +
         "counterexample — and a reminder that even discipline only buys " +
@@ -227,7 +229,7 @@ const ARCHETYPES: Archetype[] = [
   },
   {
     persona: {
-      name: "Nadia", role: "exchange desk, batches payouts",
+      name: "Nadia", role: "exchange desk, batches payouts", income: "desk float top-up",
       concern: "A desk that owes many people at once and pays them all in " +
         "one transaction to save fees. Cheap — and it publishes her whole " +
         "payout list as a single record every time.",

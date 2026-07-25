@@ -46,9 +46,19 @@ export interface ScheduledPurchase {
   usd: number;
 }
 
+/** income arriving from outside town: a new root coin, like the initial
+ *  savings — the chain shows a coin with no past entering the wallet */
+export interface ScheduledInflow {
+  id: string;
+  owner: number;
+  memo: string;
+  usd: number;
+}
+
 export interface DaySchedule {
   obligations: ScheduledObligation[];
   purchases: ScheduledPurchase[];
+  inflows: ScheduledInflow[];
 }
 
 /** the subset of the economy parameters the schedule depends on */
@@ -63,6 +73,51 @@ const EXTERNAL_MEMOS: [string, number, number][] = [
   ["groceries", 30, 140], ["hardware store", 8, 90], ["dinner out", 25, 85],
   ["online order", 15, 150], ["fuel", 35, 70], ["subscription", 5, 20],
 ];
+
+/** days between paychecks; arrival is staggered per person */
+export const INCOME_EVERY = 15;
+
+const mean = (memos: [string, number, number][]): number =>
+  memos.reduce((s, m) => s + (m[1] + m[2]) / 2, 0) / memos.length;
+const EXT_MEAN = mean(EXTERNAL_MEMOS);
+
+/**
+ * Per-persona income per pay period, in dollars — rng-free, derived from
+ * the same parameters that size the burn. Each person's expected daily
+ * flow is what the schedule will ask of them (obligations out, purchases)
+ * less what it hands them (obligations in); income covers the deficit
+ * with 50% headroom, is never less than the persona's single steepest
+ * bill (rent is lumpy — solvency in expectation still misses the month
+ * both rents land close together), and nobody earns less than a token
+ * $60 from outside town, so wallets replenish over long runs instead of
+ * peeling to dust. This is the solvency guarantee's scope: scheduled
+ * obligations stay fundable at the defaults and modest sweeps across the
+ * tutorial horizon — no promise survives arbitrary parameters or
+ * deliberate starvation.
+ */
+export function incomeFor(
+  params: ScheduleParams,
+  cast: readonly Persona[],
+  edges: readonly Edge[],
+): number[] {
+  const outflow = cast.map(() => params.extRate * EXT_MEAN);
+  const inflow = cast.map(() => 0);
+  const maxBill = cast.map(() => 0);
+  for (const e of edges) {
+    const m = mean(e.memos);
+    const daily = params.oblRate * (e.rate ?? 1) * m;
+    outflow[e.payer]! += daily;
+    inflow[e.payee]! += daily;
+    maxBill[e.payer] = Math.max(maxBill[e.payer]!, m);
+  }
+  return cast.map((_, u) => {
+    // internal receivables are Poisson-timed — they cannot be scheduled
+    // against a due date — so they only count at half weight; a landlord
+    // living rent-to-rent would starve the month the rent runs late
+    const deficit = Math.max(0, outflow[u]! - inflow[u]! / 2) * INCOME_EVERY;
+    return Math.max(60, Math.round(Math.max(deficit * 1.5, maxBill[u]!) / 10) * 10);
+  });
+}
 
 export function scheduleForDay(
   seed: string,
@@ -125,5 +180,12 @@ export function scheduleForDay(
       });
     }
   }
-  return { obligations, purchases };
+  // income from outside town, staggered so paydays don't pile up
+  const incomes = incomeFor(params, cast, edges);
+  const inflows: ScheduledInflow[] = [];
+  for (let u = 0; u < cast.length; u++) {
+    if (day % INCOME_EVERY !== u % INCOME_EVERY) continue;
+    inflows.push({ id: `${day}.i${u}`, owner: u, memo: cast[u]!.income ?? "outside income", usd: incomes[u]! });
+  }
+  return { obligations, purchases, inflows };
 }
