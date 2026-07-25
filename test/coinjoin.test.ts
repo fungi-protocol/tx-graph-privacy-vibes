@@ -92,14 +92,33 @@ test("session outputs: denominations from the menu plus one change each", () => 
   }
 });
 
-test("most sessions come out underdetermined; the density is recorded", () => {
+test("most sessions are PROVEN ambiguous; the density is recorded", () => {
+  // before the multiset-quotient enumerator, realistic sessions came
+  // back inconclusive (honest abstention); now the readings are
+  // exhibited, and the tutorial's claim of several balanced readings
+  // rests on a proof, not a presumption
   const eco = eco115();
   const sessions = [...eco.coinjoins.entries()].filter(([tid]) => tid !== eco.naiveTid);
-  const under = sessions.filter(([, cj]) => !cj.determined);
-  assert.ok(under.length >= sessions.length / 2, `only ${under.length}/${sessions.length} underdetermined`);
-  assert.ok(under.some(([, cj]) => cj.density >= 0.5), "no dense session for the tutorial to frame");
+  const proven = sessions.filter(([, cj]) => cj.verdict === "ambiguous");
+  assert.ok(proven.length >= sessions.length / 2, `only ${proven.length}/${sessions.length} proven ambiguous`);
+  assert.ok(proven.some(([, cj]) => cj.density >= 0.5), "no dense session for the tutorial to frame");
   const naive = eco.coinjoins.get(eco.naiveTid!)!;
-  for (const [, cj] of under) assert.ok(cj.density > naive.density, "sessions must out-dense the careless join");
+  for (const [, cj] of proven) assert.ok(cj.density > naive.density, "sessions must out-dense the careless join");
+});
+
+test("a proven-ambiguous session exists by the chapter's day on every tutorial seed", () => {
+  // sibling of the careless-values guarantee above: the
+  // "many plausible pasts" step (minDay 100) narrates several balanced
+  // readings, so a session carrying that verdict must exist by then on
+  // every seed the tutorial and tests reach — prose and world must not
+  // diverge
+  for (const seed of ["welcome", "golden", "gamma", "alpha", "silver"]) {
+    const eco = new Economy(seed);
+    eco.runTo(100);
+    const proven = [...eco.coinjoins.entries()]
+      .filter(([tid, cj]) => tid !== eco.naiveTid && cj.verdict === "ambiguous");
+    assert.ok(proven.length >= 1, `${seed}: no proven-ambiguous session by day 100`);
+  }
 });
 
 test("an underdetermined coinjoin earns no welds from the observer", () => {

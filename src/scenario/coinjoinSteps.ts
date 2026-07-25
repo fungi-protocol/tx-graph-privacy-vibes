@@ -75,20 +75,22 @@ export function coinjoinSteps(
     {
       id: "many-plausible-pasts",
       title: "Many plausible pasts",
-      html: `<p>The observer's matching game now returns a shrug. On a
-        session small enough to search it can prove the point — <b>several
-        balanced readings</b>, no way to pick one — and on a larger one it
-        gives up the search and abstains. Either way a careful analyst
-        <b>declines to weld anything</b> — where the earlier forms fed CIOH
-        lies, this one starves it. Starves it <i>inside the join</i>, that
-        is: the clusters on either side remain, still matched to the town's
-        relationships.</p>
+      html: `<p>The observer's matching game now comes back with <b>several
+        balanced readings</b> and no way to pick one. The menu itself is
+        what makes that provable even on a big session: outputs of the same
+        value are interchangeable, so the readings can be counted over the
+        values — and there is always more than one. (A session too tangled
+        even for that earns only an abstention, and abstention alone proves
+        nothing.) Either way a careful analyst <b>declines to weld
+        anything</b> — where the earlier forms fed CIOH lies, this one
+        starves it. Starves it <i>inside the join</i>, that is: the clusters
+        on either side remain, still matched to the town's relationships.</p>
         <p>Be precise about what happened. No history was erased: every
         coin's trace still runs back through the join to real origins. What
-        changed is what an observer can justify: the analysis no longer
-        supports singling out one reading, so the coin's past sits among <b>plausible
-        alternatives the observer cannot cheaply rule out</b> — and the more
-        strangers' pasts flow through, the more company it keeps.</p>`,
+        changed is what an observer can justify: <b>several readings balance,
+        and the analysis cannot single one out</b> — the coin's past sits
+        among the plausible alternatives, and the more strangers' pasts flow
+        through, the more company it keeps.</p>`,
       focus: () => pad(denseFocus()),
       view: 1,
       lens: 1,
