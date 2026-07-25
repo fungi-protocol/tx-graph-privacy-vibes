@@ -77,6 +77,11 @@ export interface EconomyParams {
   feeLevel: number;
   /** fee-market volatility: scales the daily feerate drift */
   feeVol: number;
+  /** exchange-rate level: multiplies the drifting USD/BTC price. Bills,
+   *  purchases, and income are all fiat-denominated and convert to sats at
+   *  the day's rate, so a cheaper bitcoin makes every payment cost more
+   *  sats — and the round-USD amounts the observer keys on move with it */
+  fx: number;
   /** initial wealth: multiplies everyone's starting coins */
   wealth: number;
   /** town population: 10 is the fixed cast; 11–14 add the archetypes,
@@ -85,14 +90,14 @@ export interface EconomyParams {
 }
 
 export const DEFAULT_PARAMS: EconomyParams = {
-  oblRate: 0.09, extRate: 0.05, feeLevel: 1, feeVol: 1, wealth: 1, pop: BASE_POP,
+  oblRate: 0.09, extRate: 0.05, feeLevel: 1, feeVol: 1, fx: 1, wealth: 1, pop: BASE_POP,
 };
 
 /** the parameters that can change while the world runs: rates and the fee
  *  market are read fresh each day, so a dated change touches only days
  *  from its date forward. wealth, pop, and the seed are world identity —
  *  changing them means a different town, not a turn of events in this one */
-export type LiveParams = Pick<EconomyParams, "oblRate" | "extRate" | "feeLevel" | "feeVol">;
+export type LiveParams = Pick<EconomyParams, "oblRate" | "extRate" | "feeLevel" | "feeVol" | "fx">;
 
 /** one dated parameter change: in effect from `day` onward, applied on
  *  top of the base params (and any earlier patches, in day order) */
@@ -169,7 +174,7 @@ export class Economy {
     this.market = new Rng(`${seed}/market`);
     this.price = 103_000 + this.market.next() * 3_000;
     this.feebase = (1 + this.market.next() * 2) * this.params.feeLevel;
-    this.prices.push(this.price);
+    this.prices.push(this.price * this.params.fx);
     let rc = 0;
     this.cast.forEach((p, u) => {
       for (const v of p.roots) {
@@ -193,8 +198,15 @@ export class Economy {
     return p;
   }
 
+  /** the exchange rate the town trades at today: the market's drifting
+   *  price times the fx level in effect — a dated fx patch moves every
+   *  fiat-denominated conversion from its day forward */
+  private fxPrice(): number {
+    return this.price * this.paramsAt(this.day).fx;
+  }
+
   private sats(usd: number): number {
-    return Math.round((usd * 1e8) / this.price);
+    return Math.round((usd * 1e8) / this.fxPrice());
   }
 
   private wallet(u: number): CoinId[] {
@@ -876,7 +888,7 @@ export class Economy {
     const fl = dayParams.feeLevel;
     this.feebase = Math.min(8 * fl, Math.max(0.8 * fl,
       this.feebase * (1 + (this.market.next() - 0.5) * 0.2 * dayParams.feeVol)));
-    this.prices[this.day] = this.price;
+    this.prices[this.day] = this.fxPrice();
 
     // the day's schedule is pure — seed and parameters only (schedule.ts)
     const sched = scheduleForDay(this.seed, dayParams, this.cast, this.edges, this.day);

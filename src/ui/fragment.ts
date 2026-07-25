@@ -20,13 +20,13 @@ export const SCHEMA_VERSION = 2;
 
 export interface FragmentState {
   seed: string;
-  /** economy parameter overrides, non-default values only:
-   *  o = oblRate, e = extRate, f = feeLevel, fv = feeVol, w = wealth, pp = pop */
-  p?: { o?: number; e?: number; f?: number; fv?: number; w?: number; pp?: number };
+  /** economy parameter overrides, non-default values only: o = oblRate,
+   *  e = extRate, f = feeLevel, fv = feeVol, x = fx, w = wealth, pp = pop */
+  p?: { o?: number; e?: number; f?: number; fv?: number; x?: number; w?: number; pp?: number };
   /** dated parameter changes: [day, patch] applied from that day forward;
-   *  only the live knobs (o, e, f, fv) — wealth, pop, and the seed are
+   *  only the live knobs (o, e, f, fv, x) — wealth, pop, and the seed are
    *  world identity and never change mid-run */
-  pt?: [number, { o?: number; e?: number; f?: number; fv?: number }][];
+  pt?: [number, { o?: number; e?: number; f?: number; fv?: number; x?: number }][];
   /** manual play: [played agent, day the player took over] */
   m?: [number, number];
   /** recorded manual choices, packed [day, obligation id, plan] — the id is
@@ -135,7 +135,8 @@ export function sanitize(raw: unknown): FragmentState | null {
     const p = r.p as Record<string, unknown>;
     const clamped = {
       o: num(p.o, 0, 0.3), e: num(p.e, 0, 0.2), f: num(p.f, 0.5, 4),
-      fv: num(p.fv, 0, 3), w: num(p.w, 0.25, 4), pp: num(p.pp, 10, MAX_AGENT, true),
+      fv: num(p.fv, 0, 3), x: num(p.x, 0.5, 3), w: num(p.w, 0.25, 4),
+      pp: num(p.pp, 10, MAX_AGENT, true),
     };
     const entries = Object.entries(clamped).filter(([, v]) => v !== undefined);
     if (entries.length) out.p = Object.fromEntries(entries);
@@ -148,7 +149,8 @@ export function sanitize(raw: unknown): FragmentState | null {
       if (day === undefined) continue;
       const p = it[1] as Record<string, unknown>;
       const clamped = {
-        o: num(p.o, 0, 0.3), e: num(p.e, 0, 0.2), f: num(p.f, 0.5, 4), fv: num(p.fv, 0, 3),
+        o: num(p.o, 0, 0.3), e: num(p.e, 0, 0.2), f: num(p.f, 0.5, 4),
+        fv: num(p.fv, 0, 3), x: num(p.x, 0.5, 3),
       };
       const entries = Object.entries(clamped).filter(([, v]) => v !== undefined);
       if (entries.length) pt.push([day, Object.fromEntries(entries)]);

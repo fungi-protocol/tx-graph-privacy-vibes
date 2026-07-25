@@ -63,3 +63,20 @@ test("replay with the same timeline is deterministic", () => {
   assert.equal(txsThrough(a, 90), txsThrough(b, 90));
   assert.equal(a.events.length, b.events.length);
 });
+
+test("the exchange rate is a parameter, and a dated fx patch moves it forward-only", () => {
+  const plain = new Economy("golden");
+  plain.runTo(70);
+  // fiat amounts are what they are; a cheaper bitcoin costs more sats per bill
+  const cheap = new Economy("golden", { fx: 0.5 });
+  cheap.runTo(10);
+  assert.equal(cheap.prices[5]!, plain.prices[5]! * 0.5);
+
+  const patched = new Economy("golden");
+  patched.timeline = [{ day: 40, patch: { fx: 2 } }];
+  patched.runTo(70);
+  assert.equal(txsThrough(patched, 39), txsThrough(plain, 39)); // the past stands
+  assert.equal(patched.prices[39]!, plain.prices[39]!); // the rate too, until the patch
+  assert.equal(patched.prices[45]!, plain.prices[45]! * 2); // the market drift is shared
+  assert.notEqual(txsThrough(patched, 70), txsThrough(plain, 70)); // sats amounts moved
+});

@@ -953,12 +953,13 @@ interface Knob { key: keyof EconomyParams; label: string; min: number; max: numb
 const KNOBS: Knob[] = [
   { key: "feeLevel", label: "fee market level", min: 0.5, max: 4, step: 0.1 },
   { key: "feeVol", label: "fee volatility", min: 0, max: 3, step: 0.1 },
+  { key: "fx", label: "exchange rate level", min: 0.5, max: 3, step: 0.1 },
   { key: "wealth", label: "starting wealth", min: 0.25, max: 4, step: 0.25 },
   { key: "oblRate", label: "obligations / edge / day", min: 0, max: 0.3, step: 0.01 },
   { key: "extRate", label: "purchases / person / day", min: 0, max: 0.2, step: 0.01 },
   { key: "pop", label: "population", min: 10, max: MAX_POP, step: 1 },
 ];
-const LIVE_KEYS: (keyof LiveParams)[] = ["oblRate", "extRate", "feeLevel", "feeVol"];
+const LIVE_KEYS: (keyof LiveParams)[] = ["oblRate", "extRate", "feeLevel", "feeVol", "fx"];
 function isLive(key: keyof EconomyParams): key is keyof LiveParams {
   return (LIVE_KEYS as string[]).includes(key);
 }
@@ -1059,7 +1060,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
     state.n = economy().day;
   }
   const P: [keyof EconomyParams, keyof NonNullable<FragmentState["p"]>][] = [
-    ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["wealth", "w"], ["pop", "pp"],
+    ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["fx", "x"], ["wealth", "w"], ["pop", "pp"],
   ];
   const p: NonNullable<FragmentState["p"]> = {};
   for (const [key, short] of P) {
@@ -1067,8 +1068,8 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   }
   if (Object.keys(p).length > 0) state.p = p;
   if (session.timeline.length > 0) {
-    const SHORT: [keyof LiveParams, "o" | "e" | "f" | "fv"][] = [
-      ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"],
+    const SHORT: [keyof LiveParams, "o" | "e" | "f" | "fv" | "x"][] = [
+      ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["fx", "x"],
     ];
     state.pt = session.timeline.map((t) => {
       const patch: NonNullable<FragmentState["pt"]>[number][1] = {};
@@ -1172,6 +1173,7 @@ async function init(): Promise<void> {
     if (state.p.e !== undefined) session.params.extRate = state.p.e;
     if (state.p.f !== undefined) session.params.feeLevel = state.p.f;
     if (state.p.fv !== undefined) session.params.feeVol = state.p.fv;
+    if (state.p.x !== undefined) session.params.fx = state.p.x;
     if (state.p.w !== undefined) session.params.wealth = state.p.w;
     if (state.p.pp !== undefined) session.params.pop = state.p.pp;
   }
@@ -1182,6 +1184,7 @@ async function init(): Promise<void> {
       if (p.e !== undefined) patch.extRate = p.e;
       if (p.f !== undefined) patch.feeLevel = p.f;
       if (p.fv !== undefined) patch.feeVol = p.fv;
+      if (p.x !== undefined) patch.fx = p.x;
       return { day, patch };
     });
   }

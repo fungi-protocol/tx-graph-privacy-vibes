@@ -100,10 +100,10 @@ test("migrations key on the declared version", () => {
 test("dated parameter patches round-trip and are clamped like the base params", async () => {
   const fragment = await encodeFragment({
     seed: "welcome",
-    pt: [[31, { f: 3 }], [60, { o: 0.2, e: 0.1 }]],
+    pt: [[31, { f: 3 }], [60, { o: 0.2, e: 0.1, x: 0.6 }]],
   });
   const state = await decodeFragment(fragment);
-  assert.deepEqual(state, { seed: "welcome", pt: [[31, { f: 3 }], [60, { o: 0.2, e: 0.1 }]] });
+  assert.deepEqual(state, { seed: "welcome", pt: [[31, { f: 3 }], [60, { o: 0.2, e: 0.1, x: 0.6 }]] });
 
   const hostile = sanitize({
     seed: "x",
