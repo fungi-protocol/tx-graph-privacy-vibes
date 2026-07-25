@@ -19,7 +19,8 @@ import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
-import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
+import { intersectionSteps, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
+import { auxInfoDecay, type AuxDecay } from "./analysis/auxinfo";
 import { synthesisSteps, claimExhibit, rentForms, counterpartyExhibit, type ClaimExhibit, type SweepView } from "./scenario/synthesisSteps";
 import { synthesisSweepExhibit, clusterOwner, outsiderEdges } from "./scenario/synthesisStaging";
 import { gameSteps } from "./scenario/gameSteps";
@@ -1015,6 +1016,7 @@ const steps = [
     () => m5Moments().coin,   // a coinjoined coin worth tracing
     () => m5Moments().cross,  // a spend linking two sessions' pasts
     () => m5Moments().toxic,  // coinjoin change spent beside a mixed coin
+    auxGrantExhibit,          // "suppose one name falls": grant + computed decay
   ),
   ...synthesisSteps(
     () => active().bip.bounds,
@@ -1102,6 +1104,39 @@ function m5Moments(): { coin?: Focused; cross?: Focused; toxic?: Focused } {
   }
   m5Cache = found;
   return found;
+}
+
+// --- chapter 7's aux-info exhibit: "suppose one name falls". Truth is
+// used ONLY to construct the grant (which coins are U's — the disclosed
+// assumption) and to stage the choice of U (prefer a fracture, skip the
+// traced coin's own owner: an "auxiliary" user is by definition not the
+// target). auxInfoDecay then runs blind on the public graph.
+let auxCache: { rev: number; hit?: AuxGrant } | null = null;
+function auxGrantExhibit(): AuxGrant | undefined {
+  const chain = eco?.chain;
+  const coin = m5Moments().coin;
+  if (!chain || !coin) return undefined;
+  if (auxCache && auxCache.rev === simRev) return auxCache.hit;
+  auxCache = { rev: simRev };
+  const target = chain.coins.get(coin.id)!.owner;
+  const coinsOf = new Map<number, Set<string>>();
+  for (const [id, c] of chain.coins) {
+    if (c.owner === null || c.owner === target) continue;
+    const s = coinsOf.get(c.owner);
+    if (s) s.add(id);
+    else coinsOf.set(c.owner, new Set([id]));
+  }
+  // prefer a fracturing grant (the multiplicative branch lands hardest
+  // live); among equals, the one that eliminates the most candidates
+  const score = (d: AuxDecay): number => (d.fractured > 0 ? 1000 : 0) + d.fractured + d.granted;
+  let best: AuxGrant | undefined;
+  for (const [u, granted] of coinsOf) {
+    const decay = auxInfoDecay(chain, coin.id, granted);
+    if (decay.granted === 0) continue; // a name with no stake teaches nothing
+    if (!best || score(decay) > score(best.decay)) best = { name: castList()[u]!.name, decay };
+  }
+  auxCache.hit = best;
+  return best;
 }
 
 // --- chapter 8: the settlement that pays the played rent. The GAME_DAY

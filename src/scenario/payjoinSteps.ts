@@ -127,7 +127,8 @@ export function payjoinSteps(
       html: `<p>Be precise about who is fooled. An outsider <i>can
         suspect</i> this is a payjoin — any two-input spend could be one,
         and sometimes an input looks unnecessary, more coin than the
-        payment needed. But the record cannot settle it: every feature
+        payment needed (the literature's <i>unnecessary input
+        heuristic</i>). But the record cannot settle it: every feature
         this observer reads — amounts, inputs, outputs, structure — is
         consistent with both readings, so suspicion stays suspicion.
         (Real wallets also leave <b>fingerprints</b> the town's do not —
