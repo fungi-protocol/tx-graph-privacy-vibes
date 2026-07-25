@@ -15,7 +15,10 @@
 // numbers = the wiki's folklore tell (what this lens runs);
 // fresh/"shadow" address = Androulaki et al. 2012; never-seen-again
 // address = Meiklejohn et al. 2013; fingerprint classifiers = Möser &
-// Narayanan 2022, Kappos et al. 2022.
+// Narayanan 2022, Kappos et al. 2022. CIOH itself is the whitepaper's own
+// caveat (§10 Privacy — multi-input spends "necessarily reveal that their
+// inputs were owned by the same owner"); Meiklejohn et al. named it
+// Heuristic 1 and applied it at chain scale, but the origin is Satoshi.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
 export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect): TutorialStep[] {
@@ -68,9 +71,14 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       html: `<p>The first inference: a transaction that spends
         <b>several coins at once</b> is evidence that one entity owns them
         all — whoever signed it could spend each of them. This is the
-        <b>common-input-ownership heuristic</b> (CIOH). Co-spent coins
-        merge into <b>clusters</b>: the colored groups that just
-        appeared. Gray coins are ones the observer has nothing on yet.</p>
+        <b>common-input-ownership heuristic</b> (CIOH), and it is as old
+        as Bitcoin: the same whitepaper paragraph that urged a fresh key
+        per transaction admits that multi-input spends "necessarily reveal
+        that their inputs were owned by the same owner." Later work
+        (Meiklejohn et al.) made it Heuristic 1 and ran it across the
+        whole chain. Co-spent coins merge into <b>clusters</b>: the
+        colored groups that just appeared. Gray coins are ones the
+        observer has nothing on yet.</p>
         <p>The colors are the observer's bookkeeping, not the truth —
         that's why this palette looks nothing like the all-seeing
         lens.</p>`,

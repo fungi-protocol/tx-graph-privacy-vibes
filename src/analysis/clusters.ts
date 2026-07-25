@@ -2,7 +2,10 @@
 // can infer from the public graph alone. Three heuristics from the
 // literature, deliberately simple:
 //   - CIOH (common-input-ownership): a transaction spending several inputs
-//     is evidence one entity owns all of them.
+//     is evidence one entity owns all of them. The whitepaper's own §10
+//     caveat ("multi-input transactions... necessarily reveal that their
+//     inputs were owned by the same owner"); Meiklejohn et al. named it
+//     Heuristic 1 and ran it at chain scale.
 //   - round-USD change identification (the wiki's "round numbers"
 //     fingerprint; change heuristics generally: Androulaki et al.,
 //     Meiklejohn et al.): if exactly one
