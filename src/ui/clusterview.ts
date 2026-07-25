@@ -6,8 +6,9 @@
 import { type Chain, type CoinId } from "../model/chain";
 import { fmtSats } from "../core/sats";
 import { type Clustering, clusterColor } from "../analysis/clusters";
-import { type Rect } from "./blockview";
+import { type Layout, type Rect } from "./blockview";
 import { type BipLayout } from "./bipartite";
+import { coinRectAt, txRectAt } from "./morph";
 
 export interface ClusterNode {
   rep: CoinId;
@@ -54,14 +55,17 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
 }
 
 /**
- * Draw the contraction morph: t = 0 is the bipartite drawing, t = 1 the
- * contracted cluster graph. Coin vertices glide into their cluster's disc
- * and fade; transfer edges fade in.
+ * Draw the contraction morph: t = 0 is the current graph drawing (whatever
+ * mix of block and bipartite the morph phase shows), t = 1 the contracted
+ * cluster graph — one dimension flattened, the helix seen end-on. Coin
+ * vertices glide into their cluster's disc and fade; transfer edges fade in.
  */
 export function drawContraction(
   ctx: CanvasRenderingContext2D,
   chain: Chain,
+  block: Layout,
   bip: BipLayout,
+  morphT: number,
   clay: ClusterLayout,
   cl: Clustering,
   t: number,
@@ -90,7 +94,7 @@ export function drawContraction(
     ctx.save();
     ctx.globalAlpha = 1 - t;
     for (const coin of chain.coins.values()) {
-      const from = bip.coins.get(coin.id)!;
+      const from = coinRectAt(block, bip, coin.id, morphT)!;
       const node = nodeOf(coin.id);
       const x = from.x + (node.x - (from.x + from.w / 2)) * t;
       const y = from.y + (node.y - (from.y + from.h / 2)) * t;
@@ -103,7 +107,7 @@ export function drawContraction(
     // tx squares fade toward the midpoint of their transfer
     for (const tid of chain.order) {
       const tx = chain.txs.get(tid)!;
-      const from = bip.txs.get(tid)!;
+      const from = txRectAt(block, bip, tid, morphT)!;
       const a = nodeOf(tx.inputs[0]!), b = nodeOf(tx.outputs[0]!);
       const tx2 = (a.x + b.x) / 2, ty2 = (a.y + b.y) / 2;
       const x = from.x + (tx2 - (from.x + from.w / 2)) * t;

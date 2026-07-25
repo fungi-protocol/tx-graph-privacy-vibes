@@ -75,7 +75,8 @@ export function intersectionSteps(
         that appear in <i>both</i> — burns at full strength. Everything
         irrelevant fades (press <b>h</b> to hide it outright).</p>
         <p>Click any transaction to trace all of its inputs together this
-        way; shift-click adds coins to the trace one by one.</p>`,
+        way; clicking coins adds them to the trace one by one (a gold
+        ring marks the shared origins).</p>`,
       focus: at(crossTx),
       select: sel("tx", crossTx),
       view: 1,

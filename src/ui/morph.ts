@@ -19,6 +19,9 @@ export interface Paint {
   coinText(coin: Coin): string;
   coinCaption(coin: Coin): string;
   txMemo(tx: Tx): string | null;
+  /** when every input belongs to one cluster/owner under this lens, the
+   *  transaction itself is attributable — tint it that color */
+  txAttribution?(tx: Tx, chain: Chain): string | null;
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -113,7 +116,19 @@ export const OMNISCIENT: Paint = {
   coinText: (c) => (c.owner === null ? "#111" : OWNER_TEXT[c.owner] ?? "#111"),
   coinCaption: (c) => `${castName(c.owner)}${c.label ? " · " + c.label : ""}`,
   txMemo: (t) => t.memo ?? null,
+  txAttribution: (t, ch) => commonInputFill(ch, t, coinColor),
 };
+
+/** Attribution helper: the common fill of all input coins, or null. */
+export function commonInputFill(chain: Chain, tx: Tx, fill: (c: Coin) => string): string | null {
+  let color: string | null = null;
+  for (const cid of tx.inputs) {
+    const f = fill(chain.coins.get(cid)!);
+    if (color === null) color = f;
+    else if (color !== f) return null;
+  }
+  return color;
+}
 
 /** A coin's single morphing frame: producing box -> bipartite vertex. */
 export function coinRectAt(block: Layout, bip: BipLayout, id: string, t: number): Rect | null {
@@ -144,10 +159,17 @@ export interface MorphDrawOptions {
   hideDim?: boolean;
   /** knowledge lens; defaults to the omniscient paint */
   paint?: Paint;
+  /** the clicked coins / transaction: outlined so the seeds of the trace
+   *  stand apart from everything the trace lights up */
+  selected?: { coins: Set<string>; txs: Set<string> } | null;
 }
 
-const DIM = 0.3;
-const PARTIAL = 0.55;
+const DIM = 0.45;
+const PARTIAL = 0.8;
+/** dimmed entities also lose their color — gray reads as "not involved"
+ *  far better than darkness alone */
+const MUTED_FILL = "#3a3e46";
+const MUTED_TEXT = "#71767f";
 
 export function drawMorph(
   ctx: CanvasRenderingContext2D,
@@ -166,6 +188,24 @@ export function drawMorph(
     !hl ? 1 : hl.full.coins.has(id) ? 1 : hl.partial.coins.has(id) ? PARTIAL : dim;
   const txAlpha = (id: string): number =>
     !hl ? 1 : hl.full.txs.has(id) ? 1 : hl.partial.txs.has(id) ? PARTIAL : dim;
+  // outside the union: gray, not merely faint
+  const coinMuted = (id: string): boolean => hl !== null && !hl.partial.coins.has(id);
+  const txMuted = (id: string): boolean => hl !== null && !hl.partial.txs.has(id);
+  const sel = opts.selected ?? null;
+  // when the intersection is a proper subset of the union, alpha alone
+  // reads poorly — ring the shared origins in gold so they stand apart
+  const ringing = hl !== null &&
+    (hl.partial.coins.size > hl.full.coins.size || hl.partial.txs.size > hl.full.txs.size);
+  const ring = (r: Rect, radius: number): void => {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.roundRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, radius + 4);
+    ctx.strokeStyle = "#edc948";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
+  };
   const coinAt = (id: string): Rect => coinRectAt(block, bip, id, t)!;
   const txAt = (id: string): Rect => txRectAt(block, bip, id, t)!;
 
@@ -190,7 +230,7 @@ export function drawMorph(
         bip.routes.get(`in:${cid}`),
         t,
       );
-      ctx.strokeStyle = paint.coinFill(coin) + (emphasized ? "" : "b0");
+      ctx.strokeStyle = (coinMuted(cid) ? MUTED_FILL : paint.coinFill(coin)) + (emphasized ? "" : "b0");
       ctx.lineWidth = emphasized ? 3.5 : 1.8;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -217,7 +257,7 @@ export function drawMorph(
           bip.routes.get(`out:${cid}`),
           1,
         );
-        ctx.strokeStyle = paint.coinFill(coin) + (emphasized ? "" : "b0");
+        ctx.strokeStyle = (coinMuted(cid) ? MUTED_FILL : paint.coinFill(coin)) + (emphasized ? "" : "b0");
         ctx.lineWidth = emphasized ? 3.5 : 1.8;
         ctx.stroke();
       }
@@ -229,13 +269,23 @@ export function drawMorph(
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
     const frame = txAt(tid);
+    if (ringing && hl!.full.txs.has(tid)) ring(frame, lerp(8, 10, t));
     ctx.globalAlpha = txAlpha(tid);
     rounded(ctx, frame, lerp(8, 10, t));
     ctx.fillStyle = "#26292f";
     ctx.fill();
+    const attributed = txMuted(tid) ? null : paint.txAttribution?.(tx, chain) ?? null;
+    if (attributed) {
+      // all inputs from one cluster: the record itself wears the color
+      rounded(ctx, frame, lerp(8, 10, t));
+      ctx.fillStyle = attributed + "38";
+      ctx.fill();
+    }
     const hovered = hover?.kind === "tx" && hover.id === tid;
-    ctx.strokeStyle = hovered ? "#d8dade" : "#4a4e57";
-    ctx.lineWidth = hovered ? 2 : 1.2;
+    const picked = sel?.txs.has(tid) ?? false;
+    ctx.strokeStyle = hovered ? "#d8dade" : picked ? "#ffffff" :
+      attributed ? attributed : txMuted(tid) ? "#3f434b" : "#4a4e57";
+    ctx.lineWidth = hovered ? 2 : picked ? 2.5 : attributed ? 1.6 : 1.2;
     ctx.stroke();
     ctx.textBaseline = "middle";
     if (t < 0.5) {
@@ -287,6 +337,7 @@ export function drawMorph(
   for (const coin of chain.coins.values()) {
     const rect = coinAt(coin.id);
     const unspent = coin.dest === null;
+    if (ringing && hl!.full.coins.has(coin.id)) ring(rect, lerp(10, 17, t));
     ctx.globalAlpha = coinAlpha(coin.id);
     drawCoinBox(ctx, coin, rect, hoverCoin === coin.id, unspent, t, paint);
     // caption: whose coin / what for (or whatever the lens can say)

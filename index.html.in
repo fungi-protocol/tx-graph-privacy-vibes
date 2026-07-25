@@ -28,14 +28,15 @@
   .tut-nav button:hover:not(:disabled) { background: #3d414a; }
   .tut-nav button:disabled { opacity: 0.4; cursor: default; }
   .tut-skip { margin-left: auto; opacity: 0.7; }
-  #viewtoggle, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
+  #viewtoggle, #clusterbtn, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
                 border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
                 font: inherit; font-size: 13px; cursor: pointer; }
   #viewtoggle { top: 16px; }
-  #lens { top: 56px; }
-  #paramsbtn { top: 96px; }
-  #viewtoggle:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
-  #params { position: fixed; left: 16px; top: 136px; display: none; width: 260px;
+  #clusterbtn { top: 56px; }
+  #lens { top: 96px; }
+  #paramsbtn { top: 136px; }
+  #viewtoggle:hover, #clusterbtn:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
+  #params { position: fixed; left: 16px; top: 176px; display: none; width: 260px;
             background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
             padding: 12px 14px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
   #params label { display: block; margin: 8px 0 2px; opacity: 0.8; }
@@ -100,6 +101,7 @@
 <canvas id="view"></canvas>
 <div id="hud"></div>
 <button id="viewtoggle" title="flip between the block-explorer and bipartite drawings (v)">view: blocks</button>
+<button id="clusterbtn" title="collapse each cluster's coins into one vertex — the observer's user graph (c)">clusters</button>
 <button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
 <button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>
 <div id="params"></div>

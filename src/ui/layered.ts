@@ -23,6 +23,11 @@ export interface LayeredEdge {
   to: string;
   /** identifies the edge in the routes result */
   key: string;
+  /** where on the source node the edge leaves, as a fraction of its
+   *  height (an output slot's position in a card); default centre */
+  fromPort?: number;
+  /** where on the target node the edge lands; default centre */
+  toPort?: number;
 }
 
 export interface LayeredResult {
@@ -61,32 +66,36 @@ export function layered(nodes: LayeredNode[], edges: LayeredEdge[], gap: number)
   };
   for (const n of nodes) place(n.id, n.rank, n.h, false);
 
-  // adjacency by id (resolved to positions during sweeps)
-  const upOf = new Map<string, string[]>();
-  const downOf = new Map<string, string[]>();
-  const adj = (a: string, b: string): void => {
-    (downOf.get(a) ?? downOf.set(a, []).get(a)!).push(b);
-    (upOf.get(b) ?? upOf.set(b, []).get(b)!).push(a);
+  // adjacency by id + port (resolved to positions during sweeps)
+  interface Nb { id: string; port: number }
+  const upOf = new Map<string, Nb[]>();
+  const downOf = new Map<string, Nb[]>();
+  const adj = (a: string, b: string, aPort = 0.5, bPort = 0.5): void => {
+    (downOf.get(a) ?? downOf.set(a, []).get(a)!).push({ id: b, port: bPort });
+    (upOf.get(b) ?? upOf.set(b, []).get(b)!).push({ id: a, port: aPort });
   };
 
   const routeVias = new Map<string, string[]>();
   for (const e of edges) {
     const r0 = rankOf.get(e.from), r1 = rankOf.get(e.to);
     if (r0 === undefined || r1 === undefined) continue;
+    const fp = e.fromPort ?? 0.5, tp = e.toPort ?? 0.5;
     if (r1 - r0 <= 1) {
-      adj(e.from, e.to);
+      adj(e.from, e.to, fp, tp);
       continue;
     }
     let prev = e.from;
+    let prevPort = fp;
     const vias: string[] = [];
     for (let r = r0 + 1; r < r1; r++) {
       const vid = `~${e.key}@${r}`;
       place(vid, r, VIRTUAL_H, true);
       vias.push(vid);
-      adj(prev, vid);
+      adj(prev, vid, prevPort, 0.5);
       prev = vid;
+      prevPort = 0.5;
     }
-    adj(prev, e.to);
+    adj(prev, e.to, prevPort, tp);
     routeVias.set(e.key, vias);
   }
 
@@ -101,10 +110,12 @@ export function layered(nodes: LayeredNode[], edges: LayeredEdge[], gap: number)
     return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
   };
 
-  const orderRank = (r: number, neighbors: Map<string, string[]>): void => {
+  const orderRank = (r: number, neighbors: Map<string, Nb[]>): void => {
     const keys = ranks[r]!.map((id, i) => {
       const ns = neighbors.get(id);
-      return { id, key: ns && ns.length ? median(ns.map((n) => pos.get(n)!)) : i };
+      // the port biases the anchor within the neighbor's row, so two
+      // edges leaving different slots of one card order without a tie
+      return { id, key: ns && ns.length ? median(ns.map((n) => pos.get(n.id)! + n.port - 0.5)) : i };
     });
     keys.sort((a, b) => a.key - b.key || pos.get(a.id)! - pos.get(b.id)!);
     ranks[r] = keys.map((k) => k.id);
@@ -122,7 +133,7 @@ export function layered(nodes: LayeredNode[], edges: LayeredEdge[], gap: number)
     let n = 0;
     for (const [na, nb] of [[upOf, upOf], [downOf, downOf]] as const) {
       const ea = na.get(a) ?? [], eb = nb.get(b) ?? [];
-      for (const x of ea) for (const y of eb) if (pos.get(x)! > pos.get(y)!) n++;
+      for (const x of ea) for (const y of eb) if (pos.get(x.id)! > pos.get(y.id)!) n++;
     }
     return n;
   };
@@ -160,7 +171,7 @@ export function layered(nodes: LayeredNode[], edges: LayeredEdge[], gap: number)
     return (upOf.get(id)?.length ?? 0) + (downOf.get(id)?.length ?? 0);
   };
 
-  const relax = (r: number, neighbors: Map<string, string[]>): void => {
+  const relax = (r: number, neighbors: Map<string, Nb[]>): void => {
     const row = ranks[r]!;
     const order = row
       .map((id, i) => ({ id, i, p: priority(id) }))
@@ -168,7 +179,9 @@ export function layered(nodes: LayeredNode[], edges: LayeredEdge[], gap: number)
     for (const { id, i, p } of order) {
       const ns = neighbors.get(id);
       if (!ns || !ns.length) continue;
-      const want = median(ns.map(center)) - slots.get(id)!.h / 2;
+      // align with the exact port point (the slot), not the node centre
+      const want = median(ns.map((n) => y.get(n.id)! + slots.get(n.id)!.h * n.port))
+        - slots.get(id)!.h / 2;
       let delta = want - y.get(id)!;
       if (Math.abs(delta) < 0.5) continue;
       if (delta > 0) {

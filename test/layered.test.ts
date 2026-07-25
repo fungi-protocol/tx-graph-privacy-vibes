@@ -52,6 +52,22 @@ test("intro: Bob's spend no longer hides behind Alice's transaction", () => {
   assert.ok(!overlap(t2, t3), "cards do not overlap");
 });
 
+test("intro: t1's two output edges do not cross (slot order matches band order)", () => {
+  // t1o1 (Bob's bike money) leaves the upper output slot, t1o2 (Alice's
+  // change) the lower; their consumers t3 and t2 must land in that same
+  // vertical order or the edges cross right in the opening scene
+  const chain = buildIntroChain();
+  const layout = layoutChain(chain);
+  const sibs = layout.edges.filter((e) => chain.coins.get(e.coin)!.producer === "t1");
+  assert.equal(sibs.length, 2);
+  const [a, b] = sibs as [typeof sibs[0], typeof sibs[0]];
+  assert.equal(
+    Math.sign(a.from.y - b.from.y),
+    Math.sign(a.to.y - b.to.y),
+    "edges from t1's output slots cross on the way to their consumers",
+  );
+});
+
 test("no two cards or root boxes overlap in the block view (day 60)", () => {
   const eco = new Economy("golden");
   eco.runTo(60);

@@ -41,6 +41,8 @@ export interface TutorialCallbacks {
    *  minDay tells the app when the takeover should begin if the scene has
    *  yet to fast-forward there */
   onPlay?: (u: number | null, minDay: number) => void;
+  /** the learner pressed "done ✓" on the last step: hand the town over */
+  onDone?: () => void;
 }
 
 export class Tutorial {
@@ -74,8 +76,10 @@ export class Tutorial {
     this.nextBtn = this.panel.querySelector(".tut-next")!;
     this.prevBtn.addEventListener("click", () => this.go(this.index - 1));
     this.nextBtn.addEventListener("click", () => {
-      if (this.index === this.steps.length - 1) this.hide();
-      else this.go(this.index + 1);
+      if (this.index === this.steps.length - 1) {
+        this.hide();
+        this.cb.onDone?.();
+      } else this.go(this.index + 1);
     });
     this.panel.querySelector(".tut-skip")!.addEventListener("click", () => this.hide());
   }

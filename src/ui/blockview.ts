@@ -66,12 +66,23 @@ export function layoutChain(chain: Chain): Layout {
     ...rootIds.map((cid) => ({ id: cid, rank: 0, h: SLOT_H + SLOT_GAP })),
     ...chain.order.map((tid) => ({ id: tid, rank: rankOf.get(tid)!, h: cardH(tid) })),
   ];
+  // edges anchor at their actual slot, not the card centre: the port is the
+  // slot's y-centre as a fraction of the node height, so an edge leaving a
+  // lower output slot orders (and aligns) below one leaving a higher slot
+  const slotPort = (row: number, h: number): number =>
+    (HEADER_H + PAD + row * (SLOT_H + SLOT_GAP) + SLOT_H / 2) / h;
   const ledges: LayeredEdge[] = [];
   for (const tid of chain.order) {
-    for (const cid of chain.txs.get(tid)!.inputs) {
+    const tx = chain.txs.get(tid)!;
+    tx.inputs.forEach((cid, r) => {
       const src = sourceOf.get(cid);
-      if (src) ledges.push({ from: src, to: tid, key: `in:${cid}` });
-    }
+      if (!src) return;
+      const coin = chain.coins.get(cid)!;
+      const fromPort = coin.producer === null
+        ? (SLOT_H / 2) / (SLOT_H + SLOT_GAP)
+        : slotPort(chain.txs.get(coin.producer)!.outputs.indexOf(cid), cardH(coin.producer));
+      ledges.push({ from: src, to: tid, key: `in:${cid}`, fromPort, toPort: slotPort(r, cardH(tid)) });
+    });
   }
   const laid = layered(nodes, ledges, 44);
 

@@ -23,7 +23,7 @@ import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
 import { gameSteps } from "./scenario/gameSteps";
 import { layoutChain, type Layout, type Hit, type Rect, setCastNames } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
-import { drawMorph, hitTestMorph, coinRectAt, txRectAt, type Paint } from "./ui/morph";
+import { drawMorph, hitTestMorph, coinRectAt, txRectAt, commonInputFill, type Paint } from "./ui/morph";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
@@ -107,6 +107,7 @@ function observerPaint(): Paint {
     coinText: () => "#111",
     coinCaption: (c) => clusterLabel(cl, c.id),
     txMemo: () => null,
+    txAttribution: (t, ch) => commonInputFill(ch, t, (c) => clusterColor(cl, c.id)),
   };
 }
 
@@ -147,6 +148,15 @@ function agentPaint(): Paint {
       return a.direct ? `${name(a.owner)} · known` : `${name(a.owner)} · likely`;
     },
     txMemo: (t) => (k.txs.has(t.id) ? t.memo ?? null : null),
+    txAttribution: (t, ch) => {
+      const fill = commonInputFill(ch, t, (c) => {
+        const a = k.coins.get(c.id);
+        if (!a) return CLUSTER_MISC;
+        const color = a.owner === null ? "#e8e5da" : ownerColor(a.owner);
+        return a.direct ? color : color + "88";
+      });
+      return fill === CLUSTER_MISC ? null : fill; // unknown is not attribution
+    },
   };
 }
 
@@ -160,8 +170,12 @@ let selection: Selection | null = null;
 let highlight: Trace | null = null;
 let hideDim = false;
 let ping: { wx: number; wy: number; t: number } | null = null;
-let viewT = 0;          // 0 = block explorer, 1 = bipartite, 2 = clusters
-let targetView: 0 | 1 | 2 = 0;
+let viewT = 0;          // 0 = block explorer, 1 = bipartite
+let targetView: 0 | 1 = 0;
+// the cluster graph is not a third view but a flattening of the current
+// one (a helix collapsing into a circle): toggled orthogonally
+let collapsed = false;
+let collapseT = 0;
 
 const anim = new Animator();
 
@@ -188,13 +202,16 @@ function draw(): void {
   ctx.translate(w / 2, h / 2);
   ctx.scale(cam.scale, cam.scale);
   ctx.translate(-cam.x, -cam.y);
-  if (viewT <= 1) {
+  if (collapseT > 0) {
+    drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
+      clusterLayout(), clustering(), collapseT);
+  } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
+      selected: selection?.kind === "coins" ? { coins: new Set(selection.ids), txs: new Set() } :
+        selection?.kind === "tx" ? { coins: new Set(), txs: new Set([selection.id]) } : null,
       ...(lens === 1 ? { paint: observerPaint() } : lens === 2 ? { paint: agentPaint() } : {}),
     });
-  } else {
-    drawContraction(ctx, s.chain, s.bip, clusterLayout(), clustering(), viewT - 1);
   }
 
   if (ping) {
@@ -210,7 +227,7 @@ function draw(): void {
   const hud = document.getElementById("hud")!;
   const dayPart = scene === 1 ? ` · day ${economy().day}` : "";
   const playPart = manual !== null ? ` · playing ${castList()[manual]!.name}` : "";
-  hud.textContent = `seed ${seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click: trace · shift-click: trace together · h: hide the rest · right-click: copy a reference${originsPart()}`;
+  hud.textContent = `seed ${seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click coins: trace together (gold ring = shared origins) · h: hide the rest · right-click: copy a reference${originsPart()}`;
 }
 
 // counterfactual-path counting for the selected coin (memoized: the flow
@@ -234,8 +251,8 @@ function originsPart(): string {
 
 // --- view toggle ---
 const viewBtn = document.getElementById("viewtoggle") as HTMLButtonElement;
-const VIEW_NAMES = ["view: blocks", "view: graph", "view: clusters"] as const;
-function setView(view: 0 | 1 | 2, animate = true): void {
+const VIEW_NAMES = ["view: blocks", "view: graph"] as const;
+function setView(view: 0 | 1, animate = true): void {
   targetView = view;
   viewBtn.textContent = VIEW_NAMES[view];
   if (!animate) {
@@ -268,7 +285,46 @@ function setView(view: 0 | 1 | 2, animate = true): void {
   }, { done: () => void syncFragment() });
   kick();
 }
-viewBtn.addEventListener("click", () => setView(((targetView + 1) % 3) as 0 | 1 | 2));
+viewBtn.addEventListener("click", () => {
+  if (collapsed) setCollapsed(false); // expand back into the graph first
+  else setView((1 - targetView) as 0 | 1);
+});
+
+// --- cluster collapse: flatten the current view into the user graph ---
+const clusterBtn = document.getElementById("clusterbtn") as HTMLButtonElement;
+let preCollapseCam: Camera | null = null;
+function setCollapsed(on: boolean, animate = true): void {
+  collapsed = on;
+  clusterBtn.textContent = on ? "expand" : "clusters";
+  if (!animate) {
+    collapseT = on ? 1 : 0;
+    draw();
+    void syncFragment();
+    return;
+  }
+  const from = collapseT;
+  const to = on ? 1 : 0;
+  anim.add(80 + 620 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
+    { done: () => void syncFragment() });
+  // frame the flattened graph going in; come back out to where you were
+  if (on) {
+    preCollapseCam = { ...cam };
+    flyTo(clusterLayout().bounds);
+  } else if (preCollapseCam) {
+    const back = preCollapseCam;
+    preCollapseCam = null;
+    const fromCam = { ...cam };
+    anim.add(700, (t) => {
+      cam = {
+        x: fromCam.x + (back.x - fromCam.x) * t,
+        y: fromCam.y + (back.y - fromCam.y) * t,
+        scale: Math.exp(Math.log(fromCam.scale) + (Math.log(back.scale) - Math.log(fromCam.scale)) * t),
+      };
+    });
+  }
+  kick();
+}
+clusterBtn.addEventListener("click", () => setCollapsed(!collapsed));
 
 const lensBtn = document.getElementById("lens") as HTMLButtonElement;
 function setLens(l: 0 | 1 | 2): void {
@@ -286,7 +342,11 @@ lensBtn.addEventListener("click", () => setLens(((lens + 1) % 3) as 0 | 1 | 2));
 
 window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === "v") setView(((targetView + 1) % 3) as 0 | 1 | 2);
+  if (e.key === "v") {
+    if (collapsed) setCollapsed(false);
+    else setView((1 - targetView) as 0 | 1);
+  }
+  if (e.key === "c") setCollapsed(!collapsed);
   if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
   if (e.key === "h") { hideDim = !hideDim; draw(); }
 });
@@ -314,7 +374,7 @@ function setScene(s: 0 | 1, minDay = 0): void {
 }
 /** The selection's morphing frame in the active scene, if it has one. */
 function selectionRect(): Rect | null {
-  if (viewT > 1) return null;
+  if (collapseT > 0) return null;
   const s = active();
   const t = Math.min(1, Math.max(0, viewT));
   if (selection?.kind === "tx") return txRectAt(s.layout, s.bip, selection.id, t);
@@ -432,7 +492,7 @@ function harvestChoices(): void {
   });
 }
 
-// --- selection: click to trace; shift-click to trace coins together ---
+// --- selection: click to trace; clicking more coins traces them together ---
 // Joint traces follow the corrected semantics: the intersection of the
 // ancestries fully lit, their union partly lit, the rest dimmed (or
 // hidden). Under the observer lens the intersection is cluster-wise —
@@ -463,15 +523,16 @@ function recomputeTrace(): void {
     highlight = { full: { coins: members, txs }, partial: { coins: members, txs } };
   }
 }
-function applySelection(hit: Hit, shift = false): void {
-  if (shift && hit.kind === "coin" && selection?.kind === "coins") {
-    // toggle the coin in the joint trace
-    const ids = selection.ids.includes(hit.id)
-      ? selection.ids.filter((id) => id !== hit.id)
-      : [...selection.ids, hit.id];
+function applySelection(hit: Hit): void {
+  if (hit.kind === "coin") {
+    // plain click toggles the coin in the joint trace
+    const ids = selection?.kind === "coins" ? [...selection.ids] : [];
+    const at = ids.indexOf(hit.id);
+    if (at >= 0) ids.splice(at, 1);
+    else ids.push(hit.id);
     selection = ids.length > 0 ? { kind: "coins", ids } : null;
-  } else if (hit.kind === "coin") {
-    selection = { kind: "coins", ids: [hit.id] };
+  } else if (selection?.kind === hit.kind && selection.id === hit.id) {
+    selection = null; // clicking the selected tx/cluster again deselects
   } else {
     selection = { kind: hit.kind, id: hit.id };
   }
@@ -481,11 +542,11 @@ function applySelection(hit: Hit, shift = false): void {
 /** hit-test whatever the current view phase shows */
 function hitAt(wx: number, wy: number): Hit | null {
   const s = active();
-  if (viewT > 1.5) {
+  if (collapseT > 0.5) {
     const rep = hitTestClusters(clusterLayout(), wx, wy);
     return rep ? { kind: "cluster", id: rep } : null;
   }
-  if (viewT > 1) return null; // mid-contraction: nothing stable to hit
+  if (collapseT > 0) return null; // mid-collapse: nothing stable to hit
   return hitTestMorph(s.chain, s.layout, s.bip, viewT, wx, wy);
 }
 
@@ -690,10 +751,43 @@ function firstSettlement(): { tid: string; payer: number } | undefined {
     evs[0]
   );
 }
+// the tour's last step frames the whole graph — far too small to act on.
+// When the learner presses "done ✓" the town is theirs, so hand it over
+// framed on something readable: the most recent transactions (or the
+// cluster graph's bounds when collapsed)
+function readableHandoff(): void {
+  if (collapseT > 0) {
+    flyTo(clusterLayout().bounds);
+    return;
+  }
+  const s = active();
+  const recent = s.chain.order.slice(-3);
+  let r: Rect | null = null;
+  for (const tid of recent) {
+    const f = txRectAt(s.layout, s.bip, tid, Math.min(1, Math.max(0, viewT)));
+    if (!f) continue;
+    if (r === null) {
+      r = { ...f };
+    } else {
+      const x = Math.min(r.x, f.x), y = Math.min(r.y, f.y);
+      r = { x, y, w: Math.max(r.x + r.w, f.x + f.w) - x, h: Math.max(r.y + r.h, f.y + f.h) - y };
+    }
+  }
+  const b = r ?? s.layout.bounds;
+  flyTo({ x: b.x - 120, y: b.y - 120, w: b.w + 240, h: b.h + 240 });
+}
+
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
+  onDone: () => readableHandoff(),
   onStepChange: () => void syncFragment(),
-  onView: (view) => { if (view !== targetView) setView(view); },
+  onView: (view) => {
+    // step "view 2" means: the graph flattened into clusters
+    const flat = view === 2;
+    const base = (flat ? 1 : view) as 0 | 1;
+    if (base !== targetView) setView(base);
+    if (flat !== collapsed) setCollapsed(flat);
+  },
   onLens: (l, a) => {
     if (l === 2) lensAgent = a ?? defaultLensAgent(); // step's pick, else the payjoin payee
     if (l !== lens || l === 2) setLens(l);
@@ -833,7 +927,8 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   };
   const t = tutorial.currentIndex;
   if (t >= 0) state.t = t;
-  if (targetView !== 0) state.v = targetView;
+  if (collapsed) state.v = 2; // encoded like the old third view, for old links
+  else if (targetView !== 0) state.v = targetView;
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (scene === 1) {
@@ -889,11 +984,11 @@ canvas.addEventListener("pointerup", (e) => {
   if (dragging && moved) {
     syncFragmentSoon();
   } else if (dragging) {
-    // a click: select and trace (shift-click builds a joint trace), or clear
+    // a click: toggle the hit in the trace, or clear on empty space
     const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
     const hit = hitAt(wx, wy);
-    if (hit) applySelection(hit, e.shiftKey);
-    else if (!e.shiftKey) clearSelection();
+    if (hit) applySelection(hit);
+    else clearSelection();
     draw();
   }
   dragging = false;
@@ -953,7 +1048,8 @@ async function init(): Promise<void> {
     interventions = state.i.map(([day, payer, memo, due, plan]) =>
       ({ day, payer, memo, due, plan: plan as ManualPlan }));
   }
-  setView(state?.v === 1 || state?.v === 2 ? state.v : 0, false);
+  setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
+  if (state?.v === 2) setCollapsed(true, false);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
   if (manual !== null) setManual(manual); // light the cast panel + decisions
   // lens after scene: the agent lens defaults to a payee the economy knows
@@ -971,7 +1067,7 @@ async function init(): Promise<void> {
 
   if (state?.t !== undefined && state.t >= 0) tutorial.go(state.t, !state.cam);
   else if (state?.t === undefined && !state?.ref) tutorial.go(0, !state?.cam);
-  else if (state?.t === undefined) tutorial.hide();
+  else tutorial.hide(); // explicit t < 0, or a bare reference link: no tour
 
   if (state?.ref) {
     const { wx, wy } = state.ref;
