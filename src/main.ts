@@ -50,12 +50,20 @@ const castList = (): Persona[] => eco ? eco.cast : PERSONAS;
 let ecoScene: SceneData | null = null;
 let scene: 0 | 1 = 0;
 
+// One revision for everything derived from the world: bumped whenever the
+// simulated chain, the active scene, or the observer's heuristics change.
+// Derived caches key on this single number — never on scattered
+// (order.length, scene, …) tuples, which can miss a rebuild that lands on
+// the same day or a heuristic toggle a cache forgot to include.
+let simRev = 0;
+
 function economy(): Economy {
   if (!eco) {
     eco = new Economy(seed, params);
     eco.manual = manual;
     eco.manualFrom = manualFrom;
     eco.interventions = interventions;
+    simRev += 1;
     setCastNames(eco.cast.map((p) => p.name)); // captions track the live town
     refreshEcoLayouts();
   }
@@ -64,13 +72,9 @@ function economy(): Economy {
 /** rebuild the world from scratch and replay it to the given day — the
  *  seed, params, and recorded choices fully determine the result */
 function rebuildEconomy(toDay: number): void {
-  eco = null;
-  clCache = null;
-  knCache = null;
-  m5Cache = null;
-  m6Cache = null;
-  originsCache = null;
+  eco = null; // economy() rebuilds and bumps simRev; caches expire with it
   economy().runTo(toDay);
+  simRev += 1;
   refreshEcoLayouts();
   renderCast(); // population (and with it the cast panel) may have changed
   recomputeTrace();
@@ -95,17 +99,17 @@ let lensAgent: number | null = null;
 // the observer's map degrades honestly into the bare public structure.
 const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_ALL = 7;
 let overlays = OV_ALL;
-let clCache: { n: number; sc: number; ov: number; cl: Clustering; clay: ClusterLayout } | null = null;
+let clCache: { rev: number; cl: Clustering; clay: ClusterLayout } | null = null;
 function clustering(): Clustering {
   const s = active();
-  if (!clCache || clCache.n !== s.chain.order.length || clCache.sc !== scene || clCache.ov !== overlays) {
+  if (!clCache || clCache.rev !== simRev) {
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
     const cl = clusterObserver(s.chain, priceAt, {
       cioh: (overlays & OV_CIOH) !== 0,
       change: (overlays & OV_CHANGE) !== 0,
       subsum: (overlays & OV_SUBSUM) !== 0,
     });
-    clCache = { n: s.chain.order.length, sc: scene, ov: overlays, cl, clay: layoutClusterGraph(cl) };
+    clCache = { rev: simRev, cl, clay: layoutClusterGraph(cl) };
   }
   return clCache.cl;
 }
@@ -136,12 +140,12 @@ function defaultLensAgent(): number {
   const ev = pjs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length === 2) ?? pjs[0];
   return ev?.payee ?? 0;
 }
-let knCache: { n: number; sc: number; u: number; k: Knowledge } | null = null;
+let knCache: { rev: number; u: number; k: Knowledge } | null = null;
 function knowledge(): Knowledge {
   const s = active();
   const u = lensAgent ?? 0;
-  if (!knCache || knCache.n !== s.chain.order.length || knCache.sc !== scene || knCache.u !== u) {
-    knCache = { n: s.chain.order.length, sc: scene, u, k: agentKnowledge(s.chain, eco?.events ?? [], u, clustering(), eco?.coinjoins.keys()) };
+  if (!knCache || knCache.rev !== simRev || knCache.u !== u) {
+    knCache = { rev: simRev, u, k: agentKnowledge(s.chain, eco?.events ?? [], u, clustering(), eco?.coinjoins.keys()) };
   }
   return knCache.k;
 }
@@ -248,16 +252,16 @@ function draw(): void {
 
 // counterfactual-path counting for the selected coin (memoized: the flow
 // network is rebuilt per chain growth, not per frame)
-let originsCache: { id: string; n: number; text: string } | null = null;
+let originsCache: { id: string; rev: number; text: string } | null = null;
 function originsPart(): string {
   if (selection?.kind !== "coins" || selection.ids.length !== 1) return "";
   const id = selection.ids[0]!;
   const s = active();
-  if (!originsCache || originsCache.id !== id || originsCache.n !== s.chain.order.length) {
+  if (!originsCache || originsCache.id !== id || originsCache.rev !== simRev) {
     const o = counterfactualOrigins(s.chain, id);
     originsCache = {
       id,
-      n: s.chain.order.length,
+      rev: simRev,
       text: o.roots.length === 0 ? "" :
         ` · ${id}: ${o.roots.length} candidate origin${o.roots.length === 1 ? "" : "s"}, ${o.robust.size} by two disjoint routes`,
     };
@@ -377,8 +381,8 @@ function reflectOverlays(): void {
 reflectOverlays();
 function setOverlays(mask: number): void {
   overlays = mask & OV_ALL;
+  simRev += 1; // the observer's map — and every lens seeded from it — changes
   reflectOverlays();
-  knCache = null; // the agent lens seeds its guesses from these clusters
   recomputeTrace();
   draw();
   void syncFragment();
@@ -413,9 +417,11 @@ function setScene(s: 0 | 1, minDay = 0): void {
   if (s === 1) {
     economy().runTo(minDay);
     refreshEcoLayouts();
+    simRev += 1;
   }
   if (scene !== s) {
     scene = s;
+    simRev += 1;
     clearSelection();
   }
   dayBtn.style.display = s === 1 ? "block" : "none";
@@ -448,6 +454,7 @@ function stepDay(): void {
     : null;
   const prev = ecoScene;
   economy().step();
+  simRev += 1;
   refreshEcoLayouts();
   recomputeTrace(); // recompute over the grown chain
   const target = ecoScene!;
@@ -763,13 +770,13 @@ function traceBounds(coins: Iterable<string>, txs: Iterable<string>): Rect {
 // INTERSECT_DAY (economy.intersectSpend), so it exists on every seed;
 // the toxic-change spend arises naturally by day ~105 (probed across
 // seeds). Rects frame the whole traced past, not just the vertex.
-let m5Cache: { n: number; coin?: Focused; cross?: Focused; toxic?: Focused } | null = null;
+let m5Cache: { rev: number; coin?: Focused; cross?: Focused; toxic?: Focused } | null = null;
 function m5Moments(): { coin?: Focused; cross?: Focused; toxic?: Focused } {
   const chain = eco?.chain;
   if (!chain) return {};
-  if (m5Cache && m5Cache.n === chain.order.length) return m5Cache;
+  if (m5Cache && m5Cache.rev === simRev) return m5Cache;
   const sessions = new Set(eco!.coinjoins.keys());
-  const found: typeof m5Cache = { n: chain.order.length };
+  const found: typeof m5Cache = { rev: simRev };
   const slip = eco!.events.find((e) => e.memo === "tidying up the wallet");
   if (slip && chain.txs.has(slip.tid)) {
     const t = traceTx(chain, slip.tid);
@@ -799,12 +806,12 @@ function m5Moments(): { coin?: Focused; cross?: Focused; toxic?: Focused } {
 // --- chapter 8: the settlement that pays the played rent. The GAME_DAY
 // cycle (rent, shelves, catalogue) settles by GAME_DAY+3 on every seed
 // when Judy waits (probed); the finder frames its whole traced past.
-let m6Cache: { n: number; hit?: Focused } | null = null;
+let m6Cache: { rev: number; hit?: Focused } | null = null;
 function gameSettlement(): Focused | undefined {
   const chain = eco?.chain;
   if (!chain) return undefined;
-  if (m6Cache && m6Cache.n === chain.order.length) return m6Cache.hit;
-  m6Cache = { n: chain.order.length };
+  if (m6Cache && m6Cache.rev === simRev) return m6Cache.hit;
+  m6Cache = { rev: simRev };
   const ev = eco!.events.find((e) =>
     e.form === "settlement" && e.payer === 9 && e.memo === "studio rent" && e.day >= GAME_DAY);
   if (ev && chain.txs.has(ev.tid)) {
@@ -1121,6 +1128,7 @@ async function init(): Promise<void> {
   if (manual !== null) setManual(manual); // light the decisions panel
   if (state?.ov !== undefined) {
     overlays = state.ov & OV_ALL;
+    simRev += 1;
     reflectOverlays();
   }
   // lens after scene: the agent lens defaults to a payee the economy knows
