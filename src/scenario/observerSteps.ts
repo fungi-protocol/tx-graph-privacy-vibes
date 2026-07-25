@@ -1,8 +1,21 @@
 // Chapter 3: the third-party observer — the bare public record first,
-// then each heuristic switched on in turn: CIOH, change identification,
-// cluster contraction, and the pseudonym graph. The Scroll #2/#3 arc:
-// familiar heuristics first, then the honest caveat that attacks always
-// get better, then the observer's real product — a social graph.
+// then each heuristic switched on in turn: address reuse (the linkage
+// this town gave up, named so the floor framing is honest), CIOH,
+// change identification and its real-world family of tells, cluster
+// contraction, and the pseudonym graph. The Scroll #2/#3 arc: familiar
+// heuristics first, then the honest caveat that attacks always get
+// better, then the observer's real product — a social graph.
+//
+// The change-tell family step follows accuracy/030's constraints: the
+// ordering tell is position-leaks-when-ordering-is-deterministic (with
+// sorted/shuffled outputs as the defense), not a payment-first law;
+// the address-type tell is named as real-world only (this town is
+// type-uniform by construction); and the family is framed so blocking
+// one member visibly does not blind the others. Citations: round
+// numbers = the wiki's folklore tell (what this lens runs);
+// fresh/"shadow" address = Androulaki et al. 2012; never-seen-again
+// address = Meiklejohn et al. 2013; fingerprint classifiers = Möser &
+// Narayanan 2022, Kappos et al. 2022.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
 export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect): TutorialStep[] {
@@ -20,6 +33,28 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         will ever claim about it is an <b>inference</b> laid on top. The
         next steps switch those inferences on, one at a time; the
         <b>heuristics</b> panel on the left lets you flip them yourself.</p>`,
+      focus: () => pad(bipBounds()),
+      view: 1,
+      lens: 1,
+      overlays: 0,
+      scene: 1,
+      minDay: 21,
+    },
+    {
+      id: "no-reused-addresses",
+      title: "The mistake this town doesn't make",
+      html: `<p>The oldest linkage needs no inference at all. Every coin
+        is locked to an <b>address</b>, and paying the same address twice
+        links the two coins on the face of the record — one key controls
+        both. Bitcoin's own whitepaper warned that "a new key pair should
+        be used for each transaction"; early wallets reused addresses
+        anyway, and it was the first clustering lever anyone pulled.</p>
+        <p>Every wallet in this town draws a <b>fresh address for every
+        output</b> — as well-made wallets do today. So that lever is absent
+        here, and it's worth saying out loud: on the real chain, reuse is
+        still everywhere, so a real observer starts with linkage this
+        chapter never even needs. Everything the observer achieves in this
+        story is a <b>floor</b>.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
@@ -57,7 +92,40 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         output is probably the change — and change belongs to whoever
         paid.</p>
         <p>Each correct guess extends a cluster by one hop. Chained day
-        after day, that is most of the map you now see.</p>`,
+        after day, that is most of the map you now see. The round-dollar
+        bet is the one tell this lens actually runs — but it is one member
+        of a <b>family</b>, and the family is the next step's subject.</p>`,
+      focus: () => pad(bipBounds()),
+      view: 1,
+      lens: 1,
+      overlays: 3,
+      scene: 1,
+      minDay: 21,
+    },
+    {
+      id: "a-family-of-tells",
+      title: "A family of tells",
+      html: `<p>You met two siblings in the first chapter. The ordering
+        tell, stated precisely: any wallet that orders its outputs by a
+        fixed rule leaks the change's <b>position</b> once its software is
+        identified — which is why some wallets sort outputs by a neutral
+        convention (BIP 69) or shuffle them, to destroy that signal. And
+        the address-type tell: change usually matches the inputs' address
+        type while the payment is whatever the payee asked for. That one
+        has no purchase here — this town's wallets all use one address
+        type — but real chains mix types, and every mixed-type payment
+        leaks what a uniform one doesn't.</p>
+        <p>Researchers added more. The freshly generated address next to
+        one seen before is probably the change (Androulaki et al. call it
+        the <i>shadow address</i>); an address that never appears again is
+        probably change too (Meiklejohn et al.) — both tells feed on the
+        address reuse this town gave up. And above the hand-written tells
+        sits a heavier tier: wallet software leaves <b>fingerprints</b> —
+        fee choices, script versions, ordering and locktime conventions —
+        and classifiers trained on them (Möser &amp; Narayanan; Kappos et
+        al.) have proven extremely powerful in practice.</p>
+        <p>The lesson is the family, not any one member: take one tell
+        away and the others still vote.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
@@ -73,9 +141,8 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         coin, the actual payment, gets welded into the payer's cluster.
         Careful observers accept some misses to avoid <b>cluster
         collapse</b> — merging different people into one blob. This lens is
-        not careful: it takes every bet. And real observers keep improving,
-        reading wallet fingerprints, timing habits, and amount patterns
-        this lens doesn't model.</p>
+        not careful: it takes every bet. And the family you just met keeps
+        growing — real observers add tells this lens doesn't model.</p>
         <p class="tut-aside">The rule of thumb from cryptography applies:
         attacks always get better; they never get worse.</p>`,
       focus: () => pad(bipBounds()),
@@ -111,7 +178,9 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         address — ties a pseudonym to a person, and everything its cluster
         ever did comes with it. The map is patient — a name learned today
         applies to everything already on it, and it can be joined with
-        data from outside the chain.</p>
+        data from outside the chain. The stakes are ordinary ones: rates,
+        salaries, balances, habits, and who deals with whom — read by
+        whoever holds the map.</p>
         <p>Everything so far assumed each transaction has <b>one
         author</b>. The rest of this story is about what happens when the
         neighborhood breaks that assumption.</p>`,
