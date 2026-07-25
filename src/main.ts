@@ -10,9 +10,12 @@ import { economySteps } from "./scenario/economySteps";
 import { PERSONAS, OWNER_COLORS, CARELESS } from "./scenario/cast";
 import { Economy } from "./engine/economy";
 import { ancestry, txAncestry, type Ancestry } from "./analysis/ancestry";
+import { clusterObserver, clusterColor, clusterLabel, type Clustering } from "./analysis/clusters";
+import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout } from "./ui/clusterview";
+import { observerSteps } from "./scenario/observerSteps";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
-import { drawMorph, hitTestMorph } from "./ui/morph";
+import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
@@ -45,13 +48,39 @@ function active(): SceneData {
   return scene === 1 && ecoScene ? ecoScene : intro;
 }
 
+// --- observer lens: colors by inferred cluster, no names, no memos ---
+let lens: 0 | 1 = 0; // 0 = all-seeing, 1 = observer
+let clCache: { n: number; sc: number; cl: Clustering; clay: ClusterLayout } | null = null;
+function clustering(): Clustering {
+  const s = active();
+  if (!clCache || clCache.n !== s.chain.order.length || clCache.sc !== scene) {
+    const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
+    const cl = clusterObserver(s.chain, priceAt);
+    clCache = { n: s.chain.order.length, sc: scene, cl, clay: layoutClusterGraph(cl) };
+  }
+  return clCache.cl;
+}
+function clusterLayout(): ClusterLayout {
+  clustering();
+  return clCache!.clay;
+}
+function observerPaint(): Paint {
+  const cl = clustering();
+  return {
+    coinFill: (c) => clusterColor(cl, c.id),
+    coinText: () => "#111",
+    coinCaption: (c) => clusterLabel(cl, c.id),
+    txMemo: () => null,
+  };
+}
+
 let cam: Camera = { x: 0, y: 0, scale: 1 };
 let hover: Hit | null = null;
 let selected: Hit | null = null;
 let highlight: Ancestry | null = null;
 let ping: { wx: number; wy: number; t: number } | null = null;
-let viewT = 0;          // 0 = block explorer, 1 = bipartite
-let targetView: 0 | 1 = 0;
+let viewT = 0;          // 0 = block explorer, 1 = bipartite, 2 = clusters
+let targetView: 0 | 1 | 2 = 0;
 
 const anim = new Animator();
 
@@ -78,7 +107,14 @@ function draw(): void {
   ctx.translate(w / 2, h / 2);
   ctx.scale(cam.scale, cam.scale);
   ctx.translate(-cam.x, -cam.y);
-  drawMorph(ctx, s.chain, s.layout, s.bip, viewT, { hover, highlight });
+  if (viewT <= 1) {
+    drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
+      hover, highlight,
+      ...(lens === 1 ? { paint: observerPaint() } : {}),
+    });
+  } else {
+    drawContraction(ctx, s.chain, s.bip, clusterLayout(), clustering(), viewT - 1);
+  }
 
   if (ping) {
     const r = 8 + ping.t * 46;
@@ -97,9 +133,10 @@ function draw(): void {
 
 // --- view toggle ---
 const viewBtn = document.getElementById("viewtoggle") as HTMLButtonElement;
-function setView(view: 0 | 1, animate = true): void {
+const VIEW_NAMES = ["view: blocks", "view: graph", "view: clusters"] as const;
+function setView(view: 0 | 1 | 2, animate = true): void {
   targetView = view;
-  viewBtn.textContent = view === 0 ? "view: blocks" : "view: graph";
+  viewBtn.textContent = VIEW_NAMES[view];
   if (!animate) {
     viewT = view;
     draw();
@@ -107,12 +144,24 @@ function setView(view: 0 | 1, animate = true): void {
     return;
   }
   const from = viewT;
-  anim.add(800, (t) => { viewT = from + (view - from) * t; }, { done: () => void syncFragment() });
+  anim.add(500 + 400 * Math.abs(view - from), (t) => { viewT = from + (view - from) * t; }, { done: () => void syncFragment() });
   kick();
 }
-viewBtn.addEventListener("click", () => setView(targetView === 0 ? 1 : 0));
+viewBtn.addEventListener("click", () => setView(((targetView + 1) % 3) as 0 | 1 | 2));
+
+const lensBtn = document.getElementById("lens") as HTMLButtonElement;
+function setLens(l: 0 | 1): void {
+  lens = l;
+  lensBtn.textContent = l === 0 ? "lens: all-seeing" : "lens: observer";
+  draw();
+  void syncFragment();
+}
+lensBtn.addEventListener("click", () => setLens(lens === 0 ? 1 : 0));
+
 window.addEventListener("keydown", (e) => {
-  if (e.key === "v" && !e.metaKey && !e.ctrlKey && !e.altKey) setView(targetView === 0 ? 1 : 0);
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "v") setView(((targetView + 1) % 3) as 0 | 1 | 2);
+  if (e.key === "o") setLens(lens === 0 ? 1 : 0);
 });
 
 // --- scene switching + day stepping ---
@@ -148,7 +197,28 @@ function clearSelection(): void {
 function applySelection(hit: Hit): void {
   const s = active();
   selected = hit;
-  highlight = hit.kind === "coin" ? ancestry(s.chain, hit.id) : txAncestry(s.chain, hit.id);
+  if (hit.kind === "coin") highlight = ancestry(s.chain, hit.id);
+  else if (hit.kind === "tx") highlight = txAncestry(s.chain, hit.id);
+  else {
+    // cluster: its member coins and the transactions that spend them
+    const members = new Set(clustering().members.get(hit.id) ?? []);
+    const txs = new Set<string>();
+    for (const tid of s.chain.order) {
+      if (s.chain.txs.get(tid)!.inputs.some((c) => members.has(c))) txs.add(tid);
+    }
+    highlight = { coins: members, txs };
+  }
+}
+
+/** hit-test whatever the current view phase shows */
+function hitAt(wx: number, wy: number): Hit | null {
+  const s = active();
+  if (viewT > 1.5) {
+    const rep = hitTestClusters(clusterLayout(), wx, wy);
+    return rep ? { kind: "cluster", id: rep } : null;
+  }
+  if (viewT > 1) return null; // mid-contraction: nothing stable to hit
+  return hitTestMorph(s.chain, s.layout, s.bip, viewT, wx, wy);
 }
 
 // --- animation loop ---
@@ -208,11 +278,13 @@ const steps = [
     const s = active();
     return targetView === 1 ? s.bip.bounds : { x: s.layout.bounds.x, y: s.layout.bounds.y, w: s.layout.bounds.w, h: s.layout.bounds.h };
   }),
+  ...observerSteps(() => active().bip.bounds, () => clusterLayout().bounds),
 ];
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
   onStepChange: () => void syncFragment(),
   onView: (view) => { if (view !== targetView) setView(view); },
+  onLens: (l) => { if (l !== lens) setLens(l); },
   onScene: (s, minDay) => setScene(s, minDay),
 });
 
@@ -259,6 +331,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   const t = tutorial.currentIndex;
   if (t >= 0) state.t = t;
   if (targetView !== 0) state.v = targetView;
+  if (lens !== 0) state.l = lens;
   if (scene === 1) {
     state.sc = 1;
     state.n = economy().day;
@@ -288,9 +361,8 @@ canvas.addEventListener("pointermove", (e) => {
     draw();
     return;
   }
-  const s = active();
   const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
-  const hit = hitTestMorph(s.chain, s.layout, s.bip, viewT, wx, wy);
+  const hit = hitAt(wx, wy);
   if (hit?.kind !== hover?.kind || hit?.id !== hover?.id) {
     hover = hit;
     canvas.style.cursor = hit ? "pointer" : "grab";
@@ -302,9 +374,8 @@ canvas.addEventListener("pointerup", (e) => {
     syncFragmentSoon();
   } else if (dragging) {
     // a click: select and trace, or clear
-    const s = active();
     const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
-    const hit = hitTestMorph(s.chain, s.layout, s.bip, viewT, wx, wy);
+    const hit = hitAt(wx, wy);
     if (hit) applySelection(hit);
     else clearSelection();
     draw();
@@ -330,9 +401,8 @@ function toast(text: string): void {
 
 canvas.addEventListener("contextmenu", (e) => {
   e.preventDefault();
-  const s = active();
   const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
-  const hit = hitTestMorph(s.chain, s.layout, s.bip, viewT, wx, wy);
+  const hit = hitAt(wx, wy);
   const ref: FragmentState["ref"] = {
     wx: Math.round(wx),
     wy: Math.round(wy),
@@ -351,7 +421,8 @@ async function init(): Promise<void> {
   resize();
   const state = await decodeFragment(location.hash).catch(() => null);
   if (state?.seed) seed = state.seed;
-  setView(state?.v === 1 ? 1 : 0, false);
+  setView(state?.v === 1 || state?.v === 2 ? state.v : 0, false);
+  if (state?.l === 1) setLens(1);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
 
   if (state?.cam) {

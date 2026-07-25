@@ -28,10 +28,12 @@
   .tut-nav button:hover:not(:disabled) { background: #3d414a; }
   .tut-nav button:disabled { opacity: 0.4; cursor: default; }
   .tut-skip { margin-left: auto; opacity: 0.7; }
-  #viewtoggle { position: fixed; left: 16px; top: 16px; background: #33363e; color: #d8dade;
+  #viewtoggle, #lens { position: fixed; left: 16px; background: #33363e; color: #d8dade;
                 border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
                 font: inherit; font-size: 13px; cursor: pointer; }
-  #viewtoggle:hover { background: #3d414a; }
+  #viewtoggle { top: 16px; }
+  #lens { top: 56px; }
+  #viewtoggle:hover, #lens:hover { background: #3d414a; }
   .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%);
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
@@ -67,6 +69,7 @@
 <canvas id="view"></canvas>
 <div id="hud"></div>
 <button id="viewtoggle" title="flip between the block-explorer and bipartite drawings (v)">view: blocks</button>
+<button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
 <button id="castbtn" title="the neighborhood's character sheets">cast</button>
 <div id="cast"></div>
 <div id="inspector"></div>

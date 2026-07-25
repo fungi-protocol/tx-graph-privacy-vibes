@@ -8,7 +8,7 @@ import { OWNER_COLORS, OWNER_TEXT, EXTERNAL_COLOR, CAST } from "../scenario/intr
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
-export interface Hit { kind: "coin" | "tx"; id: string }
+export interface Hit { kind: "coin" | "tx" | "cluster"; id: string }
 
 export interface Layout {
   /** tx card frames (world coords) */

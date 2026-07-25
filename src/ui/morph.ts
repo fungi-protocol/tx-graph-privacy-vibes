@@ -3,11 +3,23 @@
 // across the morph: a coin's producing box glides to its coin vertex, the
 // duplicate input slots fly into that same vertex while fading, tx cards
 // shrink to square nodes, and the output edges fade in.
-import { type Chain, type Coin } from "../model/chain";
+import { type Chain, type Coin, type Tx } from "../model/chain";
 import { fmtSats } from "../core/sats";
 import { OWNER_TEXT, CAST } from "../scenario/intro";
 import { type Layout, type Rect, type Hit, coinColor } from "./blockview";
 import { type BipLayout } from "./bipartite";
+
+/**
+ * What knowledge the drawing assumes: the omniscient paint shows true
+ * owners and narrative labels; an observer paint may only use what is
+ * public (amounts, fees, structure) plus its own inferences.
+ */
+export interface Paint {
+  coinFill(coin: Coin): string;
+  coinText(coin: Coin): string;
+  coinCaption(coin: Coin): string;
+  txMemo(tx: Tx): string | null;
+}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -33,6 +45,13 @@ function ownerName(owner: number | null): string {
   return owner === null ? "external" : CAST[owner] ?? `user ${owner}`;
 }
 
+export const OMNISCIENT: Paint = {
+  coinFill: coinColor,
+  coinText: (c) => (c.owner === null ? "#111" : OWNER_TEXT[c.owner] ?? "#111"),
+  coinCaption: (c) => `${ownerName(c.owner)}${c.label ? " · " + c.label : ""}`,
+  txMemo: (t) => t.memo ?? null,
+};
+
 /** A coin's single morphing frame: producing box -> bipartite vertex. */
 export function coinRectAt(block: Layout, bip: BipLayout, id: string, t: number): Rect | null {
   const from = block.coinBoxes.find((cb) => cb.coin === id && cb.role !== "in")?.rect;
@@ -52,6 +71,8 @@ export interface MorphDrawOptions {
   hover?: Hit | null;
   /** ancestry highlight: everything else is gently dimmed (not too dim) */
   highlight?: { coins: Set<string>; txs: Set<string> } | null;
+  /** knowledge lens; defaults to the omniscient paint */
+  paint?: Paint;
 }
 
 const DIM = 0.3;
@@ -67,6 +88,7 @@ export function drawMorph(
   const hover = opts.hover ?? null;
   const hoverCoin = hover?.kind === "coin" ? hover.id : null;
   const hl = opts.highlight ?? null;
+  const paint = opts.paint ?? OMNISCIENT;
   const coinAlpha = (id: string): number => (hl && !hl.coins.has(id) ? DIM : 1);
   const txAlpha = (id: string): number => (hl && !hl.txs.has(id) ? DIM : 1);
   const coinAt = (id: string): Rect => coinRectAt(block, bip, id, t)!;
@@ -86,7 +108,7 @@ export function drawMorph(
       const emphasized = hoverCoin === cid;
       ctx.globalAlpha = coinAlpha(cid);
       bezier(ctx, from.x + from.w, from.y + from.h / 2, to.x, to.y + to.h / 2);
-      ctx.strokeStyle = coinColor(coin) + (emphasized ? "" : "b0");
+      ctx.strokeStyle = paint.coinFill(coin) + (emphasized ? "" : "b0");
       ctx.lineWidth = emphasized ? 3.5 : 1.8;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -106,7 +128,7 @@ export function drawMorph(
         const emphasized = hoverCoin === cid;
         ctx.globalAlpha = t * coinAlpha(cid);
         bezier(ctx, txr.x + txr.w, txr.y + txr.h / 2, to.x, to.y + to.h / 2);
-        ctx.strokeStyle = coinColor(coin) + (emphasized ? "" : "b0");
+        ctx.strokeStyle = paint.coinFill(coin) + (emphasized ? "" : "b0");
         ctx.lineWidth = emphasized ? 3.5 : 1.8;
         ctx.stroke();
       }
@@ -133,7 +155,7 @@ export function drawMorph(
       ctx.globalAlpha = (1 - 2 * t) * txAlpha(tid);
       ctx.fillStyle = "#9aa0ab";
       ctx.font = "12px system-ui, sans-serif";
-      ctx.fillText(`${tid} — ${tx.memo ?? "transaction"}`, frame.x + 10, frame.y + 17);
+      ctx.fillText(`${tid} — ${paint.txMemo(tx) ?? "transaction"}`, frame.x + 10, frame.y + 17);
       ctx.fillStyle = "#6d727d";
       ctx.font = "10px system-ui, sans-serif";
       ctx.fillText(`fee ${fmtSats(tx.fee)} sats @ ${tx.feerate} sat/vb`, frame.x + 10, frame.y + 33);
@@ -149,9 +171,10 @@ export function drawMorph(
       ctx.fillText(tid, frame.x + frame.w / 2, frame.y + frame.h / 2);
       ctx.font = "10px system-ui, sans-serif";
       ctx.fillStyle = "#8b919c";
-      if (tx.memo) ctx.fillText(tx.memo, frame.x + frame.w / 2, frame.y + frame.h + 12);
+      const memo = paint.txMemo(tx);
+      if (memo) ctx.fillText(memo, frame.x + frame.w / 2, frame.y + frame.h + 12);
       ctx.fillStyle = "#6d727d";
-      ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb`, frame.x + frame.w / 2, frame.y + frame.h + (tx.memo ? 24 : 12));
+      ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 24 : 12));
       ctx.restore();
       ctx.textAlign = "left";
     }
@@ -166,7 +189,7 @@ export function drawMorph(
       const coin = chain.coins.get(cb.coin)!;
       const rect = lerpRect(cb.rect, coinAt(cb.coin), t);
       ctx.globalAlpha = (1 - t) * coinAlpha(cb.coin);
-      drawCoinBox(ctx, coin, rect, hoverCoin === cb.coin, false, t);
+      drawCoinBox(ctx, coin, rect, hoverCoin === cb.coin, false, t, paint);
     }
     ctx.restore();
   }
@@ -176,14 +199,16 @@ export function drawMorph(
     const rect = coinAt(coin.id);
     const unspent = coin.dest === null;
     ctx.globalAlpha = coinAlpha(coin.id);
-    drawCoinBox(ctx, coin, rect, hoverCoin === coin.id, unspent, t);
-    // caption: whose coin / what for
-    ctx.fillStyle = "#8b919c";
-    ctx.font = "10px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    const caption = `${ownerName(coin.owner)}${coin.label ? " · " + coin.label : ""}`;
-    ctx.fillText(caption, rect.x + rect.w / 2, rect.y + rect.h + 12);
-    ctx.textAlign = "left";
+    drawCoinBox(ctx, coin, rect, hoverCoin === coin.id, unspent, t, paint);
+    // caption: whose coin / what for (or whatever the lens can say)
+    const caption = paint.coinCaption(coin);
+    if (caption) {
+      ctx.fillStyle = "#8b919c";
+      ctx.font = "10px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(caption, rect.x + rect.w / 2, rect.y + rect.h + 12);
+      ctx.textAlign = "left";
+    }
   }
   ctx.globalAlpha = 1;
 }
@@ -195,14 +220,15 @@ function drawCoinBox(
   focused: boolean,
   unspent: boolean,
   t: number,
+  paint: Paint,
 ): void {
   rounded(ctx, rect, lerp(10, 17, t));
-  ctx.fillStyle = coinColor(coin);
+  ctx.fillStyle = paint.coinFill(coin);
   ctx.fill();
   ctx.strokeStyle = focused ? "#ffffff" : unspent ? "#111111" : "#333333";
   ctx.lineWidth = focused ? 2.5 : unspent ? 3 : 1;
   ctx.stroke();
-  ctx.fillStyle = coin.owner === null ? "#111" : OWNER_TEXT[coin.owner] ?? "#111";
+  ctx.fillStyle = paint.coinText(coin);
   ctx.font = "600 12px system-ui, sans-serif";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";

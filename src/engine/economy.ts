@@ -79,6 +79,8 @@ export class Economy {
   chain = new Chain();
   events: EconomyEvent[] = [];
   day = 0;
+  /** public exchange-rate history, USD per BTC, indexed by day */
+  prices: number[] = [];
   private txn = 0;
   private rng: Rng;
   private price: number; // USD per BTC, drifts
@@ -88,6 +90,7 @@ export class Economy {
     this.rng = new Rng(`${seed}/economy`);
     this.price = 103_000 + this.rng.next() * 3_000;
     this.feebase = 1 + this.rng.next() * 2;
+    this.prices.push(this.price);
     let rc = 0;
     PERSONAS.forEach((p, u) => {
       for (const v of p.roots) {
@@ -145,6 +148,7 @@ export class Economy {
     // markets drift
     this.price = Math.min(110_000, Math.max(101_000, this.price * (1 + (this.rng.next() - 0.48) * 0.01)));
     this.feebase = Math.min(8, Math.max(0.8, this.feebase * (1 + (this.rng.next() - 0.5) * 0.2)));
+    this.prices[this.day] = this.price;
 
     const obligations: Obligation[] = [];
     for (const edge of EDGES) {
