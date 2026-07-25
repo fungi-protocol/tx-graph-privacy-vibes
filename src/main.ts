@@ -7,7 +7,7 @@ import { type Camera, worldToScreen, screenToWorld, zoomAt } from "./ui/camera";
 import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
 import { economySteps } from "./scenario/economySteps";
-import { PERSONAS, OWNER_COLORS, CARELESS } from "./scenario/cast";
+import { PERSONAS, CARELESS, MAX_POP, ownerColor, type Persona } from "./scenario/cast";
 import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type Intervention, type ManualPlan } from "./engine/economy";
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
@@ -21,7 +21,7 @@ import { settlementSteps } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
 import { gameSteps } from "./scenario/gameSteps";
-import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
+import { layoutChain, type Layout, type Hit, type Rect, setCastNames } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
 import { Tutorial } from "./ui/tutorial";
@@ -43,6 +43,7 @@ let manual: number | null = null;
 let manualFrom = 0;
 let interventions: Intervention[] = [];
 let eco: Economy | null = null;
+const castList = (): Persona[] => eco ? eco.cast : PERSONAS;
 let ecoScene: SceneData | null = null;
 let scene: 0 | 1 = 0;
 
@@ -52,6 +53,7 @@ function economy(): Economy {
     eco.manual = manual;
     eco.manualFrom = manualFrom;
     eco.interventions = interventions;
+    setCastNames(eco.cast.map((p) => p.name)); // captions track the live town
     refreshEcoLayouts();
   }
   return eco;
@@ -67,6 +69,7 @@ function rebuildEconomy(toDay: number): void {
   originsCache = null;
   economy().runTo(toDay);
   refreshEcoLayouts();
+  renderCast(); // population (and with it the cast panel) may have changed
   recomputeTrace();
   renderDecisions();
   if (scene === 1) dayBtn.textContent = dayLabel();
@@ -128,12 +131,12 @@ function knowledge(): Knowledge {
 function agentPaint(): Paint {
   const k = knowledge();
   const u = lensAgent ?? 0;
-  const name = (o: number | null): string => (o === null ? "a merchant" : PERSONAS[o]!.name);
+  const name = (o: number | null): string => (o === null ? "a merchant" : castList()[o]!.name);
   return {
     coinFill: (c) => {
       const a = k.coins.get(c.id);
       if (!a) return CLUSTER_MISC;
-      const color = a.owner === null ? "#e8e5da" : OWNER_COLORS[a.owner]!;
+      const color = a.owner === null ? "#e8e5da" : ownerColor(a.owner);
       return a.direct ? color : color + "88";
     },
     coinText: (c) => (k.coins.has(c.id) ? "#111" : "#e6e8ec"),
@@ -206,7 +209,7 @@ function draw(): void {
 
   const hud = document.getElementById("hud")!;
   const dayPart = scene === 1 ? ` · day ${economy().day}` : "";
-  const playPart = manual !== null ? ` · playing ${PERSONAS[manual]!.name}` : "";
+  const playPart = manual !== null ? ` · playing ${castList()[manual]!.name}` : "";
   hud.textContent = `seed ${seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click: trace · shift-click: trace together · h: hide the rest · right-click: copy a reference${originsPart()}`;
 }
 
@@ -254,7 +257,7 @@ function setLens(l: 0 | 1 | 2): void {
   lensBtn.textContent =
     l === 0 ? "lens: all-seeing" :
     l === 1 ? "lens: observer" :
-    `lens: ${PERSONAS[lensAgent ?? 0]!.name}'s`;
+    `lens: ${castList()[lensAgent ?? 0]!.name}'s`;
   recomputeTrace(); // the joint-trace intersection is cluster-wise under the observer
   draw();
   void syncFragment();
@@ -322,6 +325,7 @@ function setManual(u: number | null, from?: number): void {
   });
   if (scene === 1) dayBtn.textContent = dayLabel();
   renderDecisions();
+  draw(); // the HUD names the played agent
   void syncFragment();
 }
 const TERM_NAMES: Record<string, string> = {
@@ -337,10 +341,10 @@ function renderDecisions(): void {
   }
   const e = economy();
   const cands = e.candidates(manual);
-  const name = PERSONAS[manual]!.name;
+  const name = castList()[manual]!.name;
   const rows = cands.map((c, i) => {
     const overdue = c.obl.due <= e.day + 1;
-    const who = c.obl.payee === null ? "a merchant" : PERSONAS[c.obl.payee]!.name;
+    const who = c.obl.payee === null ? "a merchant" : castList()[c.obl.payee]!.name;
     // "wait" is the engine's default; an overdue obligation defaults to a
     // forced payment either way, so only departures get recorded
     const dflt = c.plans.some((p) => p.plan === "wait") ? "wait" : "unilateral";
@@ -661,14 +665,21 @@ const tutorial = new Tutorial(steps, {
 // --- cast panel + inspector ---
 const castBtn = document.getElementById("castbtn") as HTMLButtonElement;
 const castPanel = document.getElementById("cast")!;
-castPanel.innerHTML = PERSONAS.map((p, u) =>
-  `<div class="cast-row" data-u="${u}">
-    <span class="swatch" style="background:${OWNER_COLORS[u]}"></span>
-    <b>${p.name}</b> <span class="role">${p.role}</span>
-    <button class="play-btn" data-play="${u}" title="take ${p.name}'s decisions yourself">play</button>
-  </div>`).join("");
+function renderCast(): void {
+  castPanel.innerHTML = castList().map((p, u) =>
+    `<div class="cast-row" data-u="${u}">
+      <span class="swatch" style="background:${ownerColor(u)}"></span>
+      <b>${p.name}</b> <span class="role">${p.role}</span>
+      <button class="play-btn${manual === u ? " on" : ""}" data-play="${u}" title="take ${p.name}'s decisions yourself">play</button>
+    </div>`).join("");
+}
+renderCast();
 castBtn.addEventListener("click", () => {
   const open = getComputedStyle(castPanel).display !== "none";
+  if (!open) {
+    renderCast(); // the town may have grown since page load
+    paramsPanel.style.display = "none"; // the two share the left edge
+  }
   castPanel.style.display = open ? "none" : "block";
   if (open) inspector.style.display = "none";
 });
@@ -688,18 +699,18 @@ castPanel.addEventListener("click", (e) => {
     lensAgent = u;
     setLens(2); // relabel the button, repaint through the new agent's eyes
   }
-  const p = PERSONAS[u]!;
+  const p = castList()[u]!;
   const chain = active().chain;
   const utxos = chain.utxos().filter((c) => c.owner === u);
   const total = utxos.reduce((s, c) => s + c.value, 0);
   inspector.innerHTML = `
     <div class="tut-head"><span class="tut-title">
-      <span class="swatch" style="background:${OWNER_COLORS[u]}"></span> ${p.name}</span>
+      <span class="swatch" style="background:${ownerColor(u)}"></span> ${p.name}</span>
       <span class="tut-progress">${p.role}${u === CARELESS ? " ⚠" : ""}</span></div>
     <p>${p.concern}</p>
     <p class="role">wallet: ${utxos.length} coin${utxos.length === 1 ? "" : "s"}, ${fmtSats(total)} sats</p>
     <div class="coins">${utxos.slice(0, 12).map((c) =>
-      `<span class="coin-chip" style="background:${OWNER_COLORS[u]}">${fmtSats(c.value)}</span>`).join(" ")}${utxos.length > 12 ? " …" : ""}</div>`;
+      `<span class="coin-chip" style="background:${ownerColor(u)}">${fmtSats(c.value)}</span>`).join(" ")}${utxos.length > 12 ? " …" : ""}</div>`;
   inspector.style.display = "block";
 });
 
@@ -713,6 +724,7 @@ const KNOBS: Knob[] = [
   { key: "wealth", label: "starting wealth", min: 0.25, max: 4, step: 0.25 },
   { key: "oblRate", label: "obligations / edge / day", min: 0, max: 0.3, step: 0.01 },
   { key: "extRate", label: "purchases / person / day", min: 0, max: 0.2, step: 0.01 },
+  { key: "pop", label: "population", min: 10, max: MAX_POP, step: 1 },
 ];
 function renderParams(): void {
   paramsPanel.innerHTML = KNOBS.map((k) => {
@@ -746,6 +758,10 @@ function applyParams(): void {
   }
   seed = newSeed;
   params = next;
+  // a shrunken town: choices recorded for agents who no longer exist go
+  const popNow = Math.max(10, Math.min(MAX_POP, params.pop ?? 10));
+  if (manual !== null && manual >= popNow) { manual = null; manualFrom = 0; }
+  interventions = interventions.filter((iv) => iv.payer < popNow);
   const day = scene === 1 ? economy().day : 0;
   rebuildEconomy(day);
   setManual(manual); // refresh the cast panel's play buttons
@@ -753,7 +769,11 @@ function applyParams(): void {
 }
 paramsBtn.addEventListener("click", () => {
   const open = getComputedStyle(paramsPanel).display !== "none";
-  if (!open) renderParams();
+  if (!open) {
+    renderParams();
+    castPanel.style.display = "none"; // the two share the left edge
+    inspector.style.display = "none";
+  }
   paramsPanel.style.display = open ? "none" : "block";
 });
 
@@ -774,7 +794,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
     state.n = economy().day;
   }
   const P: [keyof EconomyParams, keyof NonNullable<FragmentState["p"]>][] = [
-    ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["wealth", "w"],
+    ["oblRate", "o"], ["extRate", "e"], ["feeLevel", "f"], ["feeVol", "fv"], ["wealth", "w"], ["pop", "pp"],
   ];
   const p: NonNullable<FragmentState["p"]> = {};
   for (const [key, short] of P) {
@@ -876,8 +896,9 @@ async function init(): Promise<void> {
     if (state.p.f !== undefined) params.feeLevel = state.p.f;
     if (state.p.fv !== undefined) params.feeVol = state.p.fv;
     if (state.p.w !== undefined) params.wealth = state.p.w;
+    if (state.p.pp !== undefined) params.pop = state.p.pp;
   }
-  if (state?.m && PERSONAS[state.m[0]]) {
+  if (state?.m && state.m[0] < (state.p?.pp ?? PERSONAS.length)) {
     manual = state.m[0];
     manualFrom = state.m[1];
   }
@@ -890,7 +911,7 @@ async function init(): Promise<void> {
   if (manual !== null) setManual(manual); // light the cast panel + decisions
   // lens after scene: the agent lens defaults to a payee the economy knows
   if (state?.l === 1 || state?.l === 2) {
-    if (state.l === 2 && typeof state.a === "number" && PERSONAS[state.a]) lensAgent = state.a;
+    if (state.l === 2 && typeof state.a === "number" && state.a < MAX_POP) lensAgent = state.a;
     setLens(state.l);
   }
 

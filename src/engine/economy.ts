@@ -9,7 +9,7 @@
 import { Chain, type CoinId, type TxId } from "../model/chain";
 import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
-import { PERSONAS, CARELESS } from "../scenario/cast";
+import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
 import { decomps, radixBelow } from "../denom/denominations";
 import { subsetSums, ambiguity, subTransactionMapping } from "../analysis/subsetsum";
@@ -50,37 +50,15 @@ export const INTERSECT_DAY = 112;
 /** the day the studio's rent falls due again — the playable moment */
 export const GAME_DAY = 118;
 
-// directed, flavored community edges: who tends to owe whom, and for what
-const EDGES: { payer: number; payee: number; memos: [string, number, number][] }[] = [
-  // community 0 — Alice (salaried), Bob (handyman), Carol (careless), Dave (web dev)
-  { payer: 0, payee: 1, memos: [["door repair", 80, 240], ["shelf install", 60, 180]] },
-  { payer: 0, payee: 3, memos: [["portfolio site", 200, 600]] },
-  { payer: 2, payee: 1, memos: [["leaky faucet", 60, 150]] },
-  { payer: 2, payee: 3, memos: [["blog setup", 150, 400]] },
-  { payer: 3, payee: 1, memos: [["office shelving", 100, 300]] },
-  { payer: 1, payee: 3, memos: [["booking page", 150, 450]] },
-  // community 1 — Erin (freelancer), Frank (photographer), Grace (bike shop)
-  { payer: 6, payee: 4, memos: [["freelance invoice", 300, 900]] },
-  { payer: 6, payee: 5, memos: [["product photos", 150, 500]] },
-  { payer: 5, payee: 6, memos: [["bike parts", 40, 200]] },
-  { payer: 4, payee: 6, memos: [["commuter tune-up", 50, 120]] },
-  // community 2 — Heidi (potter/landlord), Ivan (carpenter), Judy (designer)
-  { payer: 9, payee: 7, memos: [["studio rent", 850, 850]] },
-  { payer: 7, payee: 8, memos: [["display shelves", 200, 500]] },
-  { payer: 8, payee: 9, memos: [["logo design", 150, 350]] },
-  { payer: 9, payee: 8, memos: [["exhibition frames", 100, 250]] },
-  { payer: 7, payee: 9, memos: [["shop website", 250, 600]] },
-];
-
 const EXTERNAL_MEMOS: [string, number, number][] = [
   ["groceries", 30, 140], ["hardware store", 8, 90], ["dinner out", 25, 85],
   ["online order", 15, 150], ["fuel", 35, 70], ["subscription", 5, 20],
 ];
 
-function why(payer: number, payee: number | null, form: PaymentForm, day: number): string {
-  const p = PERSONAS[payer]!;
+function why(cast: Persona[], payer: number, payee: number | null, form: PaymentForm, day: number): string {
+  const p = cast[payer]!;
   if (form === "payjoin") {
-    return `${p.name} and ${PERSONAS[payee!]!.name} sign one transaction ` +
+    return `${p.name} and ${cast[payee!]!.name} sign one transaction ` +
       "together: the payee contributes a coin of their own, so the payment " +
       "hides inside what looks like an ordinary spend.";
   }
@@ -110,10 +88,13 @@ export interface EconomyParams {
   feeVol: number;
   /** initial wealth: multiplies everyone's starting coins */
   wealth: number;
+  /** town population: 10 is the fixed cast; 11–14 add the archetypes,
+   *  beyond that seeded townsfolk (clamped to MAX_POP) */
+  pop: number;
 }
 
 export const DEFAULT_PARAMS: EconomyParams = {
-  oblRate: 0.09, extRate: 0.05, feeLevel: 1, feeVol: 1, wealth: 1,
+  oblRate: 0.09, extRate: 0.05, feeLevel: 1, feeVol: 1, wealth: 1, pop: BASE_POP,
 };
 
 /** which manual plans the played agent can pick from */
@@ -149,6 +130,9 @@ export class Economy {
   /** the played agent's choices, replayed verbatim for deterministic restore */
   interventions: Intervention[] = [];
   readonly params: EconomyParams;
+  /** the town: the fixed ten, plus archetypes/townsfolk when pop > 10 */
+  readonly cast: Persona[];
+  private edges: Edge[];
   private consumed = new Set<Intervention>();
   private txn = 0;
   private rng: Rng;
@@ -157,17 +141,20 @@ export class Economy {
 
   constructor(seed: string, params: Partial<EconomyParams> = {}) {
     this.params = { ...DEFAULT_PARAMS, ...params };
+    const town = buildCast(seed, this.params.pop);
+    this.cast = town.personas;
+    this.edges = town.edges;
     this.rng = new Rng(`${seed}/economy`);
     this.price = 103_000 + this.rng.next() * 3_000;
     this.feebase = (1 + this.rng.next() * 2) * this.params.feeLevel;
     this.prices.push(this.price);
     let rc = 0;
-    PERSONAS.forEach((p, u) => {
+    this.cast.forEach((p, u) => {
       for (const v of p.roots) {
         rc += 1;
         // Carol's origin is the one identified root in the story
         this.chain.addRoot(`r${rc}`, Math.round(v * this.params.wealth), u,
-          u === CARELESS ? "exchange withdrawal" : "savings");
+          p.rootLabel ?? (u === CARELESS ? "exchange withdrawal" : "savings"));
       }
     });
   }
@@ -182,11 +169,11 @@ export class Economy {
 
   /** smallest-sufficient single coin, else the largest coins together (a
    *  consolidation — the ⚠ kind), up to six; covers target + fee + dust change */
-  private select(u: number, target: number, feerate: number, extraIn = 0): CoinId[] | null {
+  private select(u: number, target: number, feerate: number, extraIn = 0, outs = 2): CoinId[] | null {
     const coins = this.wallet(u)
       .map((id) => this.chain.coins.get(id)!)
       .sort((a, b) => b.value - a.value);
-    const need1 = target + txfee(1 + extraIn, 2, feerate) + 294;
+    const need1 = target + txfee(1 + extraIn, outs, feerate) + 294;
     const single = [...coins].reverse().find((c) => c.value >= need1);
     if (single) return [single.id];
     const picked: CoinId[] = [];
@@ -195,9 +182,46 @@ export class Economy {
       picked.push(c.id);
       sum += c.value;
       if (picked.length >= 2 &&
-          sum >= target + txfee(picked.length + extraIn, 2, feerate) + 294) return picked;
+          sum >= target + txfee(picked.length + extraIn, outs, feerate) + 294) return picked;
     }
     return null;
+  }
+
+  /**
+   * A batching desk pays several obligations in one transaction: one
+   * output per payee plus change. Cheap — and one record publishes the
+   * whole payout list: amounts side by side from the desk's coins, and
+   * each recipient can look up everyone else the desk paid that day.
+   */
+  private batchPay(payer: number, obls: Obligation[], feerate: number): boolean {
+    const values = obls.map((o) => this.sats(o.usd));
+    const total = values.reduce((a, b) => a + b, 0);
+    const inputs = this.select(payer, total, feerate, 0, obls.length + 1);
+    if (!inputs) return false;
+    const inValue = inputs.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
+    const fee = txfee(inputs.length, obls.length + 1, feerate);
+    this.txn += 1;
+    const tid = `t${this.txn}`;
+    const name = this.cast[payer]!.name;
+    // the desk is the likeliest consolidator in town: same ⚠ as unilateral()
+    const consolidates = new Set(inputs.map((id) => this.chain.coins.get(id)!.producer)).size > 1;
+    this.chain.addTx(tid, this.day, inputs, [
+      ...obls.map((o, i) => ({ owner: o.payee, value: values[i]!, label: o.memo })),
+      { owner: payer, value: inValue - total - fee, label: "change" },
+    ], feerate, `${name} batches ${obls.length} payouts in one transaction${consolidates ? " ⚠" : ""}`);
+    this.events.push({
+      tid, day: this.day, payer, payee: null,
+      memo: `batch payout ×${obls.length}`, form: "unilateral",
+      why: `${name} pays ${obls.length} people in a single transaction to ` +
+        "save fees. One record publishes the whole payout list: every " +
+        "observer sees the payout amounts side by side, all paid from the " +
+        "desk's coins — and each recipient can look up the record and see " +
+        "everyone else the desk paid that day." + (consolidates
+          ? " ⚠ The batch also consolidates coins with separate pasts — " +
+            "evidence for every observer to weld them into one."
+          : ""),
+    });
+    return true;
   }
 
   private unilateral(payer: number, payee: number | null, value: number, memo: string, feerate: number): boolean {
@@ -213,10 +237,10 @@ export class Economy {
     this.chain.addTx(tid, this.day, inputs, [
       { owner: payee, value, label: memo },
       { owner: payer, value: inValue - value - fee, label: "change" },
-    ], feerate, `${PERSONAS[payer]!.name} pays ${payee === null ? "a merchant" : PERSONAS[payee]!.name} — ${memo}${consolidates ? " ⚠" : ""}`);
+    ], feerate, `${this.cast[payer]!.name} pays ${payee === null ? "a merchant" : this.cast[payee]!.name} — ${memo}${consolidates ? " ⚠" : ""}`);
     this.events.push({
       tid, day: this.day, payer, payee, memo, form: "unilateral",
-      why: why(payer, payee, "unilateral", this.day) + (consolidates
+      why: why(this.cast, payer, payee, "unilateral", this.day) + (consolidates
         ? " ⚠ The spend consolidates coins with separate pasts — evidence for every observer to weld them into one, and proof for any counterparty who already knew either past."
         : ""),
     });
@@ -238,8 +262,8 @@ export class Economy {
     this.chain.addTx(tid, this.day, [...inputs, contributed.id], [
       { owner: payee, value: value + contributed.value, label: `${memo} + own coin` },
       { owner: payer, value: inValue - value - fee, label: "change" },
-    ], feerate, `${PERSONAS[payer]!.name} pays ${PERSONAS[payee]!.name} — ${memo} (payjoin)`);
-    this.events.push({ tid, day: this.day, payer, payee, memo, form: "payjoin", why: why(payer, payee, "payjoin", this.day) });
+    ], feerate, `${this.cast[payer]!.name} pays ${this.cast[payee]!.name} — ${memo} (payjoin)`);
+    this.events.push({ tid, day: this.day, payer, payee, memo, form: "payjoin", why: why(this.cast, payer, payee, "payjoin", this.day) });
     return true;
   }
 
@@ -253,7 +277,7 @@ export class Economy {
    */
   private findSettlements(): Obligation[][] {
     const ok = (o: Obligation): boolean =>
-      PERSONAS[o.payer]!.stats.privacy > 0 && PERSONAS[o.payee]!.stats.privacy > 0;
+      this.cast[o.payer]!.stats.privacy > 0 && this.cast[o.payee]!.stats.privacy > 0;
     const os = this.pending.filter(ok);
     const found: Obligation[][] = [];
     // 3-cycles: Alice pays Bob, Bob pays Carol, Carol pays Alice
@@ -323,7 +347,7 @@ export class Economy {
     }
     this.txn += 1;
     const tid = `t${this.txn}`;
-    const names = parts.map((u) => PERSONAS[u]!.name);
+    const names = parts.map((u) => this.cast[u]!.name);
     const inValue = (u: number): number =>
       coins.get(u)!.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
     this.chain.addTx(tid, this.day,
@@ -367,7 +391,7 @@ export class Economy {
    * seeded stream untouched.
    */
   private intersectSpend(): void {
-    for (let u = 0; u < PERSONAS.length; u++) {
+    for (let u = 0; u < this.cast.length; u++) {
       // largest spendable output per session; the naive join doesn't count
       const bySession = new Map<TxId, CoinId>();
       for (const c of this.chain.utxos()) {
@@ -404,7 +428,7 @@ export class Economy {
       if (total < 294) continue;
       this.txn += 1;
       const tid = `t${this.txn}`;
-      const name = PERSONAS[u]!.name;
+      const name = this.cast[u]!.name;
       this.chain.addTx(tid, this.day, picks, [
         { owner: u, value: total, label: "tidied-up savings" },
       ], feerate, `${name} tidies up the wallet — two coinjoined coins in one spend ⚠`);
@@ -597,7 +621,7 @@ export class Economy {
       this.events.push({
         tid, day: this.day, payer: pay.obl.payer, payee: pay.obl.payee,
         memo: pay.obl.memo, form: "coinjoin",
-        why: `${PERSONAS[pay.obl.payer]!.name} pays ${PERSONAS[pay.obl.payee]!.name} ` +
+        why: `${this.cast[pay.obl.payer]!.name} pays ${this.cast[pay.obl.payee]!.name} ` +
           "inside a coinjoin among strangers. " + (determined
             ? "The denominations were meant to hide it, but the session " +
               "came out unlucky: a single reading of the amounts balances, " +
@@ -609,12 +633,12 @@ export class Economy {
               : "The amount is decomposed into standard denominations, " +
                 "indistinguishable from everyone else's outputs; outsiders " +
                 "see only denominations that could belong to anyone.") +
-          ` ${PERSONAS[pay.obl.payee]!.name} still knows who paid.`,
+          ` ${this.cast[pay.obl.payee]!.name} still knows who paid.`,
       });
     } else {
       this.events.push({
         tid, day: this.day, payer: parts[0]!, payee: null, memo: "coinjoin session", form: "coinjoin",
-        why: `${parts.map((u) => PERSONAS[u]!.name).join(", ")} — strangers ` +
+        why: `${parts.map((u) => this.cast[u]!.name).join(", ")} — strangers ` +
           "spanning communities — spend coins in one transaction with no " +
           "payment between them, taking back denominated outputs from a " +
           "shared menu." + (determined
@@ -629,9 +653,9 @@ export class Economy {
   /** pick 3–4 strangers spanning at least two communities, all of whom
    *  see a privacy benefit and hold a coin worth joining with */
   private pickStrangers(): number[] | null {
-    const cands = PERSONAS
+    const cands = this.cast
       .map((p, u) => u)
-      .filter((u) => PERSONAS[u]!.stats.privacy > 0)
+      .filter((u) => this.cast[u]!.stats.privacy > 0)
       .filter((u) => this.wallet(u).some((id) => this.chain.coins.get(id)!.value >= 250_000));
     const n = 3 + (this.rng.next() < 0.35 ? 1 : 0);
     if (cands.length < n) return null;
@@ -640,7 +664,7 @@ export class Economy {
       const pick = cands[this.rng.int(cands.length)]!;
       if (!parts.includes(pick)) parts.push(pick);
     }
-    const communities = new Set(parts.map((u) => PERSONAS[u]!.community));
+    const communities = new Set(parts.map((u) => this.cast[u]!.community));
     return communities.size >= 2 ? parts : null;
   }
 
@@ -648,7 +672,7 @@ export class Economy {
   /** the costed plans an obligation's payer weighs — rng-free, so the UI
    *  can preview exactly what the dice (or the player) will see */
   plansFor(obl: Obligation, feerate: number, asOf = this.day): CostedPlan<ManualPlan>[] {
-    const p = PERSONAS[obl.payer]!;
+    const p = this.cast[obl.payer]!;
     const plans: CostedPlan<ManualPlan>[] = [];
     if (obl.due > asOf) {
       const urgency = urgencyCost(obl.due - asOf);
@@ -707,6 +731,13 @@ export class Economy {
       if (plan === "wait" && obl.due > this.day) return false;
       return this.unilateral(obl.payer, obl.payee, value, obl.memo, feerate);
     }
+    // a batching desk holds every bill to its deadline, hoping to combine
+    // it with others (the batch pass above runs first); a lone leftover
+    // due bill is paid the ordinary way
+    if (this.cast[obl.payer]!.batches) {
+      if (obl.due > this.day) return false;
+      return this.unilateral(obl.payer, obl.payee, value, obl.memo, feerate);
+    }
     const chosen = chooseWeighted(this.rng, this.plansFor(obl, feerate));
     if (chosen.plan === "wait") return false;
     if (chosen.plan === "payjoin" && this.payjoin(obl.payer, obl.payee, value, obl.memo, feerate)) return true;
@@ -725,8 +756,8 @@ export class Economy {
     this.prices[this.day] = this.price;
 
     // new internal obligations arrive with a few days' notice
-    for (const edge of EDGES) {
-      const n = this.rng.poisson(this.params.oblRate);
+    for (const edge of this.edges) {
+      const n = this.rng.poisson(this.params.oblRate * (edge.rate ?? 1));
       for (let i = 0; i < n; i++) {
         const memo = this.rng.pick(edge.memos);
         const usd = memo[1] === memo[2]
@@ -793,6 +824,16 @@ export class Economy {
     // the consolidation slip that makes intersection attacks concrete;
     // rng-free so the seeded stream is unchanged by its presence
     if (this.day === INTERSECT_DAY) this.intersectSpend();
+    // batching desks queue their dues and pay them all in one transaction
+    for (let u = 0; u < this.cast.length; u++) {
+      if (!this.cast[u]!.batches || u === this.manual) continue;
+      const due = this.pending.filter((o) => o.payer === u && o.due <= this.day);
+      if (due.length < 2) continue; // a lone due bill goes through the ordinary menu
+      const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
+      if (this.batchPay(u, due, feerate)) {
+        this.pending = this.pending.filter((o) => !due.includes(o));
+      }
+    }
     // each payer weighs its pending obligations; unpayable ones slip a day
     this.pending = this.pending.filter((obl) => {
       const paid = this.settle(obl);
@@ -800,7 +841,7 @@ export class Economy {
       return !paid;
     });
     // external purchases: unrounded retail prices, paid on the spot
-    for (let u = 0; u < PERSONAS.length; u++) {
+    for (let u = 0; u < this.cast.length; u++) {
       const n = this.rng.poisson(this.params.extRate);
       for (let i = 0; i < n; i++) {
         const memo = this.rng.pick(EXTERNAL_MEMOS);

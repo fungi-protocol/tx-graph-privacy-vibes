@@ -4,7 +4,8 @@
 // This is the foundational rendering; other views generalize from it.
 import { type Chain, type Coin, type CoinId, type TxId } from "../model/chain";
 import { fmtSats } from "../core/sats";
-import { OWNER_COLORS, OWNER_TEXT, EXTERNAL_COLOR, CAST } from "../scenario/intro";
+import { OWNER_TEXT, EXTERNAL_COLOR, CAST } from "../scenario/intro";
+import { ownerColor } from "../scenario/cast";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
@@ -86,8 +87,14 @@ function rounded(ctx: CanvasRenderingContext2D, r: Rect, radius: number): void {
   ctx.roundRect(r.x, r.y, r.w, r.h, radius);
 }
 
-function ownerName(owner: number | null): string {
-  return owner === null ? "external" : CAST[owner] ?? `user ${owner}`;
+// the live cast can outgrow the fixed ten; main.ts keeps this current
+let castNames: readonly string[] = CAST;
+export function setCastNames(names: readonly string[]): void {
+  castNames = names;
+}
+
+export function castName(owner: number | null): string {
+  return owner === null ? "external" : castNames[owner] ?? `resident #${owner + 1}`;
 }
 
 export interface DrawOptions {
@@ -154,7 +161,7 @@ export function drawChain(ctx: CanvasRenderingContext2D, chain: Chain, layout: L
     if (cb.role !== "in") {
       ctx.fillStyle = "#8b919c";
       ctx.font = "10px system-ui, sans-serif";
-      const caption = `${ownerName(coin.owner)}${coin.label ? " · " + coin.label : ""}`;
+      const caption = `${castName(coin.owner)}${coin.label ? " · " + coin.label : ""}`;
       ctx.textAlign = "center";
       ctx.fillText(caption, cx, cb.rect.y + cb.rect.h + 12);
       ctx.textAlign = "left";
@@ -163,7 +170,7 @@ export function drawChain(ctx: CanvasRenderingContext2D, chain: Chain, layout: L
 }
 
 export function coinColor(coin: Coin): string {
-  return coin.owner === null ? EXTERNAL_COLOR : OWNER_COLORS[coin.owner] ?? "#999999";
+  return coin.owner === null ? EXTERNAL_COLOR : ownerColor(coin.owner);
 }
 
 export function hitTest(layout: Layout, wx: number, wy: number): Hit | null {

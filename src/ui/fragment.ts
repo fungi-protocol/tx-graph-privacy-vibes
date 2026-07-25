@@ -8,8 +8,8 @@
 export interface FragmentState {
   seed: string;
   /** economy parameter overrides, non-default values only:
-   *  o = oblRate, e = extRate, f = feeLevel, fv = feeVol, w = wealth */
-  p?: { o?: number; e?: number; f?: number; fv?: number; w?: number };
+   *  o = oblRate, e = extRate, f = feeLevel, fv = feeVol, w = wealth, pp = pop */
+  p?: { o?: number; e?: number; f?: number; fv?: number; w?: number; pp?: number };
   /** manual play: [played agent, day the player took over] */
   m?: [number, number];
   /** recorded manual choices, packed [day, payer, memo, due, plan] */

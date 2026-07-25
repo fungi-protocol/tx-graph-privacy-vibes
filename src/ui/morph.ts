@@ -5,8 +5,8 @@
 // shrink to square nodes, and the output edges fade in.
 import { type Chain, type Coin, type Tx } from "../model/chain";
 import { fmtSats } from "../core/sats";
-import { OWNER_TEXT, CAST } from "../scenario/intro";
-import { type Layout, type Rect, type Hit, coinColor } from "./blockview";
+import { OWNER_TEXT } from "../scenario/intro";
+import { type Layout, type Rect, type Hit, coinColor, castName } from "./blockview";
 import { type BipLayout } from "./bipartite";
 
 /**
@@ -41,14 +41,10 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
   ctx.bezierCurveTo(x0 + dx, y0, x1 - dx, y1, x1, y1);
 }
 
-function ownerName(owner: number | null): string {
-  return owner === null ? "external" : CAST[owner] ?? `user ${owner}`;
-}
-
 export const OMNISCIENT: Paint = {
   coinFill: coinColor,
   coinText: (c) => (c.owner === null ? "#111" : OWNER_TEXT[c.owner] ?? "#111"),
-  coinCaption: (c) => `${ownerName(c.owner)}${c.label ? " · " + c.label : ""}`,
+  coinCaption: (c) => `${castName(c.owner)}${c.label ? " · " + c.label : ""}`,
   txMemo: (t) => t.memo ?? null,
 };
 
