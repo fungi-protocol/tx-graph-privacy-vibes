@@ -62,9 +62,8 @@ export function coinjoinSteps(
         takes their money back in <b>standard denominations</b> from a
         shared menu — powers of 2, 1–2 times powers of 3, 1–2–5 times powers
         of 10 — plus a change output that matches nothing in particular.</p>
-        <p>Now many groupings balance, not one. The memo on each coinjoin
-        shows the <b>match rate</b>: how many input combinations land within
-        a whisker of some output combination. And a payment can ride along:
+        <p>Now the memo's <b>match rate</b> tells the story: how many input
+        combinations land within a whisker of some output combination. And a payment can ride along:
         an obligation to someone outside the session, cut into the same
         denominations as everything else.</p>`,
       focus: () => pad(denseFocus()),
@@ -76,18 +75,20 @@ export function coinjoinSteps(
     {
       id: "many-plausible-pasts",
       title: "Many plausible pasts",
-      html: `<p>The observer's matching game now returns a shrug: several
-        mappings are consistent with the amounts, so linking any output to
-        any input is guesswork. A careful analyst <b>declines to weld
-        anything</b> — where the earlier forms fed CIOH lies, this one
-        starves it. Starves it <i>inside the join</i>, that is: the
-        clusters on either side remain, still matched to the town's
+      html: `<p>The observer's matching game now returns a shrug. On a
+        session small enough to search it can prove the point — <b>several
+        balanced readings</b>, no way to pick one — and on a larger one it
+        gives up the search and abstains. Either way a careful analyst
+        <b>declines to weld anything</b> — where the earlier forms fed CIOH
+        lies, this one starves it. Starves it <i>inside the join</i>, that
+        is: the clusters on either side remain, still matched to the town's
         relationships.</p>
         <p>Be precise about what happened. No history was erased: every
         coin's trace still runs back through the join to real origins. What
-        changed is that its own past is now <b>one of many plausible
-        pasts</b> — and the more strangers' pasts flow through, the more
-        plausible company it keeps.</p>`,
+        changed is what an observer can justify: the analysis no longer
+        supports singling out one reading, so the coin's past sits among <b>plausible
+        alternatives the observer cannot cheaply rule out</b> — and the more
+        strangers' pasts flow through, the more company it keeps.</p>`,
       focus: () => pad(denseFocus()),
       view: 1,
       lens: 1,
@@ -101,8 +102,8 @@ export function coinjoinSteps(
         counterparty knew exactly whose coins were whose; a settlement
         insider could solve the edge they were not on. A coinjoin
         participant eliminates their own coins and faces the same puzzle as
-        everyone else: <b>several strangers, several consistent
-        readings</b>. That takes arranging — these sessions are set up so
+        everyone else: <b>several strangers, and no reading they can
+        single out</b>. That takes arranging — these sessions are set up so
         nobody learns whose outputs are whose, the strongest honest
         version of the idea.</p>
         <p>You are looking through a participant's eyes: their own coins,

@@ -12,7 +12,7 @@ import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
 import { decomps, radixBelow } from "../denom/denominations";
-import { subsetSums, ambiguity, subTransactionMapping } from "../analysis/subsetsum";
+import { subsetSums, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { ancestry } from "../analysis/ancestry";
 
 export type PaymentForm = "unilateral" | "payjoin" | "settlement" | "coinjoin";
@@ -119,7 +119,7 @@ export class Economy {
   pending: Obligation[] = [];
   /** coinjoin transactions, in order: subset-sum match rate, and whether
    *  the amounts pin down a unique sub-transaction mapping */
-  coinjoins = new Map<TxId, { density: number; determined: boolean }>();
+  coinjoins = new Map<TxId, { density: number; determined: boolean; verdict: SubMapping["kind"] }>();
   /** the first, carelessly valued coinjoin (injected on COINJOIN_DAY) */
   naiveTid: TxId | undefined;
   /** the played agent, if any: their obligations follow recorded choices, not the dice */
@@ -483,9 +483,11 @@ export class Economy {
       `Frank and Ivan coinjoin — amounts chosen carelessly; ` +
       `${Math.round(density * 100)}% of input-subset sums matched`);
     this.naiveTid = tid;
+    const naiveVerdict = subTransactionMapping(ivs, ovs, fee).kind;
     this.coinjoins.set(tid, {
       density,
-      determined: subTransactionMapping(ivs, ovs, fee).kind === "unique",
+      determined: naiveVerdict === "unique",
+      verdict: naiveVerdict,
     });
     this.events.push({
       tid, day: this.day, payer: 5, payee: null, memo: "a first coinjoin", form: "coinjoin",
@@ -576,6 +578,10 @@ export class Economy {
         return [...d, target(u, Math.ceil(fee1 / n)) - d.reduce((s, x) => s + x, 0)];
       });
       if (pay) ovs.push(...pay.outs.map((o) => o.value));
+      // only PROVEN ambiguity earns the underdetermination bonus: an
+      // inconclusive verdict may hide a unique mapping (11 power-of-two
+      // inputs partition uniquely but exceed the enumeration bounds), so
+      // among unresolved candidates the density heuristic alone ranks them
       const underdetermined = subTransactionMapping(ivs, ovs, fee1).kind === "ambiguous";
       const score = (underdetermined ? 1 : 0) + ambiguity(ivs, ovs, 500 + Math.ceil(fee1 / n));
       if (score > bestScore) {
@@ -604,12 +610,15 @@ export class Economy {
     // tolerance widened by one fee share: each party's outputs sit that
     // much below their inputs, and the analyst knows to allow for it
     const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / n));
-    const determined = subTransactionMapping(ivs, ovs, fee).kind === "unique";
+    const verdict = subTransactionMapping(ivs, ovs, fee).kind;
+    const determined = verdict === "unique";
     this.chain.addTx(tid, this.day, parts.map((u) => coin.get(u)!.id), outs, feerate,
       `coinjoin, ${n} parties — denominated outputs; ` +
       `${Math.round(density * 100)}% of input-subset sums matched` +
-      (determined ? "; still, one reading balances" : "; several readings balance"));
-    this.coinjoins.set(tid, { density, determined });
+      (determined ? "; still, one reading balances"
+        : verdict === "ambiguous" ? "; several readings balance"
+        : "; mapping unresolved: too large to enumerate"));
+    this.coinjoins.set(tid, { density, determined, verdict });
     // the randomness among acceptable splits sometimes comes out unlucky:
     // a session whose amounts still admit a single balanced reading bought
     // its parties little, and the narrative says so
@@ -633,6 +642,11 @@ export class Economy {
               : "The amount is decomposed into standard denominations, " +
                 "indistinguishable from everyone else's outputs; outsiders " +
                 "see only denominations that could belong to anyone.") +
+          (determined ? "" : verdict === "ambiguous"
+            ? " Several readings of the amounts balance."
+            : " The analysis stops before resolving the mapping — a " +
+              "careful observer abstains, though abstention alone does " +
+              "not establish ambiguity.") +
           ` ${this.cast[pay.obl.payee]!.name} still knows who paid.`,
       });
     } else {
@@ -643,8 +657,13 @@ export class Economy {
           "payment between them, taking back denominated outputs from a " +
           "shared menu." + (determined
             ? unlucky
-            : " The coinjoin does not sever any coin's past; it makes " +
-              "that past one of many plausible pasts."),
+            : verdict === "ambiguous"
+              ? " Several readings of the amounts balance — the coinjoin " +
+                "does not sever any coin's past; it makes that past one " +
+                "of many plausible pasts."
+              : " The session is too large for the analysis to resolve: " +
+                "a careful observer abstains from linking, though " +
+                "abstention alone does not establish ambiguity."),
       });
     }
     return true;

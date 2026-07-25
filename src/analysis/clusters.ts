@@ -76,7 +76,9 @@ export function clusterObserver(
         }
         continue;
       }
-      if (map.kind === "ambiguous") continue;
+      // proven ambiguous or merely inconclusive: either way the observer
+      // has no partition to justify a link, so it abstains
+      if (map.kind === "ambiguous" || map.kind === "inconclusive") continue;
       // atomic: no way to split it — fall through to plain CIOH
     }
     // CIOH: all inputs of one transaction, one owner

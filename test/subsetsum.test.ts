@@ -58,8 +58,27 @@ test("ambiguity: coverage by denominated outputs vs none by careless ones", () =
   assert.ok(bad > 0 && bad < 0.25, `${bad}`);
 });
 
-test("oversized transactions are declared ambiguous, not mis-partitioned", () => {
+test("oversized transactions are inconclusive, not claimed ambiguous", () => {
+  // nothing was enumerated, so nothing is proven: the verdict must say
+  // the search gave up, not assert that several readings balance
   const ivs = Array.from({ length: 11 }, (_, i) => 100_000 + i);
   const ovs = Array.from({ length: 11 }, (_, i) => 100_000 + i);
-  assert.equal(subTransactionMapping(ivs, ovs, 0).kind, "ambiguous");
+  assert.equal(subTransactionMapping(ivs, ovs, 0).kind, "inconclusive");
+});
+
+test("reviewer's fixture: a uniquely-partitioned oversized tx is still only inconclusive", () => {
+  // 11 power-of-two inputs partition uniquely (binary representation),
+  // but the size guard bails before discovering that: the verdict must
+  // admit ignorance, and callers must not score or narrate it as
+  // ambiguous — the unique mapping here would make that claim false
+  const ivs = Array.from({ length: 11 }, (_, i) => (1 << i) * 1000);
+  const low = ivs.slice(0, 5).reduce((a, b) => a + b, 0);
+  const high = ivs.slice(5).reduce((a, b) => a + b, 0);
+  assert.equal(subTransactionMapping(ivs, [low, high], 0).kind, "inconclusive");
+});
+
+test("proven ambiguity still reads ambiguous, not inconclusive", () => {
+  // two identical parties: swapping their outputs gives a second reading
+  const m = subTransactionMapping([100_000, 100_000], [100_000, 100_000], 0);
+  assert.equal(m.kind, "ambiguous");
 });

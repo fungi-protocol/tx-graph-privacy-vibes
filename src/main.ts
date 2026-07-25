@@ -660,15 +660,19 @@ function txRect(tid: string | undefined): Rect {
   return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
 }
 function denseCoinjoin(): string | undefined {
-  // the first denominated session whose mapping stayed underdetermined;
-  // the careless one (and any unlucky session) doesn't count
-  let best: string | undefined;
+  // prefer a session whose mapping is PROVEN underdetermined (two balanced
+  // readings exhibited); fall back to an unresolved dense one, and only
+  // then to anything at all. The careless (and any unlucky) session
+  // doesn't count
+  let unresolved: string | undefined;
+  let any: string | undefined;
   for (const [tid, cj] of eco?.coinjoins ?? []) {
     if (tid === eco?.naiveTid) continue;
-    if (best === undefined) best = tid;
-    if (!cj.determined && cj.density >= 0.5) return tid;
+    if (any === undefined) any = tid;
+    if (cj.verdict === "ambiguous" && cj.density >= 0.5) return tid;
+    if (unresolved === undefined && !cj.determined && cj.density >= 0.5) unresolved = tid;
   }
-  return best;
+  return unresolved ?? any;
 }
 /** bounding box over a set of coins and txs in the bipartite layout */
 function traceBounds(coins: Iterable<string>, txs: Iterable<string>): Rect {

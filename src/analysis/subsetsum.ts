@@ -57,7 +57,8 @@ export interface SubPart {
 export type SubMapping =
   | { kind: "atomic" }              // no way to split: reads as one party
   | { kind: "unique"; parts: SubPart[] } // exactly one split: fully partitioned
-  | { kind: "ambiguous" };          // several splits (or too large to settle)
+  | { kind: "ambiguous" }           // several splits found: proven underdetermined
+  | { kind: "inconclusive" };       // too large to enumerate: nothing proven either way
 
 /**
  * Enumerate partitions of a transaction into balanced sub-transactions:
@@ -69,10 +70,12 @@ export type SubMapping =
  * prefers the finer reading (coarsenings of a valid partition trivially
  * balance and carry no extra information). Enumeration is canonical
  * (each unordered partition visited once) and stops at the second
- * complete partition. Transactions too large to enumerate are reported
- * ambiguous outright — with denominated outputs that is overwhelmingly
- * the correct answer, and an adversary with more compute gains little
- * where the mapping really is underdetermined.
+ * complete partition. Transactions too large to enumerate come back
+ * "inconclusive", NOT "ambiguous": ambiguity is a proof (two balanced
+ * readings exhibited), while inconclusive only says the search gave up.
+ * With denominated outputs the mapping is overwhelmingly likely to be
+ * underdetermined anyway, but the verdicts must not be conflated —
+ * claims of ambiguity are never allowed to outrun the analysis.
  */
 export function subTransactionMapping(
   ivs: Sats[],
@@ -82,7 +85,7 @@ export function subTransactionMapping(
 ): SubMapping {
   const n = ivs.length, m = ovs.length;
   if (n < 2 || m < 2) return { kind: "atomic" };
-  if (n > 10 || m > 12) return { kind: "ambiguous" };
+  if (n > 10 || m > 12) return { kind: "inconclusive" };
   const iSum = new Float64Array(1 << n);
   for (let mask = 1; mask < 1 << n; mask++) {
     const low = mask & -mask;
@@ -145,7 +148,7 @@ export function subTransactionMapping(
   };
   rec((1 << n) - 1, (1 << m) - 1);
 
-  if (budget <= 0) return { kind: "ambiguous" };
+  if (budget <= 0) return { kind: "inconclusive" };
   if (found === 0) return { kind: "atomic" };
   if (found >= 2) return { kind: "ambiguous" };
   const bits = (mask: number): number[] => {
