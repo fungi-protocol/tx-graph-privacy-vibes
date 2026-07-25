@@ -6,6 +6,7 @@ import { type Chain, type Coin, type CoinId, type TxId } from "../model/chain";
 import { fmtSats } from "../core/sats";
 import { OWNER_TEXT, EXTERNAL_COLOR, CAST } from "../scenario/intro";
 import { ownerColor } from "../scenario/cast";
+import { layered, type LayeredNode, type LayeredEdge } from "./layered";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
@@ -20,6 +21,8 @@ export interface Layout {
   coinBoxes: { coin: CoinId; rect: Rect; role: "root" | "in" | "out" }[];
   /** coin edges: producing box -> consuming box */
   edges: { coin: CoinId; from: Rect; to: Rect }[];
+  /** routed waypoints for column-skipping edges, keyed "in:<coin>" */
+  routes: Map<string, { x: number; y: number }[]>;
   /** bounding box of everything */
   bounds: Rect;
 }
@@ -38,27 +41,58 @@ export function layoutChain(chain: Chain): Layout {
   const coinBoxes: Layout["coinBoxes"] = [];
   const edges: Layout["edges"] = [];
 
-  // one column per transaction, in confirmation order; roots sit in a
-  // column of their own to the left
+  // ranks come from ancestry, not confirmation order: transactions that
+  // don't depend on each other share a column, and the layered layout
+  // keeps each flow in its own horizontal band (roots included, so a
+  // root coin sits beside the flow that spends it)
   const rootIds = [...chain.coins.values()].filter((c) => c.producer === null).map((c) => c.id);
-  let rootY = 0;
+  const sourceOf = new Map<CoinId, string>(); // root coin id or producer tx id
+  for (const cid of rootIds) sourceOf.set(cid, cid);
+  const rankOf = new Map<string, number>();
+  for (const cid of rootIds) rankOf.set(cid, 0);
+  for (const tid of chain.order) {
+    const tx = chain.txs.get(tid)!;
+    const d = 1 + Math.max(0, ...tx.inputs.map((c) => rankOf.get(sourceOf.get(c) ?? "") ?? 0));
+    rankOf.set(tid, d);
+    for (const cid of tx.outputs) sourceOf.set(cid, tid);
+  }
+
+  const cardH = (tid: TxId): number => {
+    const tx = chain.txs.get(tid)!;
+    const rows = Math.max(tx.inputs.length, tx.outputs.length);
+    return HEADER_H + PAD + rows * (SLOT_H + SLOT_GAP);
+  };
+  const nodes: LayeredNode[] = [
+    ...rootIds.map((cid) => ({ id: cid, rank: 0, h: SLOT_H + SLOT_GAP })),
+    ...chain.order.map((tid) => ({ id: tid, rank: rankOf.get(tid)!, h: cardH(tid) })),
+  ];
+  const ledges: LayeredEdge[] = [];
+  for (const tid of chain.order) {
+    for (const cid of chain.txs.get(tid)!.inputs) {
+      const src = sourceOf.get(cid);
+      if (src) ledges.push({ from: src, to: tid, key: `in:${cid}` });
+    }
+  }
+  const laid = layered(nodes, ledges, 44);
+
+  // column x: roots occupy a slim column 0, every later rank a card column
+  const colX = (rank: number): number =>
+    rank === 0 ? 0 : SLOT_W + COL_GAP + (rank - 1) * (CARD_W + COL_GAP);
+
   for (const cid of rootIds) {
-    const rect: Rect = { x: 0, y: rootY, w: SLOT_W, h: SLOT_H };
+    const rect: Rect = { x: 0, y: laid.y.get(cid)!, w: SLOT_W, h: SLOT_H };
     roots.set(cid, rect);
     coinBoxes.push({ coin: cid, rect, role: "root" });
-    rootY += SLOT_H + 3 * SLOT_GAP;
   }
 
   const outBox = new Map<CoinId, Rect>();
   for (const cid of rootIds) outBox.set(cid, roots.get(cid)!);
 
-  chain.order.forEach((tid, i) => {
+  for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
-    const rows = Math.max(tx.inputs.length, tx.outputs.length);
-    const h = HEADER_H + PAD + rows * (SLOT_H + SLOT_GAP);
-    const x = SLOT_W + COL_GAP + i * (CARD_W + COL_GAP);
-    const y = i * 30;
-    const frame: Rect = { x, y, w: CARD_W, h };
+    const x = colX(rankOf.get(tid)!);
+    const y = laid.y.get(tid)!;
+    const frame: Rect = { x, y, w: CARD_W, h: cardH(tid) };
     txs.set(tid, frame);
 
     tx.inputs.forEach((cid, r) => {
@@ -72,14 +106,26 @@ export function layoutChain(chain: Chain): Layout {
       coinBoxes.push({ coin: cid, rect, role: "out" });
       outBox.set(cid, rect);
     });
-  });
+  }
+
+  // waypoints for edges that skip card columns, routed through the gaps
+  const routes = new Map<string, { x: number; y: number }[]>();
+  for (const [key, ys] of laid.routes) {
+    const cid = key.slice(3);
+    const endRank = rankOf.get(chain.coins.get(cid)!.dest!)!;
+    const startRank = endRank - ys.length - 1;
+    routes.set(key, ys.map((wy, i) => {
+      const r = startRank + 1 + i;
+      return { x: colX(r) + CARD_W / 2, y: wy };
+    }));
+  }
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const r of [...txs.values(), ...roots.values()]) {
     minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
     maxX = Math.max(maxX, r.x + r.w); maxY = Math.max(maxY, r.y + r.h);
   }
-  return { txs, roots, coinBoxes, edges, bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
+  return { txs, roots, coinBoxes, edges, routes, bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
 }
 
 function rounded(ctx: CanvasRenderingContext2D, r: Rect, radius: number): void {

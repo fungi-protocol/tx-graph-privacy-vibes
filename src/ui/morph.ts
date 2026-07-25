@@ -41,6 +41,73 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
   ctx.bezierCurveTo(x0 + dx, y0, x1 - dx, y1, x1, y1);
 }
 
+type Pt = { x: number; y: number };
+
+/**
+ * Sample a spline through the given points (piecewise cubic, horizontal
+ * tangents at every point — the same flavor as the plain bezier) at n
+ * points per segment. Used to blend two differently-routed versions of
+ * the same edge pointwise during the morph.
+ */
+function sampleSpline(pts: Pt[], n: number): Pt[] {
+  const out: Pt[] = [pts[0]!];
+  for (let s = 0; s + 1 < pts.length; s++) {
+    const a = pts[s]!, b = pts[s + 1]!;
+    const dx = Math.max(40, (b.x - a.x) / 2);
+    for (let i = 1; i <= n; i++) {
+      const u = i / n, v = 1 - u;
+      out.push({
+        x: v * v * v * a.x + 3 * v * v * u * (a.x + dx) + 3 * v * u * u * (b.x - dx) + u * u * u * b.x,
+        y: v * v * v * a.y + 3 * v * v * u * a.y + 3 * v * u * u * b.y + u * u * u * b.y,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Draw an edge that may be routed through layout waypoints in either view:
+ * both versions are sampled to the same resolution and blended pointwise,
+ * so the routing morphs along with everything else.
+ */
+function routedEdge(
+  ctx: CanvasRenderingContext2D,
+  from: Pt,
+  to: Pt,
+  wpsA: Pt[] | undefined,
+  wpsB: Pt[] | undefined,
+  t: number,
+): void {
+  const a = wpsA ?? [], b = wpsB ?? [];
+  if (!a.length && !b.length) {
+    bezier(ctx, from.x, from.y, to.x, to.y);
+    return;
+  }
+  const n = Math.min(10, Math.max(6, 24 / (Math.max(a.length, b.length) + 1)));
+  const pa = t >= 1 ? null : sampleSpline([from, ...a, to], n);
+  const pb = t <= 0 ? null : sampleSpline([from, ...b, to], n);
+  let pts: Pt[];
+  if (!pa) pts = pb!;
+  else if (!pb) pts = pa;
+  else {
+    // resample to a common length by index interpolation
+    const m = Math.max(pa.length, pb.length);
+    const at = (ps: Pt[], f: number): Pt => {
+      const k = f * (ps.length - 1), i = Math.floor(k), u = k - i;
+      const p = ps[i]!, q = ps[Math.min(i + 1, ps.length - 1)]!;
+      return { x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u };
+    };
+    pts = Array.from({ length: m }, (_, i) => {
+      const f = i / (m - 1);
+      const p = at(pa, f), q = at(pb, f);
+      return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t };
+    });
+  }
+  ctx.beginPath();
+  ctx.moveTo(pts[0]!.x, pts[0]!.y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
+}
+
 export const OMNISCIENT: Paint = {
   coinFill: coinColor,
   coinText: (c) => (c.owner === null ? "#111" : OWNER_TEXT[c.owner] ?? "#111"),
@@ -115,7 +182,14 @@ export function drawMorph(
       const to = lerpRect(slot ?? txr, txr, t);
       const emphasized = hoverCoin === cid;
       ctx.globalAlpha = coinAlpha(cid);
-      bezier(ctx, from.x + from.w, from.y + from.h / 2, to.x, to.y + to.h / 2);
+      routedEdge(
+        ctx,
+        { x: from.x + from.w, y: from.y + from.h / 2 },
+        { x: to.x, y: to.y + to.h / 2 },
+        block.routes.get(`in:${cid}`),
+        bip.routes.get(`in:${cid}`),
+        t,
+      );
       ctx.strokeStyle = paint.coinFill(coin) + (emphasized ? "" : "b0");
       ctx.lineWidth = emphasized ? 3.5 : 1.8;
       ctx.stroke();
@@ -135,7 +209,14 @@ export function drawMorph(
         const to = coinAt(cid);
         const emphasized = hoverCoin === cid;
         ctx.globalAlpha = t * coinAlpha(cid);
-        bezier(ctx, txr.x + txr.w, txr.y + txr.h / 2, to.x, to.y + to.h / 2);
+        routedEdge(
+          ctx,
+          { x: txr.x + txr.w, y: txr.y + txr.h / 2 },
+          { x: to.x, y: to.y + to.h / 2 },
+          undefined,
+          bip.routes.get(`out:${cid}`),
+          1,
+        );
         ctx.strokeStyle = paint.coinFill(coin) + (emphasized ? "" : "b0");
         ctx.lineWidth = emphasized ? 3.5 : 1.8;
         ctx.stroke();

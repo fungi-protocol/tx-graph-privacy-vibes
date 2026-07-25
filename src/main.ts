@@ -23,7 +23,7 @@ import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
 import { gameSteps } from "./scenario/gameSteps";
 import { layoutChain, type Layout, type Hit, type Rect, setCastNames } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
-import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
+import { drawMorph, hitTestMorph, coinRectAt, txRectAt, type Paint } from "./ui/morph";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
@@ -245,7 +245,27 @@ function setView(view: 0 | 1 | 2, animate = true): void {
     return;
   }
   const from = viewT;
-  anim.add(500 + 400 * Math.abs(view - from), (t) => { viewT = from + (view - from) * t; }, { done: () => void syncFragment() });
+  // the selection is the same entity in both drawings — hold it steady on
+  // screen while everything else rearranges around it
+  const startRect = view <= 1 && from <= 1 ? selectionRect() : null;
+  const hold = startRect
+    ? worldToScreen(cam, canvas.clientWidth, canvas.clientHeight,
+        startRect.x + startRect.w / 2, startRect.y + startRect.h / 2)
+    : null;
+  anim.add(500 + 400 * Math.abs(view - from), (t) => {
+    viewT = from + (view - from) * t;
+    if (hold) {
+      const r = selectionRect();
+      if (r) {
+        const w = canvas.clientWidth, h = canvas.clientHeight;
+        cam = {
+          ...cam,
+          x: r.x + r.w / 2 - (hold[0] - w / 2) / cam.scale,
+          y: r.y + r.h / 2 - (hold[1] - h / 2) / cam.scale,
+        };
+      }
+    }
+  }, { done: () => void syncFragment() });
   kick();
 }
 viewBtn.addEventListener("click", () => setView(((targetView + 1) % 3) as 0 | 1 | 2));
@@ -292,11 +312,38 @@ function setScene(s: 0 | 1, minDay = 0): void {
   renderDecisions();
   draw();
 }
+/** The selection's morphing frame in the active scene, if it has one. */
+function selectionRect(): Rect | null {
+  if (viewT > 1) return null;
+  const s = active();
+  const t = Math.min(1, Math.max(0, viewT));
+  if (selection?.kind === "tx") return txRectAt(s.layout, s.bip, selection.id, t);
+  if (selection?.kind === "coins" && selection.ids.length > 0) {
+    return coinRectAt(s.layout, s.bip, selection.ids[selection.ids.length - 1]!, t);
+  }
+  return null;
+}
+
 function stepDay(): void {
   if (manual !== null) harvestChoices();
+  // a new day re-lays the whole graph: hold the selection steady on screen
+  const before = selectionRect();
+  const hold = before
+    ? worldToScreen(cam, canvas.clientWidth, canvas.clientHeight,
+        before.x + before.w / 2, before.y + before.h / 2)
+    : null;
   economy().step();
   refreshEcoLayouts();
   recomputeTrace(); // recompute over the grown chain
+  const after = hold ? selectionRect() : null;
+  if (after && hold) {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    cam = {
+      ...cam,
+      x: after.x + after.w / 2 - (hold[0] - w / 2) / cam.scale,
+      y: after.y + after.h / 2 - (hold[1] - h / 2) / cam.scale,
+    };
+  }
   dayBtn.textContent = dayLabel();
   renderDecisions();
   draw();
