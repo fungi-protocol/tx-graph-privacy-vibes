@@ -372,9 +372,11 @@ export function synthesisSteps(
         every time a change guess lands, pseudonyms fuse — the
         change-welding you watched earlier is exactly this fusing — and
         over months of ordinary housekeeping the splinters drift toward
-        one pseudonym per person. The failed sweep you just saw is a
-        <b>floor, not a ceiling</b>: the record only gets more
-        consolidated, and the premise only gets closer to true.</p>`;
+        one pseudonym per person. The town's privacy tools <b>slow that
+        drift</b>; they don't reverse it. So the failed sweep you just
+        saw is a <b>floor, not a ceiling</b> — it holds even against
+        defenders actively slowing consolidation — and the premise
+        creeps closer to true.</p>`;
       },
       focus: () => pad(clusterBounds()),
       select: () => null,
