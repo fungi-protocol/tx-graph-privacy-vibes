@@ -11,7 +11,7 @@ import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
-import { decomps, radixBelow, DUST } from "../denom/denominations";
+import { radixDecomps, radixBelow, DUST } from "../denom/denominations";
 import { subsetSums, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { ancestry } from "../analysis/ancestry";
 import { scheduleForDay, incomeFor, INCOME_EVERY, PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
@@ -623,7 +623,7 @@ export class Economy {
     const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / 2));
     this.chain.addTx(tid, this.day, coins.flat().map((c) => c.id), outs, feerate,
       `Frank and Ivan coinjoin — amounts chosen carelessly; ` +
-      `${Math.round(density * 100)}% of input-subset sums matched`);
+      `match rate ${Math.round(density * 100)}%`);
     this.naiveTid = tid;
     const naiveVerdict = subTransactionMapping(ivs, ovs, fee).kind;
     this.coinjoins.set(tid, {
@@ -650,15 +650,16 @@ export class Economy {
 
   /**
    * An oracle-formed coinjoin session: three or four strangers spanning
-   * at least two communities each contribute one coin and take back
-   * denominated outputs from the shared menu — one denomination plus
-   * guarded change, chosen uniformly at random among the acceptable
-   * splits (randomness among acceptable choices beats always-best, which
-   * would let the choice itself fingerprint the chooser). A participant
-   * with a pending obligation to someone outside the session can pay it
-   * inline: as a single arbitrary-amount output if the amount happens to
-   * be matched by other participants' coins, otherwise decomposed into
-   * the same standard denominations as everyone else's outputs.
+   * at least two communities each contribute one coin and take their
+   * whole balance back in denominations from the shared menu, plus a
+   * residual too small to say anything — the decomposition is chosen
+   * uniformly at random among the acceptable variants (randomness among
+   * acceptable choices beats always-best, which would let the choice
+   * itself fingerprint the chooser). A participant with a pending
+   * obligation to someone outside the session can pay it inline: as a
+   * single arbitrary-amount output if the amount happens to be matched
+   * by other participants' coins, otherwise decomposed into the same
+   * standard denominations as everyone else's outputs.
    */
   private coinjoin(parts: number[], feerate: number): boolean {
     const coin = new Map<number, { id: CoinId; value: number }>();
@@ -701,19 +702,21 @@ export class Economy {
       break;
     }
 
-    // each participant takes one denomination plus change (or plain
-    // change), picked uniformly among the acceptable splits; the fee is
-    // settled once the output count is known, with change absorbing the
-    // final shares
+    // each participant decomposes their whole balance into denominations
+    // plus a residual, picked uniformly among the acceptable variants;
+    // the fee is settled once the output count is known, with the
+    // residual absorbing the final shares
     const payOuts = pay ? pay.outs.length : 0;
-    const fee1 = txfee(n, n * 2 + payOuts, feerate);
+    const fee1 = txfee(n, n * 6 + payOuts, feerate);
     const target = (u: number, share: number): number =>
       coin.get(u)!.value - share - (pay && u === pay.obl.payer ? pay.paid : 0);
     const opts = new Map<number, number[][]>();
     for (const u of parts) {
       const t = target(u, Math.ceil(fee1 / n));
       if (t < DUST) return false;
-      opts.set(u, decomps(t, ivs));
+      const os = radixDecomps(t);
+      if (os.length === 0) return false;
+      opts.set(u, os);
     }
     // the oracle samples a few acceptable joint assignments and keeps the
     // best: an underdetermined mapping beats a determined one (repeating a
@@ -767,7 +770,7 @@ export class Economy {
     const determined = verdict === "unique";
     this.chain.addTx(tid, this.day, parts.map((u) => coin.get(u)!.id), outs, feerate,
       `coinjoin, ${n} parties — denominated outputs; ` +
-      `${Math.round(density * 100)}% of input-subset sums matched` +
+      `match rate ${Math.round(density * 100)}%` +
       (determined ? "; still, one reading balances"
         : verdict === "ambiguous" ? "; several readings balance"
         : "; mapping unresolved: too large to enumerate"));

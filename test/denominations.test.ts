@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DENOMS, DUST, isDenomination, radixBelow, decomps } from "../src/denom/denominations";
+import { DENOMS, DUST, isDenomination, radixBelow, radixDecomps } from "../src/denom/denominations";
 import { Rng } from "../src/core/prng";
 
 test("the pinned set: 56 hamming-weight-1 values between dust and 1 BTC", () => {
@@ -30,20 +30,30 @@ test("radix decomposition from below: at most 6 parts, residual below the smalle
   }
 });
 
-test("decomps offers denomination-plus-guarded-change splits, plain change always included", () => {
-  const ivs = [700_000, 450_000, 900_000];
-  const opts = decomps(650_000, ivs);
-  assert.ok(opts.length >= 2, "should find denomination splits for a healthy target");
-  assert.deepEqual(opts[opts.length - 1], [], "plain change is the fallback");
-  for (const ds of opts.slice(0, -1)) {
-    assert.equal(ds.length, 1);
-    assert.ok(isDenomination(ds[0]!));
-    const change = 650_000 - ds[0]!;
-    assert.ok(change >= 60_000, "change must not be dust-adjacent");
-    for (const iv of ivs) assert.ok(Math.abs(change - iv) >= 3_000, "change must not match an input");
+test("radixDecomps: whole balance into ≤6 denominations, residual below the smallest", () => {
+  const rng = new Rng("radix-whole");
+  for (let i = 0; i < 500; i++) {
+    const v = 250_000 + rng.int(3_000_000);
+    const opts = radixDecomps(v);
+    assert.ok(opts.length >= 1, `${v}: no decomposition`);
+    const seen = new Set<string>();
+    for (const parts of opts) {
+      assert.ok(parts.length >= 1 && parts.length <= 6, `${v}: ${parts.length} parts`);
+      assert.ok(parts.every((d) => isDenomination(d)), `${v}: non-denomination part`);
+      const residual = v - parts.reduce((s, d) => s + d, 0);
+      assert.ok(residual >= DUST, `${v}: residual ${residual} below dust`);
+      assert.ok(residual < DENOMS[0]! + DUST, `${v}: residual ${residual} is change under another name`);
+      const key = parts.join(",");
+      assert.ok(!seen.has(key), `${v}: duplicate variant`);
+      seen.add(key);
+    }
   }
 });
 
-test("decomps on a tiny target degrades to plain change", () => {
-  assert.deepEqual(decomps(120_000, [500_000]), [[]]);
+test("radixDecomps offers several variants for a healthy balance", () => {
+  assert.ok(radixDecomps(650_000).length >= 2, "one option would fingerprint its chooser");
+});
+
+test("radixDecomps on a dust-scale target finds nothing", () => {
+  assert.deepEqual(radixDecomps(700), []);
 });

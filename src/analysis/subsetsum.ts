@@ -20,29 +20,56 @@ export function subsetSums(vals: Sats[]): Sats[] {
   return [...sums].sort((a, b) => a - b);
 }
 
+/** every subset sum including the empty set's 0, sorted ascending */
+function sumsWithEmpty(vals: Sats[]): number[] {
+  let sums = new Set<number>([0]);
+  for (const v of vals) {
+    const next = new Set(sums);
+    for (const s of sums) next.add(s + v);
+    sums = next;
+  }
+  return [...sums].sort((a, b) => a - b);
+}
+
 /**
  * Fraction of input-subset sums matched within `tol` sats by some
  * output-subset sum. High density means the amounts place few
- * constraints on how the transaction could be partitioned.
+ * constraints on how the transaction could be partitioned. The output
+ * side is searched meet-in-the-middle — whole-balance denominated
+ * sessions run to dozens of outputs, and materializing every
+ * output-subset sum at that size is the analyst's own wall.
  */
 export function ambiguity(ivs: Sats[], ovs: Sats[], tol = 500): number {
   const isums = subsetSums(ivs);
-  const osums = subsetSums(ovs);
-  if (isums.length === 0 || osums.length === 0) return 0;
+  if (isums.length === 0 || ovs.length === 0) return 0;
+  const half = ovs.length >> 1;
+  const a = sumsWithEmpty(ovs.slice(0, half));
+  const b = sumsWithEmpty(ovs.slice(half));
   let good = 0;
   for (const s of isums) {
-    // binary search for the closest output-subset sum
-    let lo = 0, hi = osums.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (osums[mid]! < s) lo = mid + 1;
-      else hi = mid;
+    // some x ∈ a, y ∈ b with |x + y − s| ≤ tol? (the empty halves are
+    // present, so single-half subsets count; s itself is far above tol,
+    // so the doubly-empty 0 never matches)
+    let hit = false;
+    for (const x of a) {
+      if (x > s + tol) break;
+      const want = s - x;
+      let lo = 0, hi = b.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (b[mid]! < want) lo = mid + 1;
+        else hi = mid;
+      }
+      const near = Math.min(
+        lo < b.length ? Math.abs(b[lo]! - want) : Infinity,
+        lo > 0 ? Math.abs(b[lo - 1]! - want) : Infinity,
+      );
+      if (near <= tol) {
+        hit = true;
+        break;
+      }
     }
-    const near = Math.min(
-      lo < osums.length ? Math.abs(osums[lo]! - s) : Infinity,
-      lo > 0 ? Math.abs(osums[lo - 1]! - s) : Infinity,
-    );
-    if (near <= tol) good += 1;
+    if (hit) good += 1;
   }
   return good / isums.length;
 }

@@ -57,22 +57,38 @@ export function radixBelow(value: Sats, k = 6): { parts: Sats[]; residual: Sats 
 }
 
 /**
- * Ways to split one participant's coinjoin contribution into a single
- * denomination plus a change output that identifies nobody: the change
- * must not sit within amount-matching distance of any input. Options are
- * ranked by how much of the target the denomination captures; an empty
- * option (plain change) is always available as a fallback.
+ * Ways to decompose a coinjoin participant's whole contribution into at
+ * most `k` denominations plus a residual — the residual, not any real
+ * amount, is what remains as change, so it identifies nobody by value.
+ * Variants differ in their opening pick (the chooser randomizes among
+ * acceptable options; always-best would fingerprint the chooser), each
+ * completed greedily from below. Only decompositions whose residual
+ * lands in [DUST, smallest denomination + DUST) qualify: big residuals
+ * are just change under another name.
  */
-export function decomps(target: Sats, inputValues: Sats[], limit = 6): Sats[][] {
-  const changeOk = (c: Sats): boolean =>
-    c >= 60_000 && inputValues.every((iv) => Math.abs(c - iv) >= 3_000);
-  const opts: Sats[][] = [];
-  for (const d of DENOMS) {
-    if (d < 100_000 || d > target - 60_000) continue;
-    if (changeOk(target - d)) opts.push([d]);
+export function radixDecomps(target: Sats, k = 6, limit = 6): Sats[][] {
+  const starts = DENOMS.filter((d) => d <= target - DUST).slice(-limit).reverse();
+  const out: Sats[][] = [];
+  const seen = new Set<string>();
+  for (const first of starts) {
+    const parts = [first];
+    let r = target - first;
+    while (parts.length < k) {
+      let pick = 0;
+      for (const d of DENOMS) {
+        if (d > r - DUST) break; // an output must survive as the residual
+        pick = d;
+      }
+      if (pick === 0) break;
+      parts.push(pick);
+      r -= pick;
+    }
+    if (r < DUST || r >= DENOMS[0]! + DUST) continue;
+    const key = parts.join(",");
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(parts);
+    }
   }
-  opts.sort((a, b) => b[0]! - a[0]!);
-  const top = opts.slice(0, limit);
-  top.push([]); // plain change: always an acceptable choice
-  return top;
+  return out;
 }

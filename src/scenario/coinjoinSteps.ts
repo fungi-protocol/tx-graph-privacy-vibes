@@ -59,9 +59,9 @@ export function coinjoinSteps(
       id: "chosen-to-be-underdetermined",
       title: "Chosen to be underdetermined",
       html: `<p>The fix is to choose the values <b>on purpose</b>. Everyone
-        takes their money back in <b>standard denominations</b> from a
-        shared menu — powers of 2, 1–2 times powers of 3, 1–2–5 times powers
-        of 10 — plus a change output that matches nothing in particular.</p>
+        takes their whole balance back in <b>standard denominations</b> from
+        a shared menu — powers of 2, 1–2 times powers of 3, 1–2–5 times
+        powers of 10 — plus a residual too small to say anything.</p>
         <p>Now the memo's <b>match rate</b> tells the story: how many input
         combinations land within a whisker of some output combination. And a payment can ride along:
         an obligation to someone outside the session, cut into the same
