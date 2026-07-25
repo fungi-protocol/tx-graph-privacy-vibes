@@ -49,9 +49,12 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
         up: every transaction and coin it descends from, all the way back
         to someone's savings. Click a transaction to trace all of its
         inputs at once. Click empty space to clear.</p>
-        <p>In this world the trace is a <i>certainty</i>: each coin has
-        exactly one history, it is public, and every hop along it tells a
-        single owner's story.</p>`,
+        <p>So far there is nothing to puzzle over in what lights up:
+        every transaction here has a single author, so each hop is just
+        one person paying another — the trace reads as a chain of
+        hand-offs. Keep that in mind for later: the history itself will
+        always be this public and this permanent; what the later chapters
+        change is only how much a hop <i>tells</i>.</p>`,
       focus,
       view: 1,
       scene: 1,
