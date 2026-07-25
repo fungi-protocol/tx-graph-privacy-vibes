@@ -7,11 +7,14 @@ export interface TutorialStep {
   html: string;
   /** world rect to frame when the step becomes active */
   focus?: { x: number; y: number; w: number; h: number };
+  /** which view this step wants: 0 = block explorer, 1 = bipartite */
+  view?: 0 | 1;
 }
 
 export interface TutorialCallbacks {
   onFocus: (focus: NonNullable<TutorialStep["focus"]>) => void;
   onStepChange?: (index: number) => void;
+  onView?: (view: 0 | 1) => void;
 }
 
 export class Tutorial {
@@ -59,6 +62,7 @@ export class Tutorial {
     this.body.innerHTML = step.html;
     this.prevBtn.disabled = this.index === 0;
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";
+    if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate && step.focus) this.cb.onFocus(step.focus);
     this.cb.onStepChange?.(this.index);
     this.panel.style.display = "block";

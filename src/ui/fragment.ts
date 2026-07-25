@@ -11,6 +11,8 @@ export interface FragmentState {
   t?: number;
   /** camera [x, y, scale] */
   cam?: [number, number, number];
+  /** view: 0 = block explorer (default), 1 = bipartite */
+  v?: number;
   /** copy-reference: world position clicked + element selector under cursor */
   ref?: { wx: number; wy: number; sel?: string };
 }

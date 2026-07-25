@@ -5,7 +5,9 @@ import { encodeFragment, decodeFragment, type FragmentState } from "./ui/fragmen
 import { type Camera, worldToScreen, screenToWorld, zoomAt } from "./ui/camera";
 import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
-import { layoutChain, drawChain, hitTest, type Hit, type Rect } from "./ui/blockview";
+import { layoutChain, type Hit, type Rect } from "./ui/blockview";
+import { layoutBipartite } from "./ui/bipartite";
+import { drawMorph, hitTestMorph } from "./ui/morph";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 
@@ -14,11 +16,14 @@ const ctx = canvas.getContext("2d")!;
 
 const chain = buildIntroChain();
 const layout = layoutChain(chain);
+const bip = layoutBipartite(chain);
 
 let cam: Camera = { x: 0, y: 0, scale: 1 };
 let seed = "welcome";
 let hover: Hit | null = null;
 let ping: { wx: number; wy: number; t: number } | null = null; // t in [0,1]
+let viewT = 0;          // 0 = block explorer, 1 = bipartite (animates between)
+let targetView: 0 | 1 = 0;
 
 const anim = new Animator();
 
@@ -45,7 +50,7 @@ function draw(): void {
   ctx.translate(w / 2, h / 2);
   ctx.scale(cam.scale, cam.scale);
   ctx.translate(-cam.x, -cam.y);
-  drawChain(ctx, chain, layout, { hover });
+  drawMorph(ctx, chain, layout, bip, viewT, { hover });
 
   // ephemeral position ping (copy-reference landing marker)
   if (ping) {
@@ -59,8 +64,28 @@ function draw(): void {
   ctx.restore();
 
   const hud = document.getElementById("hud")!;
-  hud.textContent = `seed ${seed} · zoom ${cam.scale.toFixed(2)}× · right-click: copy a reference to what you see`;
+  hud.textContent = `seed ${seed} · zoom ${cam.scale.toFixed(2)}× · v: flip view · right-click: copy a reference to what you see`;
 }
+
+// --- view toggle (block explorer <-> bipartite) ---
+const viewBtn = document.getElementById("viewtoggle") as HTMLButtonElement;
+function setView(view: 0 | 1, animate = true): void {
+  targetView = view;
+  viewBtn.textContent = view === 0 ? "view: blocks" : "view: graph";
+  if (!animate) {
+    viewT = view;
+    draw();
+    void syncFragment();
+    return;
+  }
+  const from = viewT;
+  anim.add(800, (t) => { viewT = from + (view - from) * t; }, { done: () => void syncFragment() });
+  kick();
+}
+viewBtn.addEventListener("click", () => setView(targetView === 0 ? 1 : 0));
+window.addEventListener("keydown", (e) => {
+  if (e.key === "v" && !e.metaKey && !e.ctrlKey && !e.altKey) setView(targetView === 0 ? 1 : 0);
+});
 
 // --- animation loop: runs only while tweens are live ---
 let rafLive = false;
@@ -115,9 +140,10 @@ function playPing(wx: number, wy: number, pulses = 3): void {
 }
 
 // --- tutorial ---
-const tutorial = new Tutorial(introSteps(layout), {
+const tutorial = new Tutorial(introSteps(layout, bip), {
   onFocus: (focus) => flyTo(focus),
   onStepChange: () => void syncFragment(),
+  onView: (view) => { if (view !== targetView) setView(view); },
 });
 
 // --- fragment sync (shareable URL) ---
@@ -129,6 +155,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   };
   const t = tutorial.currentIndex;
   if (t >= 0) state.t = t;
+  if (targetView !== 0) state.v = targetView;
   if (ref) state.ref = ref;
   const frag = await encodeFragment(state);
   history.replaceState(null, "", `#${frag}`);
@@ -155,7 +182,7 @@ canvas.addEventListener("pointermove", (e) => {
     return;
   }
   const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
-  const hit = hitTest(layout, wx, wy);
+  const hit = hitTestMorph(chain, layout, bip, viewT, wx, wy);
   if (hit?.kind !== hover?.kind || hit?.id !== hover?.id) {
     hover = hit;
     canvas.style.cursor = hit ? "pointer" : "grab";
@@ -186,7 +213,7 @@ function toast(text: string): void {
 canvas.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   const [wx, wy] = screenToWorld(cam, canvas.clientWidth, canvas.clientHeight, e.offsetX, e.offsetY);
-  const hit = hitTest(layout, wx, wy);
+  const hit = hitTestMorph(chain, layout, bip, viewT, wx, wy);
   const ref: FragmentState["ref"] = {
     wx: Math.round(wx),
     wy: Math.round(wy),
@@ -205,6 +232,7 @@ async function init(): Promise<void> {
   resize();
   const state = await decodeFragment(location.hash).catch(() => null);
   if (state?.seed) seed = state.seed;
+  setView(state?.v === 1 ? 1 : 0, false);
 
   if (state?.cam) {
     cam = { x: state.cam[0], y: state.cam[1], scale: state.cam[2] };

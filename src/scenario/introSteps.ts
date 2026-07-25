@@ -2,6 +2,7 @@
 // payment makes change, where the fee goes — told over Alice's first coins.
 import { type TutorialStep } from "../ui/tutorial";
 import { type Layout, coinAnchor, type Rect } from "../ui/blockview";
+import { type BipLayout } from "../ui/bipartite";
 
 function pad(r: Rect, m: number): Rect {
   return { x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m };
@@ -15,7 +16,7 @@ function union(...rs: Rect[]): Rect {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-export function introSteps(layout: Layout): TutorialStep[] {
+export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
   const r1 = coinAnchor(layout, "r1")!;
   const t1 = layout.txs.get("t1")!;
   const t2 = layout.txs.get("t2")!;
@@ -35,6 +36,7 @@ export function introSteps(layout: Layout): TutorialStep[] {
         <p class="tut-aside">(You can drag and zoom the view at any time —
         this tour will wait.)</p>`,
       focus: pad(r1, 120),
+      view: 0,
     },
     {
       id: "whole-coins",
@@ -46,6 +48,7 @@ export function introSteps(layout: Layout): TutorialStep[] {
         <p>The line into the card is Alice's coin being spent; the boxes on
         the right are the coins that now exist instead of it.</p>`,
       focus: pad(t1, 90),
+      view: 0,
     },
     {
       id: "change",
@@ -58,6 +61,7 @@ export function introSteps(layout: Layout): TutorialStep[] {
         with the sender. Remember that; it matters soon — and so does how
         shrewd those guesses can get.</p>`,
       focus: pad(union(t1o2, t1), 70),
+      view: 0,
     },
     {
       id: "fees",
@@ -69,6 +73,7 @@ export function introSteps(layout: Layout): TutorialStep[] {
         (in virtual bytes) times the going feerate. When blocks are busy,
         the rate climbs; patient spenders wait for quiet moments.</p>`,
       focus: pad(t1, 90),
+      view: 0,
     },
     {
       id: "utxos",
@@ -79,6 +84,7 @@ export function introSteps(layout: Layout): TutorialStep[] {
         <p>Spending a coin doesn't erase it. The record of where it came
         from and where it went stays public, forever, for everyone.</p>`,
       focus: pad(all, 60),
+      view: 0,
     },
     {
       id: "chain-remembers",
@@ -92,6 +98,34 @@ export function introSteps(layout: Layout): TutorialStep[] {
         <p>What that means for Alice — and what a whole neighborhood of
         people can do about it — is the rest of this story.</p>`,
       focus: pad(union(coinAnchor(layout, "r1")!, t2), 60),
+      view: 0,
+    },
+    {
+      id: "two-drawings",
+      title: "Two drawings, one graph",
+      html: `<p>Here is the same history drawn differently: coins and
+        transactions are both dots now — a <b>bipartite graph</b>, two kinds
+        of vertex, edges only between kinds.</p>
+        <p>Nothing changed but the picture. Every spent coin still sits
+        between the transaction that minted it and the one that spent it;
+        unspent coins dangle at the right, and coins that entered from
+        outside — like Alice's withdrawal — start at the left. Money still
+        flows left to right through time.</p>
+        <p>This drawing gets useful once the neighborhood shows up: it
+        stays readable when there are hundreds of coins.</p>`,
+      focus: pad(bip.bounds, 80),
+      view: 1,
+    },
+    {
+      id: "toggle-freely",
+      title: "Toggle freely",
+      html: `<p>From here on both drawings are yours: press <b>v</b> or use
+        the button in the corner to flip between the block-explorer view and
+        the graph view whenever you like.</p>
+        <p>That's the toolbox. Next: more people, more payments — and
+        someone watching.</p>`,
+      focus: pad(bip.bounds, 80),
+      view: 1,
     },
   ];
 }
