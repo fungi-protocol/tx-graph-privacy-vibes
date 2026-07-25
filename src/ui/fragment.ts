@@ -76,7 +76,82 @@ export async function encodeFragment(state: FragmentState): Promise<string> {
 export async function decodeFragment(fragment: string): Promise<FragmentState | null> {
   const m = /(?:^|[#&])s=([A-Za-z0-9_-]+)/.exec(fragment);
   if (!m) return null;
+  if (m[1]!.length > 65536) return null; // decompression-bomb guard
   const packed = b64urlToBytes(m[1]!);
   const json = await pipe(packed, new DecompressionStream("deflate-raw"));
-  return JSON.parse(new TextDecoder().decode(json)) as FragmentState;
+  if (json.length > 1 << 20) return null;
+  return sanitize(JSON.parse(new TextDecoder().decode(json)));
+}
+
+// Share links are an input boundary: anyone can craft one, so every field
+// is re-validated and clamped here — a hostile fragment may degrade into a
+// default view, never into a crash, a runaway simulation, or absurd state.
+const MAX_DAY = 3650;
+const MAX_AGENT = 64; // above any cast size; the app re-checks against MAX_POP
+
+function num(v: unknown, lo: number, hi: number, round = false): number | undefined {
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  const c = Math.min(hi, Math.max(lo, v));
+  return round ? Math.round(c) : c;
+}
+
+function str(v: unknown, maxLen: number): string | undefined {
+  return typeof v === "string" && v.length <= maxLen ? v : undefined;
+}
+
+export function sanitize(raw: unknown): FragmentState | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const seed = str(r.seed, 64);
+  if (seed === undefined || seed.length === 0) return null;
+  const out: FragmentState = { seed };
+
+  if (typeof r.p === "object" && r.p !== null) {
+    const p = r.p as Record<string, unknown>;
+    const clamped = {
+      o: num(p.o, 0, 0.3), e: num(p.e, 0, 0.2), f: num(p.f, 0.5, 4),
+      fv: num(p.fv, 0, 3), w: num(p.w, 0.25, 4), pp: num(p.pp, 10, MAX_AGENT, true),
+    };
+    const entries = Object.entries(clamped).filter(([, v]) => v !== undefined);
+    if (entries.length) out.p = Object.fromEntries(entries);
+  }
+  if (Array.isArray(r.m)) {
+    const u = num(r.m[0], 0, MAX_AGENT, true), day = num(r.m[1], 0, MAX_DAY, true);
+    if (u !== undefined && day !== undefined) out.m = [u, day];
+  }
+  if (Array.isArray(r.i)) {
+    const iv: [number, number, string, number, string][] = [];
+    for (const it of (r.i as unknown[]).slice(0, 1000)) {
+      if (!Array.isArray(it)) continue;
+      const day = num(it[0], 0, MAX_DAY, true), payer = num(it[1], 0, MAX_AGENT, true);
+      const memo = str(it[2], 200), due = num(it[3], 0, MAX_DAY, true), plan = str(it[4], 20);
+      if (day !== undefined && payer !== undefined && memo !== undefined &&
+        due !== undefined && plan !== undefined) iv.push([day, payer, memo, due, plan]);
+    }
+    if (iv.length) out.i = iv;
+  }
+  const t = num(r.t, -1, 500, true);
+  if (t !== undefined) out.t = t;
+  if (Array.isArray(r.cam)) {
+    const x = num(r.cam[0], -1e7, 1e7), y = num(r.cam[1], -1e7, 1e7);
+    const scale = num(r.cam[2], 0.01, 100);
+    if (x !== undefined && y !== undefined && scale !== undefined) out.cam = [x, y, scale];
+  }
+  const v = num(r.v, 0, 2, true);
+  if (v !== undefined) out.v = v;
+  const sc = num(r.sc, 0, 1, true);
+  if (sc !== undefined) out.sc = sc;
+  const l = num(r.l, 0, 2, true);
+  if (l !== undefined) out.l = l;
+  const a = num(r.a, 0, MAX_AGENT, true);
+  if (a !== undefined) out.a = a;
+  const n = num(r.n, 0, MAX_DAY, true);
+  if (n !== undefined) out.n = n;
+  if (typeof r.ref === "object" && r.ref !== null) {
+    const ref = r.ref as Record<string, unknown>;
+    const wx = num(ref.wx, -1e7, 1e7), wy = num(ref.wy, -1e7, 1e7);
+    const sel = str(ref.sel, 120);
+    if (wx !== undefined && wy !== undefined) out.ref = sel !== undefined ? { wx, wy, sel } : { wx, wy };
+  }
+  return out;
 }
