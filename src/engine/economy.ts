@@ -11,8 +11,8 @@ import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
-import { radixDecomps, radixBelow, DUST } from "../denom/denominations";
-import { subsetSums, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
+import { bruteDecomps, DUST } from "../denom/denominations";
+import { sumsetUpTo, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { ancestry } from "../analysis/ancestry";
 import { scheduleForDay, incomeFor, INCOME_EVERY, PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
 
@@ -536,6 +536,12 @@ export class Economy {
    * seeded stream untouched.
    */
   private intersectSpend(): void {
+    // best pair per divergence tier: 2 = each coin's traced past runs
+    // through a session the other never touches, 1 = one side has
+    // exclusive sessions (multi-input sessions entangle pasts quickly, so
+    // fully nested pasts are the common case — the intersection still
+    // collapses the union of candidates to the overlap), by user order
+    for (const wantTier of [2, 1]) {
     for (let u = 0; u < this.cast.length; u++) {
       // largest spendable output per session; the naive join doesn't count
       const bySession = new Map<TxId, CoinId>();
@@ -546,9 +552,6 @@ export class Economy {
         if (!prev || this.chain.coins.get(prev)!.value < c.value) bySession.set(c.producer, c.id);
       }
       if (bySession.size < 2) continue;
-      // pick the (largest-first) pair whose traced pasts each run through
-      // a session the other never touches — the property the chapter's
-      // intersection needs; consolidated wallets can share most history
       const ranked = [...bySession.values()]
         .sort((a, b) => this.chain.coins.get(b)!.value - this.chain.coins.get(a)!.value);
       const sessionsOf = (id: CoinId): Set<TxId> => {
@@ -560,7 +563,9 @@ export class Economy {
       outer: for (let i = 0; i < ranked.length - 1; i++) {
         for (let j = i + 1; j < ranked.length; j++) {
           const [pa, pb] = [past.get(ranked[i]!)!, past.get(ranked[j]!)!];
-          if ([...pa].some((s) => !pb.has(s)) && [...pb].some((s) => !pa.has(s))) {
+          const tier = ([...pa].some((s) => !pb.has(s)) ? 1 : 0) +
+            ([...pb].some((s) => !pa.has(s)) ? 1 : 0);
+          if (tier >= wantTier) {
             picks = [ranked[i]!, ranked[j]!];
             break outer;
           }
@@ -588,6 +593,7 @@ export class Economy {
           "are thinned out by elimination.",
       });
       return;
+    }
     }
   }
 
@@ -653,28 +659,44 @@ export class Economy {
 
   /**
    * An oracle-formed coinjoin session: three or four strangers spanning
-   * at least two communities each contribute one coin and take their
-   * whole balance back in denominations from the shared menu, plus a
-   * residual too small to say anything — the decomposition is chosen
-   * uniformly at random among the acceptable variants (randomness among
-   * acceptable choices beats always-best, which would let the choice
-   * itself fingerprint the chooser). A participant with a pending
-   * obligation to someone outside the session can pay it inline: as a
-   * single arbitrary-amount output if the amount happens to be matched
-   * by other participants' coins, otherwise decomposed into the same
-   * standard denominations as everyone else's outputs.
+   * at least two communities each contribute their largest coin plus up
+   * to two small fragments — defragmenting inside the join, where the
+   * consolidation is hidden among the other participants' inputs,
+   * instead of later in a unilateral sweep that hands the observer an
+   * intersection attack. Each takes their balance back in denominations
+   * from the shared menu plus an ordinary change output. Candidate
+   * decompositions come from a brute-force search over the menu, ranked
+   * by how many of their output combinations are also explained by
+   * combinations of the OTHER participants' inputs — and when that
+   * instance is dense, a decomposition may go partial, dropping its
+   * smallest parts into the change. The final pick is randomized among
+   * the acceptable variants (always-best would let the choice itself
+   * fingerprint the chooser). A participant with a pending obligation to
+   * someone outside the session can pay it inline: as a single
+   * arbitrary-amount output if the amount happens to be matched by other
+   * participants' coins, otherwise decomposed into the same standard
+   * denominations as everyone else's outputs.
    */
   private coinjoin(parts: number[], feerate: number): boolean {
-    const coin = new Map<number, { id: CoinId; value: number }>();
+    const coins = new Map<number, { id: CoinId; value: number }[]>();
     for (const u of parts) {
-      const best = this.wallet(u)
+      const mine = this.wallet(u)
         .map((id) => this.chain.coins.get(id)!)
-        .sort((a, b) => b.value - a.value)[0];
-      if (!best || best.value < 250_000) return false;
-      coin.set(u, best);
+        .sort((a, b) => b.value - a.value);
+      if (mine.length === 0) return false;
+      // the largest coin anchors; fragments (a quarter of it or less)
+      // ride along smallest-first, up to three inputs per participant
+      const take = [mine[0]!];
+      for (let i = mine.length - 1; i >= 1 && take.length < 3; i--) {
+        if (mine[i]!.value <= mine[0]!.value / 4) take.push(mine[i]!);
+      }
+      if (take.reduce((s, c) => s + c.value, 0) < 250_000) return false;
+      coins.set(u, take);
     }
     const n = parts.length;
-    const ivs = parts.map((u) => coin.get(u)!.value);
+    const nIn = parts.reduce((s, u) => s + coins.get(u)!.length, 0);
+    const ivs = parts.flatMap((u) => coins.get(u)!.map((c) => c.value));
+    const totalOf = (u: number): number => coins.get(u)!.reduce((s, c) => s + c.value, 0);
 
     // inline payment: the first pending obligation a participant can
     // afford to settle through the session
@@ -686,40 +708,82 @@ export class Economy {
       // a batching desk's dues wait for the batch run
       if (this.cast[obl.payer]!.batches) continue;
       const v = this.sats(obl.usd);
-      if (coin.get(obl.payer)!.value < v + 170_000) continue;
+      if (totalOf(obl.payer) < v + 170_000) continue;
       // plausibly attributable to other users' inputs? then the odd
-      // amount hides as-is; otherwise fall back to radix decomposition
-      const others = parts.filter((u) => u !== obl.payer).map((u) => coin.get(u)!.value);
-      const near = subsetSums(others).filter((s) => Math.abs(s - v) <= 500).length;
+      // amount hides as-is; otherwise decompose it into the menu, keeping
+      // the closest-fitting combination (the sliver left over stays with
+      // the payer's change)
+      const others = parts.filter((u) => u !== obl.payer)
+        .flatMap((u) => coins.get(u)!.map((c) => c.value));
+      const near = sumsetUpTo(others, 3).filter((s) => Math.abs(s - v) <= 500).length;
       if (near >= 2) {
         pay = { obl, outs: [{ owner: obl.payee, value: v, label: obl.memo }], paid: v };
       } else {
-        const { parts: ds } = radixBelow(v);
-        if (ds.length === 0 || ds.length > 6) continue;
+        const cands = bruteDecomps(v, 6, 64);
+        if (cands.length === 0) continue;
+        const best = cands.reduce((a, b) => (b.residual < a.residual ? b : a));
         pay = {
           obl,
-          outs: ds.map((d) => ({ owner: obl.payee, value: d, label: `${obl.memo} (denominated)` })),
-          paid: ds.reduce((s, d) => s + d, 0),
+          outs: best.parts.map((d) => ({ owner: obl.payee, value: d, label: `${obl.memo} (denominated)` })),
+          paid: best.parts.reduce((s, d) => s + d, 0),
         };
       }
       break;
     }
 
-    // each participant decomposes their whole balance into denominations
-    // plus a residual, picked uniformly among the acceptable variants;
-    // the fee is settled once the output count is known, with the
-    // residual absorbing the final shares
+    // each participant decomposes their balance into denominations plus a
+    // change output; the fee is settled once the output count is known,
+    // with the change absorbing the final shares
     const payOuts = pay ? pay.outs.length : 0;
-    const fee1 = txfee(n, n * 6 + payOuts, feerate);
+    const fee1 = txfee(nIn, n * 7 + payOuts, feerate);
+    const tol = 500 + Math.ceil(fee1 / n);
     const target = (u: number, share: number): number =>
-      coin.get(u)!.value - share - (pay && u === pay.obl.payer ? pay.paid : 0);
+      totalOf(u) - share - (pay && u === pay.obl.payer ? pay.paid : 0);
     const opts = new Map<number, number[][]>();
     for (const u of parts) {
       const t = target(u, Math.ceil(fee1 / n));
       if (t < DUST) return false;
-      const os = radixDecomps(t);
-      if (os.length === 0) return false;
-      opts.set(u, os);
+      // rank candidate decompositions by how many of their output
+      // combinations some combination (degree ≤ 3) of the OTHER
+      // participants' inputs could explain — those are the combinations
+      // an analyst cannot pin on this participant
+      const others = parts.filter((w) => w !== u)
+        .flatMap((w) => coins.get(w)!.map((c) => c.value));
+      const sums = sumsetUpTo(others, 3);
+      const near = (x: number): boolean => {
+        let lo = 0, hi = sums.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (sums[mid]! < x) lo = mid + 1;
+          else hi = mid;
+        }
+        return (lo < sums.length && sums[lo]! - x <= tol) ||
+          (lo > 0 && x - sums[lo - 1]! <= tol);
+      };
+      const explained = (ps: number[]): number => {
+        let ex = 0;
+        for (let m = 1; m < 1 << ps.length; m++) {
+          let s = 0;
+          for (let b = 0; b < ps.length; b++) if (m & (1 << b)) s += ps[b]!;
+          if (near(s)) ex += 1;
+        }
+        return ex;
+      };
+      const pool = bruteDecomps(t, 6, 16).map((d) => ({ ...d, ex: explained(d.parts) }));
+      pool.sort((a, b) => b.ex - a.ex || a.parts.length - b.parts.length || a.residual - b.residual);
+      const options: number[][] = pool.slice(0, 5).map((d) => d.parts);
+      // when the instance is dense — several combinations already
+      // explained — a decomposition can go partial: drop the smallest
+      // parts and let the change output absorb them
+      for (const d of pool.slice(0, 2)) {
+        if (d.ex >= 2 && d.parts.length >= 4) {
+          const asc = [...d.parts].sort((a, b) => a - b);
+          options.push(asc.slice(2).sort((a, b) => b - a));
+          if (asc.length >= 5) options.push(asc.slice(3).sort((a, b) => b - a));
+        }
+      }
+      if (options.length === 0) return false;
+      opts.set(u, options);
     }
     // the oracle samples a few acceptable joint assignments and keeps the
     // best: an underdetermined mapping beats a determined one (repeating a
@@ -742,16 +806,16 @@ export class Economy {
       // inputs partition uniquely but exceed the enumeration bounds), so
       // among unresolved candidates the density heuristic alone ranks them
       const underdetermined = subTransactionMapping(ivs, ovs, fee1).kind === "ambiguous";
-      const score = (underdetermined ? 1 : 0) + ambiguity(ivs, ovs, 500 + Math.ceil(fee1 / n));
+      const score = (underdetermined ? 1 : 0) + ambiguity(ivs, ovs, tol);
       if (score > bestScore) {
         bestScore = score;
         ds = cand;
       }
     }
     const nOut = parts.reduce((s, u) => s + ds.get(u)!.length + 1, 0) + payOuts;
-    const fee = txfee(n, nOut, feerate);
+    const fee = txfee(nIn, nOut, feerate);
     const share = Math.floor(fee / n);
-    const biggest = parts.reduce((a, b) => (coin.get(a)!.value >= coin.get(b)!.value ? a : b));
+    const biggest = parts.reduce((a, b) => (totalOf(a) >= totalOf(b) ? a : b));
     const shareOf = (u: number): number => share + (u === biggest ? fee - share * n : 0);
     const outs: { owner: number; value: number; label: string }[] = [];
     for (const u of parts) {
@@ -771,8 +835,8 @@ export class Economy {
     const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / n));
     const verdict = subTransactionMapping(ivs, ovs, fee).kind;
     const determined = verdict === "unique";
-    this.chain.addTx(tid, this.day, parts.map((u) => coin.get(u)!.id), outs, feerate,
-      `coinjoin, ${n} parties — denominated outputs; ` +
+    this.chain.addTx(tid, this.day, parts.flatMap((u) => coins.get(u)!.map((c) => c.id)), outs, feerate,
+      `coinjoin, ${n} parties, ${nIn} inputs — denominated outputs; ` +
       `match rate ${Math.round(density * 100)}%` +
       (determined ? "; still, one reading balances"
         : verdict === "ambiguous" ? "; several readings balance"

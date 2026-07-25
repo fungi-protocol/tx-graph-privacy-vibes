@@ -58,18 +58,29 @@ test("the careless first coinjoin is fully partitioned by the observer", () => {
   }
 });
 
-test("sessions form among 3+ strangers spanning communities, one coin each", () => {
+test("sessions form among 3+ strangers spanning communities, several coins each", () => {
   const eco = eco115();
   const sessions = [...eco.coinjoins.keys()].filter((tid) => tid !== eco.naiveTid);
   assert.ok(sessions.length >= 3, `only ${sessions.length} sessions by day 115`);
+  let multi = 0;
   for (const tid of sessions) {
     const tx = eco.chain.txs.get(tid)!;
     const owners = tx.inputs.map((c) => eco.chain.coins.get(c)!.owner as number);
-    assert.ok(owners.length >= 3, `${tid}: fewer than three parties`);
-    assert.equal(new Set(owners).size, owners.length, `${tid}: one coin per participant`);
-    assert.ok(new Set(owners.map((u) => PERSONAS[u]!.community)).size >= 2, `${tid}: not cross-community`);
-    for (const u of owners) assert.ok(PERSONAS[u]!.stats.privacy > 0, `${tid}: careless participant`);
+    const users = new Set(owners);
+    assert.ok(users.size >= 3, `${tid}: fewer than three parties`);
+    for (const u of users) {
+      const mine = owners.filter((w) => w === u).length;
+      assert.ok(mine >= 1 && mine <= 3, `${tid}: participant ${u} spends ${mine} coins`);
+      if (mine >= 2) multi += 1;
+    }
+    assert.ok(new Set([...users].map((u) => PERSONAS[u]!.community)).size >= 2, `${tid}: not cross-community`);
+    for (const u of users) assert.ok(PERSONAS[u]!.stats.privacy > 0, `${tid}: careless participant`);
   }
+  // the point of joining with several coins: fragments consolidate inside
+  // the session, where the grouping is hidden, instead of in a naked
+  // sweep later — single-input-per-user sessions would force exactly the
+  // consolidations the intersection chapter warns about
+  assert.ok(multi >= 1, "no participant ever defragments inside a session");
 });
 
 test("session outputs: denominations from the menu plus one change each", () => {

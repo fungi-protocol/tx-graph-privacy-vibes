@@ -1,4 +1,4 @@
 seed golden
 rng-digest 5456ca05
-economy-digest day 130 txs 173 99f94ea7
-wallets min 4 median 43 multi-input spends 22/92
+economy-digest day 130 txs 174 83f8f22e
+wallets min 4 median 24 multi-input spends 22/92

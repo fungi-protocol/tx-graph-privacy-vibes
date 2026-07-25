@@ -20,6 +20,25 @@ export function subsetSums(vals: Sats[]): Sats[] {
   return [...sums].sort((a, b) => a - b);
 }
 
+/**
+ * Every sum of a nonempty subset of size at most `deg`, sorted ascending
+ * (duplicates removed). Degree-bounded because that is what a coinjoin
+ * chooser actually checks: whether small combinations of the OTHER
+ * participants' inputs land near their own output combinations — an
+ * analyst entertains few-input explanations long before exotic ones,
+ * and the bounded sumset stays cheap even for wide sessions.
+ */
+export function sumsetUpTo(vals: Sats[], deg: number): Sats[] {
+  const sums = new Set<number>();
+  const rec = (i: number, left: number, acc: number): void => {
+    if (acc > 0) sums.add(acc);
+    if (left === 0) return;
+    for (let j = i; j < vals.length; j++) rec(j + 1, left - 1, acc + vals[j]!);
+  };
+  rec(0, deg, 0);
+  return [...sums].sort((a, b) => a - b);
+}
+
 /** every subset sum including the empty set's 0, sorted ascending */
 function sumsWithEmpty(vals: Sats[]): number[] {
   let sums = new Set<number>([0]);

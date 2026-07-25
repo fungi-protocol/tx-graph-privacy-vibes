@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { subsetSums, ambiguity, subTransactionMapping } from "../src/analysis/subsetsum";
-import { radixDecomps } from "../src/denom/denominations";
+import { subsetSums, sumsetUpTo, ambiguity, subTransactionMapping } from "../src/analysis/subsetsum";
+import { bruteDecomps } from "../src/denom/denominations";
 import { Rng } from "../src/core/prng";
 
 const BTC = 1e8;
@@ -10,6 +10,19 @@ test("subsetSums enumerates every nonempty subset, sorted", () => {
   assert.deepEqual(subsetSums([1, 2, 4]), [1, 2, 3, 4, 5, 6, 7]);
   assert.deepEqual(subsetSums([5, 5]), [5, 10]); // duplicates collapse
   assert.deepEqual(subsetSums([]), []);
+});
+
+test("sumsetUpTo bounds the subset size and matches subsetSums at full degree", () => {
+  assert.deepEqual(sumsetUpTo([1, 2, 4], 1), [1, 2, 4]);
+  assert.deepEqual(sumsetUpTo([1, 2, 4], 2), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(sumsetUpTo([1, 2, 4], 3), subsetSums([1, 2, 4]));
+  assert.deepEqual(sumsetUpTo([5, 5], 2), [5, 10]); // duplicates collapse
+  assert.deepEqual(sumsetUpTo([], 3), []);
+  const rng = new Rng("sumset");
+  for (let i = 0; i < 50; i++) {
+    const vals = Array.from({ length: 2 + rng.int(7) }, () => 1 + rng.int(1_000));
+    assert.deepEqual(sumsetUpTo(vals, vals.length), subsetSums(vals));
+  }
 });
 
 test("the document's bad coinjoin: 0.1 + 0.3 = 0.4 and 2 + 5 = 7, uniquely", () => {
@@ -120,8 +133,8 @@ test("a realistic denominated session is now PROVEN ambiguous, not just abstaine
   const ivs = balances.map((b) => b + 2_000);
   const ovs: number[] = [];
   for (const b of balances) {
-    const parts = radixDecomps(b)[0]!;
-    ovs.push(...parts, b - parts.reduce((x, y) => x + y, 0));
+    const { parts, residual } = bruteDecomps(b, 6, 1)[0]!;
+    ovs.push(...parts, residual);
   }
   assert.ok(ovs.length > 12, `only ${ovs.length} outputs — not exercising the multiset path`);
   assert.equal(subTransactionMapping(ivs, ovs, fee).kind, "ambiguous");

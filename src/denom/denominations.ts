@@ -34,61 +34,56 @@ export function isDenomination(v: Sats): boolean {
   return DENOM_SET.has(v);
 }
 
-/**
- * Decompose a value from below into at most `k` denominations (greedy,
- * largest first). The residual — always smaller than the smallest
- * denomination for values this economy moves — stays with whoever is
- * paying, below the dust threshold's order of magnitude.
- */
-export function radixBelow(value: Sats, k = 6): { parts: Sats[]; residual: Sats } {
-  const parts: Sats[] = [];
-  let r = value;
-  while (parts.length < k) {
-    let pick = 0;
-    for (const d of DENOMS) {
-      if (d > r) break;
-      pick = d;
-    }
-    if (pick === 0) break;
-    parts.push(pick);
-    r -= pick;
-  }
-  return { parts, residual: r };
+export interface Decomp {
+  /** denominations, descending */
+  parts: Sats[];
+  /** target minus the parts' sum — what a change output would carry */
+  residual: Sats;
 }
 
 /**
- * Ways to decompose a coinjoin participant's whole contribution into at
- * most `k` denominations plus a residual — the residual, not any real
- * amount, is what remains as change, so it identifies nobody by value.
- * Variants differ in their opening pick (the chooser randomizes among
- * acceptable options; always-best would fingerprint the chooser), each
- * completed greedily from below. Only decompositions whose residual
- * lands in [DUST, smallest denomination + DUST) qualify: big residuals
- * are just change under another name.
+ * Candidate decompositions of a value into at most `k` denominations,
+ * found by brute-force search rather than greedy radix expansion: the
+ * greedy method runs the arity up to 5 or 6 and tops the sum off with
+ * near-dust parts, where a searched combination of 3 or 4 denominations
+ * usually approximates the same value at least as well. The search
+ * walks the menu largest-first, branching over the few largest
+ * denominations that still fit (with room for a change output above
+ * dust), allowing repeats, and records EVERY prefix as a candidate — so
+ * short decompositions compete with long ones instead of being greedily
+ * extended. Candidates are ranked: those whose residual clears a
+ * closeness bar (within 0.5% of the target, floored at dust) first,
+ * then fewer parts, then smaller residual. The caller treats the
+ * residual as an ordinary change output, not as a throwaway.
  */
-export function radixDecomps(target: Sats, k = 6, limit = 6): Sats[][] {
-  const starts = DENOMS.filter((d) => d <= target - DUST).slice(-limit).reverse();
-  const out: Sats[][] = [];
-  const seen = new Set<string>();
-  for (const first of starts) {
-    const parts = [first];
-    let r = target - first;
-    while (parts.length < k) {
-      let pick = 0;
-      for (const d of DENOMS) {
-        if (d > r - DUST) break; // an output must survive as the residual
-        pick = d;
-      }
-      if (pick === 0) break;
-      parts.push(pick);
-      r -= pick;
+export function bruteDecomps(target: Sats, k = 6, limit = 16): Decomp[] {
+  const usable = DENOMS.filter((d) => d <= target - DUST);
+  const found = new Map<string, Decomp>();
+  const parts: Sats[] = [];
+  const rec = (maxIdx: number, r: Sats): void => {
+    if (parts.length > 0) {
+      const key = parts.join(",");
+      if (!found.has(key)) found.set(key, { parts: [...parts], residual: r });
     }
-    if (r < DUST || r >= DENOMS[0]! + DUST) continue;
-    const key = parts.join(",");
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(parts);
+    if (parts.length >= k) return;
+    // branch over the few largest fits only: smaller openers are
+    // dominated — whatever they leave, a larger fit leaves less
+    let branches = 0;
+    for (let i = maxIdx; i >= 0 && branches < 4; i--) {
+      const d = usable[i]!;
+      if (d > r - DUST) continue; // a change output must survive above dust
+      branches += 1;
+      parts.push(d);
+      rec(i, r - d);
+      parts.pop();
     }
-  }
-  return out;
+  };
+  rec(usable.length - 1, target);
+  const bar = Math.max(DUST, Math.floor(target / 200));
+  return [...found.values()]
+    .sort((a, b) =>
+      (a.residual <= bar ? 0 : 1) - (b.residual <= bar ? 0 : 1) ||
+      a.parts.length - b.parts.length ||
+      a.residual - b.residual)
+    .slice(0, limit);
 }
