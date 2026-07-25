@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coins remember — a transaction graph privacy simulator</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1c1e22; color: #d8dade;
+               font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #view { width: 100vw; height: 100vh; display: block; touch-action: none; cursor: grab; }
+  #view:active { cursor: grabbing; }
+  #hud { position: fixed; left: 10px; bottom: 8px; opacity: 0.6; font-size: 12px;
+         pointer-events: none; user-select: none; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud"></div>
+<!--APP_JS-->
+</body>
+</html>

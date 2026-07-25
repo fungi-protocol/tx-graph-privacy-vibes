@@ -1,0 +1,2 @@
+seed golden
+rng-digest 5456ca05
