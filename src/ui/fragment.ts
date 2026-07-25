@@ -12,8 +12,11 @@ export interface FragmentState {
   p?: { o?: number; e?: number; f?: number; fv?: number; w?: number; pp?: number };
   /** manual play: [played agent, day the player took over] */
   m?: [number, number];
-  /** recorded manual choices, packed [day, payer, memo, due, plan] */
-  i?: [number, number, string, number, string][];
+  /** recorded manual choices, packed [day, obligation id, plan] — the id is
+   *  the stable schedule ID (engine/schedule.ts); pre-M10 5-tuple entries
+   *  are dropped on decode (they matched obligations by memo and due date,
+   *  which the re-derived schedule no longer reproduces) */
+  i?: [number, string, string][];
   /** tutorial step index; -1 or absent = tour hidden */
   t?: number;
   /** camera [x, y, scale] */
@@ -122,13 +125,13 @@ export function sanitize(raw: unknown): FragmentState | null {
     if (u !== undefined && day !== undefined) out.m = [u, day];
   }
   if (Array.isArray(r.i)) {
-    const iv: [number, number, string, number, string][] = [];
+    const iv: [number, string, string][] = [];
     for (const it of (r.i as unknown[]).slice(0, 1000)) {
       if (!Array.isArray(it)) continue;
-      const day = num(it[0], 0, MAX_DAY, true), payer = num(it[1], 0, MAX_AGENT, true);
-      const memo = str(it[2], 200), due = num(it[3], 0, MAX_DAY, true), plan = str(it[4], 20);
-      if (day !== undefined && payer !== undefined && memo !== undefined &&
-        due !== undefined && plan !== undefined) iv.push([day, payer, memo, due, plan]);
+      const day = num(it[0], 0, MAX_DAY, true);
+      const id = str(it[1], 24), plan = str(it[2], 20);
+      if (day !== undefined && id !== undefined && /^\d+\.[esx]\d+(\.\d+)?$/.test(id) &&
+        plan !== undefined) iv.push([day, id, plan]);
     }
     if (iv.length) out.i = iv;
   }

@@ -1,3 +1,3 @@
 seed golden
 rng-digest 5456ca05
-economy-digest day 130 txs 202 11309ba1
+economy-digest day 130 txs 197 69bac694

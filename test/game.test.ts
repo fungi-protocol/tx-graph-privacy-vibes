@@ -21,9 +21,12 @@ test("a waiting player's rent settles through the GAME_DAY cycle", () => {
   }
 });
 
+// the GAME_DAY rent is a story beat with a stable schedule ID
+const RENT_ID = `${GAME_DAY}.s0`;
+
 test("an intervention overrides the default: rent paid at once, no cycle for it", () => {
   const eco = judyPlays("golden", [
-    { day: GAME_DAY + 1, payer: 9, memo: "studio rent", due: GAME_DAY + 8, plan: "unilateral" },
+    { day: GAME_DAY + 1, id: RENT_ID, plan: "unilateral" },
   ]);
   eco.runTo(GAME_DAY + 1);
   const ev = eco.events.find((e) =>
@@ -34,7 +37,7 @@ test("an intervention overrides the default: rent paid at once, no cycle for it"
 
 test("same seed + same interventions replay to the same chain", () => {
   const ivs: Intervention[] = [
-    { day: GAME_DAY + 1, payer: 9, memo: "studio rent", due: GAME_DAY + 8, plan: "unilateral" },
+    { day: GAME_DAY + 1, id: RENT_ID, plan: "unilateral" },
   ];
   const a = judyPlays("golden", ivs.map((i) => ({ ...i })));
   const b = judyPlays("golden", ivs.map((i) => ({ ...i })));
@@ -96,7 +99,7 @@ test("the fragment carries params, the played agent, and every choice", async ()
     seed: "golden",
     p: { f: 2, w: 0.5 },
     m: [9, GAME_DAY - 1],
-    i: [[GAME_DAY + 1, 9, "studio rent", GAME_DAY + 8, "unilateral"]],
+    i: [[GAME_DAY + 1, RENT_ID, "unilateral"]],
     sc: 1,
     n: GAME_DAY + 2,
   };

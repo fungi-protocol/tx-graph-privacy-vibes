@@ -58,7 +58,10 @@ test("hostile fragments degrade, never crash: shape and bounds are enforced", as
   const wild = await craft({
     seed: "ok", n: 9e9, t: 1e6, v: 99, sc: -5,
     cam: [1e12, -1e12, 0], p: { o: 100, pp: 1e6 },
-    m: [1e9, -3], i: [[1, 0, "rent", 2, "wait"], "garbage", [NaN, 0, "x", 0, "wait"]],
+    m: [1e9, -3],
+    // one well-formed choice; then garbage, a non-schedule id, and a
+    // pre-M10 5-tuple (memo/due matching) — all dropped
+    i: [[119, "118.s0", "wait"], "garbage", [1, "not-an-id", "wait"], [1, 0, "rent", 2, "wait"]],
   }) as Record<string, unknown>;
   assert.equal(wild.n, 3650);
   assert.equal(wild.t, 500);
@@ -67,7 +70,7 @@ test("hostile fragments degrade, never crash: shape and bounds are enforced", as
   assert.deepEqual(wild.cam, [1e7, -1e7, 0.01]);
   assert.deepEqual(wild.p, { o: 0.3, pp: 64 });
   assert.deepEqual(wild.m, [64, 0]);
-  assert.deepEqual(wild.i, [[1, 0, "rent", 2, "wait"]]); // malformed entries dropped
+  assert.deepEqual(wild.i, [[119, "118.s0", "wait"]]); // malformed entries dropped
 
   // non-finite values vanish rather than propagate
   const nan = await craft({ seed: "ok", n: Infinity, cam: [1, 2, NaN] }) as Record<string, unknown>;

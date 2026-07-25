@@ -558,7 +558,7 @@ function harvestChoices(): void {
     const pick = (row.querySelector("input:checked") as HTMLInputElement | null)?.value as ManualPlan | undefined;
     // only departures from the engine's default behavior are recorded
     if (!pick || pick === (row as HTMLElement).dataset["default"]) return;
-    interventions.push({ day: e.day + 1, payer: c.obl.payer, memo: c.obl.memo, due: c.obl.due, plan: pick });
+    interventions.push({ day: e.day + 1, id: c.obl.id, plan: pick });
   });
 }
 
@@ -968,7 +968,8 @@ function applyParams(): void {
   // a shrunken town: choices recorded for agents who no longer exist go
   const popNow = Math.max(10, Math.min(MAX_POP, params.pop ?? 10));
   if (manual !== null && manual >= popNow) { manual = null; manualFrom = 0; }
-  interventions = interventions.filter((iv) => iv.payer < popNow);
+  // choices anchor to stable schedule IDs: one that names an edge the
+  // smaller town lacks simply never matches, so no filtering is needed
   const day = scene === 1 ? economy().day : 0;
   rebuildEconomy(day);
   setManual(manual); // refresh the day button and decisions panel
@@ -1012,7 +1013,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (Object.keys(p).length > 0) state.p = p;
   if (manual !== null) state.m = [manual, manualFrom];
   if (interventions.length > 0) {
-    state.i = interventions.map((iv) => [iv.day, iv.payer, iv.memo, iv.due, iv.plan]);
+    state.i = interventions.map((iv) => [iv.day, iv.id, iv.plan]);
   }
   if (ref) state.ref = ref;
   const frag = await encodeFragment(state);
@@ -1112,8 +1113,7 @@ async function init(): Promise<void> {
     manualFrom = state.m[1];
   }
   if (state?.i) {
-    interventions = state.i.map(([day, payer, memo, due, plan]) =>
-      ({ day, payer, memo, due, plan: plan as ManualPlan }));
+    interventions = state.i.map(([day, id, plan]) => ({ day, id, plan: plan as ManualPlan }));
   }
   setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
   if (state?.v === 2) setCollapsed(true, false);
