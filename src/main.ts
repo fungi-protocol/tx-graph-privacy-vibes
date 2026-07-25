@@ -17,7 +17,7 @@ import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout, type ClusterPaint } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps } from "./scenario/payjoinSteps";
-import { settlementSteps } from "./scenario/settlementSteps";
+import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
 import { gameSteps } from "./scenario/gameSteps";
@@ -940,6 +940,10 @@ const steps = [
       return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
     },
     () => firstSettlement()?.payer,
+    () => {
+      const ev = firstSettlement();
+      return ev ? settlementVerdict(eco!.chain, ev.tid) : undefined;
+    },
   ),
   ...coinjoinSteps(
     () => active().bip.bounds,
@@ -1054,15 +1058,7 @@ function gameSettlement(): Focused | undefined {
 }
 
 function firstSettlement(): { tid: string; payer: number } | undefined {
-  // prefer a full cycle (as many obligations as parties), then any
-  // three-party settlement, then whatever exists
-  const evs = eco?.events.filter((e) => e.form === "settlement") ?? [];
-  const count = (tid: string): number => evs.filter((e) => e.tid === tid).length;
-  return (
-    evs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length >= 3 && count(e.tid) >= 3) ??
-    evs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length >= 3) ??
-    evs[0]
-  );
+  return eco ? selectSettlementExhibit(eco.events, eco.chain) : undefined;
 }
 // the tour's last step frames the whole graph — far too small to act on.
 // When the learner presses "done ✓" the town is theirs, so hand it over

@@ -61,10 +61,12 @@ export function payjoinSteps(
       html: `<p>Be precise about who is fooled. An outsider <i>can
         suspect</i> this is a payjoin — any two-input spend could be one,
         and sometimes an input looks unnecessary, more coin than the
-        payment needed. But the record cannot settle it: a payjoin is
-        built to look exactly like an ordinary spend, so nothing on chain
-        separates the two, and suspicion alone doesn't say which input
-        was whose.</p>
+        payment needed. But the record cannot settle it: every feature
+        this observer reads — amounts, inputs, outputs, structure — is
+        consistent with both readings, so suspicion stays suspicion.
+        (Real wallets also leave <b>fingerprints</b> the town's do not —
+        quirks of how a wallet builds its transactions — and those can
+        tilt the guess further without settling it.)</p>
         <p>The payee is not fooled at all: they contributed their coin, so
         they know <b>exactly</b> which inputs were the payer's. What a
         counterparty learns is a fixed point, and each payment adds

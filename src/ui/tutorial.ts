@@ -4,7 +4,11 @@
 export interface TutorialStep {
   id: string;
   title: string;
-  html: string;
+  /** body markup; a function is resolved when the step becomes active,
+   *  so a step can display a value computed from the live world (e.g.
+   *  the analysis verdict for the selected transaction) instead of
+   *  asserting one */
+  html: string | (() => string);
   /** world rect to frame when the step becomes active (function = resolved late) */
   focus?: Rect | (() => Rect);
   /** which view this step wants: 0 = block explorer, 1 = bipartite, 2 = clusters */
@@ -86,7 +90,7 @@ export class Tutorial {
     const step = this.steps[this.index]!;
     this.title.textContent = step.title;
     this.progress.textContent = `${this.index + 1} / ${this.steps.length}`;
-    this.body.innerHTML = step.html;
+    this.body.innerHTML = typeof step.html === "function" ? step.html() : step.html;
     this.prevBtn.disabled = this.index === 0;
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);

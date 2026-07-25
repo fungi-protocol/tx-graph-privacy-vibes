@@ -86,8 +86,10 @@ function ensureNode(g: DGraph, n: string): void {
  * paper's warrant: §4.5's "no hope for singletons" covers degree-zero
  * nodes, and a one-coin cluster does have payment edges. The reason
  * here is scale — at toy size, hundreds of one-coin pseudonyms with a
- * single edge each would drown the demonstration in no-signal
- * abstentions without changing any acceptance. What is discarded with
+ * single edge each would mostly add no-signal abstentions and drown
+ * the demonstration (they would also widen the reverse-match domain,
+ * so acceptances could shift too — the exclusion changes the instance,
+ * not just its noise). What is discarded with
  * them: the payments into and out of those single coins. Read the
  * sweep's abstention counts knowing those edges are not on the board.
  */

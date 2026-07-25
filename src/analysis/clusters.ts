@@ -58,7 +58,10 @@ export interface Clustering {
   rank: Map<CoinId, number>;
   /** tx -> the output the observer guessed to be change */
   changeGuess: Map<TxId, CoinId>;
-  /** the evidence ledger: every weld, in the order it was made. Welds
+  /** the ownership-weld ledger — deliberately narrow, NOT a general
+   *  evidence ledger (it cannot hold rejected candidates, seeds,
+   *  relationship features, or propagation decisions; those get their
+   *  own typed records): every weld, in the order it was made. Welds
    *  citing the same tx are correlated by construction — one
    *  observation, however many features it feeds — so disabling a
    *  method (or distrusting an observation) drops them together. */

@@ -457,8 +457,9 @@ export class Economy {
       })),
       feerate, `${names.join(", ")} settle up — ${obls.length} obligations (net settlement)`);
     // honest, shape-aware rationale: a pair hides nothing from its two
-    // insiders, a chain's endpoint nets stay close to their gross
-    // obligations, and only a cycle makes the amounts truly vanish
+    // insiders; what shrinks a net is offsetting incoming and outgoing
+    // obligations, so a chain's endpoints (nothing to offset) stay near
+    // their gross while the full cycle lets every net shrink
     const why =
       n === 2
         ? `${names.join(" and ")} settle their mutual obligations in one spend. ` +

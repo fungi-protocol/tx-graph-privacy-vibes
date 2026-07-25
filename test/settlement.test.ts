@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { Economy, SETTLE_DAY } from "../src/engine/economy";
 import { CARELESS, PERSONAS } from "../src/scenario/cast";
 import { agentKnowledge } from "../src/analysis/knowledge";
+import { selectSettlementExhibit, settlementVerdict } from "../src/scenario/settlementSteps";
+import { Chain } from "../src/model/chain";
+import { txfee } from "../src/core/sats";
 
 function ecoAt(day: number): Economy {
   const eco = new Economy("golden");
@@ -107,4 +110,57 @@ test("a settlement insider can attribute the whole transaction", () => {
     assert.equal(a.owner, eco.chain.coins.get(id)!.owner);
   }
   assert.ok(k.txs.has(ev.tid));
+});
+
+test("the chapter's exhibit settlement yields the narrated verdict on every tutorial seed", () => {
+  // "The amounts are gone" displays the computed verdict for the
+  // selected settlement; the title is only honest if no tutorial seed's
+  // exhibit comes back with a unique split. Same template as the
+  // naive-coinjoin guarantee.
+  for (const seed of ["welcome", "golden", "gamma", "alpha", "silver"]) {
+    const eco = new Economy(seed);
+    eco.runTo(75); // the chapter's minDay
+    const ev = selectSettlementExhibit(eco.events, eco.chain);
+    assert.ok(ev, `${seed}: no settlement exhibit by day 75`);
+    const v = settlementVerdict(eco.chain, ev!.tid);
+    assert.ok(v === "atomic" || v === "ambiguous",
+      `${seed}: exhibit verdict "${v}" would make the title overclaim`);
+  }
+});
+
+test("netting is offsetting: a 4-party non-cycle settlement shows the gradient", () => {
+  // A→B 500k, B→C 400k, C→D 300k — a chain, no cycle anywhere. B and C
+  // each mix incoming and outgoing obligations and net down; the
+  // endpoints A and D have nothing to offset and move roughly their
+  // gross. Everyone contributes one coin, takes one output, and shares
+  // the fee — the same construction the economy uses.
+  const c = new Chain();
+  const oblAB = 500_000, oblBC = 400_000, oblCD = 300_000;
+  const contrib = [700_000, 650_000, 600_000, 550_000]; // A B C D inputs
+  contrib.forEach((v, i) => c.addRoot(`r${i}`, v, i));
+  const fee = txfee(4, 4, 1);
+  const share = Math.floor(fee / 4);
+  const last = fee - 3 * share; // rounding remainder on the last party
+  const net = [-oblAB, oblAB - oblBC, oblBC - oblCD, oblCD]; // A B C D
+  const outs = contrib.map((v, i) => ({
+    owner: i,
+    value: v + net[i]! - (i === 3 ? last : share),
+  }));
+  c.addTx("s1", 1, ["r0", "r1", "r2", "r3"], outs, 1);
+  // gross flow per participant: the largest single obligation they touch
+  const gross = [oblAB, Math.max(oblAB, oblBC), Math.max(oblBC, oblCD), oblCD];
+  // the middle parties offset: net well below gross
+  for (const i of [1, 2]) {
+    assert.ok(Math.abs(net[i]!) < gross[i]! / 2,
+      `party ${i} mixes in+out and should net down (net ${net[i]}, gross ${gross[i]})`);
+  }
+  // the endpoints have nothing to offset: net equals their obligation
+  assert.equal(Math.abs(net[0]!), oblAB);
+  assert.equal(Math.abs(net[3]!), oblCD);
+  // and the on-chain outputs really carry those nets (conservation held
+  // by addTx; this pins the narrated arithmetic to the transaction)
+  const tx = c.txs.get("s1")!;
+  tx.outputs.forEach((id, i) => {
+    assert.equal(c.coins.get(id)!.value, contrib[i]! + net[i]! - (i === 3 ? last : share));
+  });
 });
