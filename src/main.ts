@@ -20,6 +20,8 @@ import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
+import { synthesisSteps, claimExhibit, rentForms, type ClaimExhibit, type SweepView } from "./scenario/synthesisSteps";
+import { synthesisSweepExhibit, clusterOwner, outsiderEdges } from "./scenario/synthesisStaging";
 import { gameSteps } from "./scenario/gameSteps";
 import { setCastNames, OMNISCIENT } from "./scenario/omniscient";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
@@ -962,6 +964,16 @@ const steps = [
     () => m5Moments().cross,  // a spend linking two sessions' pasts
     () => m5Moments().toxic,  // coinjoin change spent beside a mixed coin
   ),
+  ...synthesisSteps(
+    () => active().bip.bounds,
+    () => clusterLayout().bounds,     // the view-2 beats frame the collapsed map
+    () => txRect(eco?.naiveTid),      // the elimination beat's exhibit
+    () => synthExhibits().claim,
+    () => eco?.naiveTid,
+    () => (eco ? rentForms(eco.events) : new Map()),
+    () => synthExhibits().sweep,
+    (i) => castList()[i]?.name ?? "someone",
+  ),
   ...gameSteps(
     () => active().bip.bounds,
     () => gameSettlement(),   // the settlement that pays the played rent
@@ -1059,6 +1071,55 @@ function gameSettlement(): Focused | undefined {
 
 function firstSettlement(): { tid: string; payer: number } | undefined {
   return eco ? selectSettlementExhibit(eco.events, eco.chain) : undefined;
+}
+
+// --- chapter 8: the synthesis exhibits. The claim is two same-owner
+// inputs of the careless coinjoin (staged: truth picks the pair, the
+// observer's map supplies the support and the elimination test); the
+// sweep is the staged N–S propagation run whose one acceptance grades
+// false against latent truth (verified across the tutorial seeds).
+// Both re-derive per sim revision; the sweep is the pricey one.
+let synthCache: { rev: number; claim?: ClaimExhibit; sweep?: SweepView } | null = null;
+function synthExhibits(): { claim?: ClaimExhibit; sweep?: SweepView } {
+  if (!eco) return {};
+  if (synthCache && synthCache.rev === simRev) return synthCache;
+  const chain = eco.chain;
+  const price = (d: number): number | undefined => eco!.prices[d];
+  const cl = clusterObserver(chain, price);
+  const found: typeof synthCache = { rev: simRev };
+  if (eco.naiveTid) found.claim = claimExhibit(chain, cl, price, eco.naiveTid);
+  const ownerOf = (id: string): number | null => chain.coins.get(id)?.owner ?? null;
+  const agents = eco.cast.map((_, i) => i);
+  const ex = synthesisSweepExhibit(chain, cl, eco.edges, agents, ownerOf);
+  if (ex.result.verdicts.length > 0) {
+    const count = (r: string): number =>
+      ex.result.verdicts.filter((v) => v.outcome.kind === "abstained" && v.outcome.reason === r).length;
+    const nameOf = (a: string): string => castList()[Number(a)]?.name ?? `agent ${a}`;
+    found.sweep = {
+      seedCount: ex.seeds.size,
+      examined: ex.result.verdicts.length,
+      noSignal: count("no-signal"),
+      belowThreshold: count("below-threshold"),
+      reverseMismatch: count("reverse-mismatch"),
+      acceptedCount: ex.result.accepted.size,
+      pseudonyms: [...cl.members.values()].filter((m) => m.length >= 2).length,
+      agents: agents.length,
+      knownEdges: outsiderEdges(eco.edges, 300).length,
+      allEdges: eco.edges.length,
+      featured: ex.featured === undefined ? undefined : (() => {
+        const owner = clusterOwner(cl, ex.featured!.node, ownerOf);
+        return {
+          cluster: clusterLabel(cl, ex.featured!.node) || "a cluster",
+          agent: nameOf(ex.featured!.agent),
+          eccentricity: ex.featured!.eccentricity,
+          grade: ex.featured!.grade,
+          trueOwner: owner === null ? null : castList()[owner]?.name ?? null,
+        };
+      })(),
+    };
+  }
+  synthCache = found;
+  return found;
 }
 // the tour's last step frames the whole graph — far too small to act on.
 // When the learner presses "done ✓" the town is theirs, so hand it over

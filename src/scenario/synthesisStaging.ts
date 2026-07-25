@@ -21,8 +21,9 @@
 // is two graphs from different, imperfect sources. outsiderEdges()
 // models what an outsider plausibly hears about: the big arrangements
 // (rent, invoices, commissioned work), not the small favors.
-import { type CoinId } from "../model/chain";
+import { type Chain, type CoinId } from "../model/chain";
 import { type Clustering } from "../analysis/clusters";
+import { auxGraph, propagationStep, targetGraph, type SweepResult } from "../analysis/propagation";
 import { type Edge } from "./cast";
 
 /** the relationships an outsider knows: those whose typical amount can
@@ -89,4 +90,53 @@ export function gradeAcceptances(
       : String(owner) === agent ? "correct" : "false");
   }
   return grades;
+}
+
+/** everything the narrated-sweep step needs, staged deterministically:
+ *  scan seed counts (2..8) and pick the first whose single sweep
+ *  produces a FALSE-graded acceptance — a pure cluster accepted for
+ *  the wrong owner, the outcome accuracy's ruling asks the chapter to
+ *  foreground ("the gate passed and the answer is wrong"). Grading
+ *  used to SELECT an exhibit is the permitted direction of the
+ *  latent-truth rule, same as picking the proven-ambiguous coinjoin.
+ *  Falls back to an undefined-graded acceptance (named as such), then
+ *  to whatever sweep ran, so the step always has something honest to
+ *  display. */
+export interface SweepExhibit {
+  seeds: Map<string, string>;
+  result: SweepResult;
+  grades: Map<string, Grade>;
+  /** the acceptance the prose foregrounds, if any */
+  featured?: { node: string; agent: string; grade: Grade; eccentricity: number };
+}
+
+export function synthesisSweepExhibit(
+  chain: Chain,
+  cl: Clustering,
+  edges: Edge[],
+  agents: number[],
+  ownerOf: (id: CoinId) => number | null,
+): SweepExhibit {
+  const tg = targetGraph(chain, cl);
+  const aux = auxGraph(outsiderEdges(edges, 300), agents);
+  let fallback: SweepExhibit | null = null;
+  for (let n = 2; n <= 8; n++) {
+    const seeds = pureClusterSeeds(cl, ownerOf, n);
+    if (seeds.size < 2) continue;
+    const result = propagationStep(tg, aux, seeds);
+    const grades = gradeAcceptances(cl, result.accepted, ownerOf);
+    const pick = (want: Grade): SweepExhibit | null => {
+      for (const [node, grade] of grades) {
+        if (grade !== want) continue;
+        const v = result.verdicts.find((x) => x.node === node)!;
+        if (v.outcome.kind !== "accepted") continue;
+        return { seeds, result, grades, featured: { node, agent: v.outcome.mapped, grade, eccentricity: v.eccentricity } };
+      }
+      return null;
+    };
+    const withFalse = pick("false");
+    if (withFalse) return withFalse;
+    fallback = fallback ?? pick("undefined") ?? (result.verdicts.length > 0 ? { seeds, result, grades } : null);
+  }
+  return fallback ?? { seeds: new Map(), result: { verdicts: [], accepted: new Map() }, grades: new Map() };
 }
