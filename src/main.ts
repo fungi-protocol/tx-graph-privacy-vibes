@@ -218,7 +218,7 @@ function lensClustering(): Clustering {
     const cl = lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : clustering();
-    collapseCache = { rev: simRev, lens, agent, cl, clay: layoutClusterGraph(cl) };
+    collapseCache = { rev: simRev, lens, agent, cl, clay: layoutClusterGraph(cl, active().chain) };
   }
   return collapseCache.cl;
 }

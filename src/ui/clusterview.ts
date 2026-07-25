@@ -100,19 +100,74 @@ export function transitionFragments(
   return out;
 }
 
-/** Ring layout: multi-coin clusters around an inner ellipse, largest
- *  first, sized by members; the anonymous singletons — dust the partition
- *  resolved nothing about — form a sparse outer halo instead of inflating
- *  the ring until the real clusters vanish. */
-export function layoutClusterGraph(cl: Clustering): ClusterLayout {
+/** Ring layout: multi-coin clusters around an inner ellipse, the
+ *  anonymous singletons — dust the partition resolved nothing about — a
+ *  sparse outer halo instead of inflating the ring until the real
+ *  clusters vanish. Placement follows the EDGES, not the rank: ring
+ *  neighbors are chosen by transfer-edge weight (greedy seriation, so
+ *  clusters that transact sit side by side and their edges hug the
+ *  rim), and a connected singleton sits outside its busiest partner
+ *  rather than at an arbitrary angle dragging a chord across the whole
+ *  drawing. Without a chain the old rank order stands (tests, and the
+ *  repartition tween's synthetic partitions). */
+export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout {
   const reps = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
-  const inner = reps.filter((r) => cl.members.get(r)!.length >= 2);
+  let inner = reps.filter((r) => cl.members.get(r)!.length >= 2);
   const halo = reps.filter((r) => cl.members.get(r)!.length < 2);
+
+  // symmetric transfer-edge weights between partition vertices — one
+  // count per tx output that crosses clusters, same rule the renderer
+  // draws by
+  const w = new Map<CoinId, Map<CoinId, number>>();
+  if (chain) {
+    const bump = (a: CoinId, b: CoinId): void => {
+      const m = w.get(a) ?? new Map<CoinId, number>();
+      m.set(b, (m.get(b) ?? 0) + 1);
+      w.set(a, m);
+    };
+    for (const tid of chain.order) {
+      const tx = chain.txs.get(tid)!;
+      const from = cl.rep.get(tx.inputs[0]!)!;
+      for (const out of tx.outputs) {
+        const to = cl.rep.get(out)!;
+        if (to !== from) {
+          bump(from, to);
+          bump(to, from);
+        }
+      }
+    }
+    // greedy seriation: walk from the largest cluster to whichever
+    // unplaced cluster it transacts with most, and so on. Ties (and the
+    // unconnected) fall back to rank order — deterministic throughout.
+    if (inner.length > 2) {
+      const order: CoinId[] = [inner[0]!];
+      const placed = new Set(order);
+      while (order.length < inner.length) {
+        const last = order[order.length - 1]!;
+        let best: CoinId | undefined;
+        let bw = -1;
+        for (const r of inner) {
+          if (placed.has(r)) continue;
+          const wt = w.get(last)?.get(r) ?? 0;
+          if (wt > bw) {
+            bw = wt;
+            best = r;
+          }
+        }
+        order.push(best!);
+        placed.add(best!);
+      }
+      inner = order;
+    }
+  }
+
   const n = Math.max(1, inner.length);
   const R = Math.max(320, (n * 130) / (2 * Math.PI));
   const nodes = new Map<CoinId, ClusterNode>();
+  const angleOf = new Map<CoinId, number>();
   inner.forEach((rep, i) => {
     const a = (i / n) * 2 * Math.PI - Math.PI / 2;
+    angleOf.set(rep, a);
     const size = cl.members.get(rep)!.length;
     nodes.set(rep, {
       rep,
@@ -123,10 +178,37 @@ export function layoutClusterGraph(cl: Clustering): ClusterLayout {
     });
   });
   const H = R * 1.45;
+  // each singleton wants the angle of its busiest ring partner: groups
+  // sharing an anchor fan out around it; the unconnected keep the even
+  // spread they always had
+  const spread = (i: number): number => (i / Math.max(1, halo.length)) * 2 * Math.PI - Math.PI / 2;
+  const anchored = new Map<number, CoinId[]>();
+  const loose: { rep: CoinId; i: number }[] = [];
   halo.forEach((rep, i) => {
-    const a = (i / Math.max(1, halo.length)) * 2 * Math.PI - Math.PI / 2;
-    nodes.set(rep, { rep, x: Math.cos(a) * H * 1.35, y: Math.sin(a) * H, r: 5, size: 1 });
+    let a: number | undefined;
+    let bw = 0;
+    for (const [nb, wt] of w.get(rep) ?? []) {
+      const na = angleOf.get(nb);
+      if (na !== undefined && wt > bw) {
+        bw = wt;
+        a = na;
+      }
+    }
+    if (a === undefined) loose.push({ rep, i });
+    else {
+      const g = anchored.get(a);
+      if (g) g.push(rep);
+      else anchored.set(a, [rep]);
+    }
   });
+  const place = (rep: CoinId, a: number): void => {
+    nodes.set(rep, { rep, x: Math.cos(a) * H * 1.35, y: Math.sin(a) * H, r: 5, size: 1 });
+  };
+  for (const [a, group] of anchored) {
+    group.sort();
+    group.forEach((rep, j) => place(rep, a + (j - (group.length - 1) / 2) * 0.11));
+  }
+  for (const { rep, i } of loose) place(rep, spread(i));
   const O = halo.length > 0 ? H : R;
   return {
     nodes,
@@ -135,8 +217,11 @@ export function layoutClusterGraph(cl: Clustering): ClusterLayout {
 }
 
 function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {
-  // bow transfer edges toward the ring's center so parallel edges read
-  const mx = (x0 + x1) / 2 / 2, my = (y0 + y1) / 2 / 2;
+  // bow transfer edges gently toward the ring's center so parallel edges
+  // read — gently, so short rim-neighbor edges (the common case once the
+  // ring is seriated by edge weight) hug the rim instead of all diving
+  // through the middle
+  const mx = ((x0 + x1) / 2) * 0.72, my = ((y0 + y1) / 2) * 0.72;
   ctx.beginPath();
   ctx.moveTo(x0, y0);
   ctx.quadraticCurveTo(mx, my, x1, y1);
@@ -272,7 +357,9 @@ export function drawContraction(
       ctx.fillStyle = "#8b919c";
       ctx.font = "10px system-ui, sans-serif";
       ctx.fillText(`${label} · ${node.size} coin${node.size === 1 ? "" : "s"}`, node.x, node.y + node.r + 12);
-      ctx.fillText(`holds ${fmtSats(total)} sats`, node.x, node.y + node.r + 24);
+      // a cluster of only-spent coins holds nothing — say so by silence
+      // rather than captioning most of the drawing "holds 0 sats"
+      if (total > 0) ctx.fillText(`holds ${fmtSats(total)} sats`, node.x, node.y + node.r + 24);
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = "left";
     }
