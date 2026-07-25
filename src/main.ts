@@ -1003,7 +1003,14 @@ const steps = [
   ...coinjoinSteps(
     () => active().bip.bounds,
     () => txRect(eco?.naiveTid),      // the careless first attempt (day 90)
-    () => txRect(denseCoinjoin()),    // a denominated session
+    () => {
+      // a denominated session, framed in whichever view the step asked for
+      const s = active();
+      const tid = denseCoinjoin();
+      const r = tid ? txRectAt(s.layout, s.bip, tid, targetView) : undefined;
+      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 }
+        : targetView === 1 ? s.bip.bounds : s.layout.bounds;
+    },
     () => {
       const tid = denseCoinjoin();
       const first = tid ? eco?.chain.txs.get(tid)?.inputs[0] : undefined;

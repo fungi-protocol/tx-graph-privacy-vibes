@@ -47,9 +47,11 @@ export function coinjoinSteps(
         amounts <b>fully partition</b> the transaction. Analysts call the
         balanced groups <i>sub-transactions</i>, and the matching game the
         <b>sub-transaction model</b> (Maurer et al.).</p>
-        <p>Frank and Ivan's values are just as careless, and the analysis is
-        stronger than CIOH ever was: it doesn't just group the inputs — it
-        hands each output back to its side too. Carelessly chosen values are
+        <p>Frank and Ivan's values are just as careless. The
+        sub-transaction model <b>generalizes</b> CIOH and change
+        identification: a transaction it cannot split reads as one
+        user's spend, and each part it can split off reads the same way
+        — inputs grouped, outputs assigned. Carelessly chosen values are
         no better than a naive batch.</p>`,
       focus: () => pad(naiveFocus()),
       view: 1,
@@ -69,7 +71,7 @@ export function coinjoinSteps(
         an obligation to someone outside the session, cut into the same
         denominations as everything else.</p>`,
       focus: () => pad(denseFocus()),
-      view: 1,
+      view: 0,
       lens: 0,
       scene: 1,
       minDay: 100,
