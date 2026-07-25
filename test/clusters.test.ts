@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Chain } from "../src/model/chain";
 import { txfee } from "../src/core/sats";
-import { clusterObserver } from "../src/analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
 
 const PRICE = 100_000; // $100k/BTC: 1000 sats = $1
@@ -173,4 +173,39 @@ test("all heuristics off leaves every coin a singleton", () => {
   ], 2);
   const cl = clusterObserver(c, at, { cioh: false, change: false, subsum: false });
   for (const [, members] of cl.members) assert.equal(members.length, 1);
+});
+
+test("the true wallet partition: one labeled vertex per owner, one for outside", () => {
+  const c = new Chain();
+  c.addRoot("a", 200_000, 0);
+  c.addRoot("b", 900_000, 0);
+  c.addRoot("m", 50_000, 1);
+  const fee2 = txfee(2, 2, 2);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: null, value: 100_000 }, // an external merchant
+    { owner: 0, value: 1_000_000 - fee2 },
+  ], 2);
+  const cl = clusterByOwner(c);
+  // owner 0's coins fuse regardless of any heuristic evidence
+  assert.equal(cl.rep.get("a"), cl.rep.get("b"));
+  assert.equal(cl.rep.get("a"), cl.rep.get("t1o2"));
+  assert.notEqual(cl.rep.get("a"), cl.rep.get("m"));
+  // no vertex is anonymous: every coin belongs to a wallet or the outside
+  assert.equal([...cl.members.keys()].length, 3); // owner 0, owner 1, outside
+});
+
+test("a participant's partition: facts and suspicions fuse apart, the rest stay singletons", () => {
+  const c = new Chain();
+  c.addRoot("a", 100_000, 0);
+  c.addRoot("b", 200_000, 1);
+  c.addRoot("d", 300_000, 2);
+  const att = new Map([
+    ["a", { owner: 0, direct: true }],
+    ["b", { owner: 0, direct: false }], // guessed, not known
+  ] as [string, { owner: number | null; direct: boolean }][]);
+  const cl = clusterByKnowledge(c, att);
+  // a known coin and a guessed coin of the same owner stay two vertices
+  assert.notEqual(cl.rep.get("a"), cl.rep.get("b"));
+  // the unattributed coin is an anonymous singleton
+  assert.equal(cl.members.get(cl.rep.get("d")!)!.length, 1);
 });

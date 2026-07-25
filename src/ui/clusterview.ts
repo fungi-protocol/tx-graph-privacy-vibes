@@ -5,7 +5,7 @@
 // yet a user network.
 import { type Chain, type CoinId } from "../model/chain";
 import { fmtSats } from "../core/sats";
-import { type Clustering, clusterColor } from "../analysis/clusters";
+import { type Clustering } from "../analysis/clusters";
 import { type Layout, type Rect } from "./blockview";
 import { type BipLayout } from "./bipartite";
 import { coinRectAt, txRectAt } from "./morph";
@@ -23,13 +23,29 @@ export interface ClusterLayout {
   bounds: Rect;
 }
 
-/** Ring layout: clusters around an ellipse, largest first, sized by members. */
+/** how the active lens colors and names the contracted vertices — the
+ *  same partition drawn as truth (owner names), inference ("cluster 3"),
+ *  or one participant's ledger ("Heidi · known") */
+export interface ClusterPaint {
+  color(id: CoinId): string;
+  /** caption under the disc; "" = an anonymous vertex, left unlabeled */
+  label(rep: CoinId): string;
+  /** short text inside the disc */
+  center(rep: CoinId): string;
+}
+
+/** Ring layout: multi-coin clusters around an inner ellipse, largest
+ *  first, sized by members; the anonymous singletons — dust the partition
+ *  resolved nothing about — form a sparse outer halo instead of inflating
+ *  the ring until the real clusters vanish. */
 export function layoutClusterGraph(cl: Clustering): ClusterLayout {
   const reps = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
-  const n = reps.length;
-  const R = Math.max(320, (n * 96) / (2 * Math.PI));
+  const inner = reps.filter((r) => cl.members.get(r)!.length >= 2);
+  const halo = reps.filter((r) => cl.members.get(r)!.length < 2);
+  const n = Math.max(1, inner.length);
+  const R = Math.max(320, (n * 130) / (2 * Math.PI));
   const nodes = new Map<CoinId, ClusterNode>();
-  reps.forEach((rep, i) => {
+  inner.forEach((rep, i) => {
     const a = (i / n) * 2 * Math.PI - Math.PI / 2;
     const size = cl.members.get(rep)!.length;
     nodes.set(rep, {
@@ -40,9 +56,15 @@ export function layoutClusterGraph(cl: Clustering): ClusterLayout {
       size,
     });
   });
+  const H = R * 1.45;
+  halo.forEach((rep, i) => {
+    const a = (i / Math.max(1, halo.length)) * 2 * Math.PI - Math.PI / 2;
+    nodes.set(rep, { rep, x: Math.cos(a) * H * 1.35, y: Math.sin(a) * H, r: 5, size: 1 });
+  });
+  const O = halo.length > 0 ? H : R;
   return {
     nodes,
-    bounds: { x: -R * 1.35 - 80, y: -R - 80, w: 2 * R * 1.35 + 160, h: 2 * R + 160 },
+    bounds: { x: -O * 1.35 - 80, y: -O - 80, w: 2 * O * 1.35 + 160, h: 2 * O + 160 },
   };
 }
 
@@ -69,6 +91,7 @@ export function drawContraction(
   clay: ClusterLayout,
   cl: Clustering,
   t: number,
+  paint: ClusterPaint,
 ): void {
   const nodeOf = (id: CoinId): ClusterNode => clay.nodes.get(cl.rep.get(id)!)!;
 
@@ -82,7 +105,7 @@ export function drawContraction(
       const to = nodeOf(out);
       if (to === from) continue; // self-transfer (same inferred cluster) contracts away
       bezier(ctx, from.x, from.y, to.x, to.y);
-      ctx.strokeStyle = clusterColor(cl, tx.inputs[0]!) + "70";
+      ctx.strokeStyle = paint.color(tx.inputs[0]!) + "70";
       ctx.lineWidth = 1.6;
       ctx.stroke();
     }
@@ -101,7 +124,7 @@ export function drawContraction(
       const w = from.w * (1 - 0.8 * t), h = from.h * (1 - 0.8 * t);
       ctx.beginPath();
       ctx.roundRect(x, y, w, h, 12);
-      ctx.fillStyle = clusterColor(cl, coin.id);
+      ctx.fillStyle = paint.color(coin.id);
       ctx.fill();
     }
     // tx squares fade toward the midpoint of their transfer
@@ -128,12 +151,13 @@ export function drawContraction(
     ctx.globalAlpha = Math.min(1, 0.25 + 0.75 * t);
     ctx.beginPath();
     ctx.arc(node.x, node.y, node.r * (0.4 + 0.6 * t), 0, 2 * Math.PI);
-    ctx.fillStyle = clusterColor(cl, node.rep);
+    ctx.fillStyle = paint.color(node.rep);
     ctx.fill();
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    if (t > 0.6 && node.size >= 2) {
+    const label = paint.label(node.rep);
+    if (t > 0.6 && label) {
       ctx.globalAlpha = (t - 0.6) / 0.4;
       const total = cl.members.get(node.rep)!
         .map((id) => chain.coins.get(id)!)
@@ -143,10 +167,10 @@ export function drawContraction(
       ctx.font = "600 12px system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(`${cl.rank.get(node.rep)}`, node.x, node.y);
+      ctx.fillText(paint.center(node.rep), node.x, node.y);
       ctx.fillStyle = "#8b919c";
       ctx.font = "10px system-ui, sans-serif";
-      ctx.fillText(`cluster ${cl.rank.get(node.rep)} · ${node.size} coins`, node.x, node.y + node.r + 12);
+      ctx.fillText(`${label} · ${node.size} coin${node.size === 1 ? "" : "s"}`, node.x, node.y + node.r + 12);
       ctx.fillText(`holds ${fmtSats(total)} sats`, node.x, node.y + node.r + 24);
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = "left";

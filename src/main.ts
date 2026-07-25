@@ -12,9 +12,9 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterColor, clusterLabel, CLUSTER_MISC, type Clustering } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterColor, clusterLabel, CLUSTER_MISC, type Clustering } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
-import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout } from "./ui/clusterview";
+import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout, type ClusterPaint } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps } from "./scenario/settlementSteps";
@@ -117,7 +117,7 @@ let lensAgent: number | null = null;
 // the observer's map degrades honestly into the bare public structure.
 const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_ALL = 7;
 let overlays = OV_ALL;
-let clCache: { rev: number; cl: Clustering; clay: ClusterLayout } | null = null;
+let clCache: { rev: number; cl: Clustering } | null = null;
 function clustering(): Clustering {
   const s = active();
   if (!clCache || clCache.rev !== simRev) {
@@ -127,13 +127,71 @@ function clustering(): Clustering {
       change: (overlays & OV_CHANGE) !== 0,
       subsum: (overlays & OV_SUBSUM) !== 0,
     });
-    clCache = { rev: simRev, cl, clay: layoutClusterGraph(cl) };
+    clCache = { rev: simRev, cl };
   }
   return clCache.cl;
 }
+
+// The contracted graph is not one fixed flattening: the partition — and
+// with it the layout — follows the active lens. All-seeing contracts to
+// the true user graph (every vertex a named wallet); the observer to its
+// heuristic pseudonym graph, honoring the toggles (all off = singletons,
+// the bare structure); an agent's lens to what that one ledger can
+// attribute, suspicions kept apart from facts.
+let collapseCache: { rev: number; lens: number; agent: number; cl: Clustering; clay: ClusterLayout } | null = null;
+function lensClustering(): Clustering {
+  const agent = lens === 2 ? (lensAgent ?? 0) : -1;
+  if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens || collapseCache.agent !== agent) {
+    const cl = lens === 0 ? clusterByOwner(active().chain)
+      : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
+      : clustering();
+    collapseCache = { rev: simRev, lens, agent, cl, clay: layoutClusterGraph(cl) };
+  }
+  return collapseCache.cl;
+}
 function clusterLayout(): ClusterLayout {
-  clustering();
-  return clCache!.clay;
+  lensClustering();
+  return collapseCache!.clay;
+}
+function lensClusterPaint(): ClusterPaint {
+  const chain = active().chain;
+  if (lens === 0) {
+    const ownerOf = (id: string): number | null => chain.coins.get(id)!.owner;
+    return {
+      color: (id) => { const o = ownerOf(id); return o === null ? "#e8e5da" : ownerColor(o); },
+      label: (rep) => { const o = ownerOf(rep); return o === null ? "outside town" : castList()[o]!.name; },
+      center: (rep) => { const o = ownerOf(rep); return o === null ? "~" : castList()[o]!.name[0]!; },
+    };
+  }
+  if (lens === 2) {
+    const k = knowledge();
+    const u = lensAgent ?? 0;
+    const nameOf = (o: number | null): string => (o === null ? "a merchant" : castList()[o]!.name);
+    return {
+      color: (id) => {
+        const a = k.coins.get(id);
+        if (!a) return CLUSTER_MISC;
+        const color = a.owner === null ? "#e8e5da" : ownerColor(a.owner);
+        return a.direct ? color : color + "88";
+      },
+      label: (rep) => {
+        const a = k.coins.get(rep);
+        if (!a) return "";
+        if (a.owner === u) return "own coins";
+        return a.direct ? `${nameOf(a.owner)} · known` : `${nameOf(a.owner)} · likely`;
+      },
+      center: (rep) => {
+        const a = k.coins.get(rep);
+        return !a ? "" : a.owner === null ? "~" : castList()[a.owner]!.name[0]!;
+      },
+    };
+  }
+  const cl = clustering();
+  return {
+    color: (id) => clusterColor(cl, id),
+    label: (rep) => clusterLabel(cl, rep),
+    center: (rep) => (clusterLabel(cl, rep) ? String(cl.rank.get(rep)) : ""),
+  };
 }
 function observerPaint(): Paint {
   const cl = clustering();
@@ -242,7 +300,7 @@ function draw(): void {
   ctx.translate(-cam.x, -cam.y);
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
-      clusterLayout(), clustering(), collapseT);
+      clusterLayout(), lensClustering(), collapseT, lensClusterPaint());
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -342,7 +400,7 @@ function setCollapsed(on: boolean, animate = true): void {
   }
   const from = collapseT;
   const to = on ? 1 : 0;
-  anim.add(80 + 620 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
+  anim.add(80 + 1050 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
     { done: () => void syncFragment() });
   // frame the flattened graph going in; come back out to where you were
   if (on) {
@@ -374,6 +432,12 @@ function setLens(l: 0 | 1 | 2): void {
     `lens: ${castList()[lensAgent ?? 0]!.name}'s`;
   overlaysPanel.style.display = l === 1 ? "block" : "none";
   recomputeTrace(); // the joint-trace intersection is cluster-wise under the observer
+  // the contracted graph is a different partition under a different lens:
+  // re-frame it, and drop a selection that named a vertex of the old one
+  if (collapsed) {
+    if (selection?.kind === "cluster") { selection = null; highlight = null; }
+    flyTo(clusterLayout().bounds);
+  }
   draw();
   void syncFragment();
 }
@@ -610,7 +674,7 @@ function recomputeTrace(): void {
     highlight = s.chain.txs.has(selection.id) ? traceTx(s.chain, selection.id, cl) : null;
   } else {
     // cluster: its member coins and the transactions that spend them
-    const members = new Set(clustering().members.get(selection.id) ?? []);
+    const members = new Set(lensClustering().members.get(selection.id) ?? []);
     const txs = new Set<string>();
     for (const tid of s.chain.order) {
       if (s.chain.txs.get(tid)!.inputs.some((c) => members.has(c))) txs.add(tid);

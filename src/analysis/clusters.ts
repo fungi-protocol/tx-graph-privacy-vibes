@@ -130,6 +130,66 @@ export function clusterObserver(
   return { rep, members, rank, changeGuess };
 }
 
+/** assemble a Clustering from a coin -> group assignment; coins keyed
+ *  null stay singletons. Rank is by size, as in the observer's map. */
+function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Clustering {
+  const groups = new Map<string, CoinId[]>();
+  const rep = new Map<CoinId, CoinId>();
+  const members = new Map<CoinId, CoinId[]>();
+  for (const id of chain.coins.keys()) {
+    const key = keyOf(id);
+    if (key === null) {
+      rep.set(id, id);
+      members.set(id, [id]);
+      continue;
+    }
+    const g = groups.get(key);
+    if (g) g.push(id);
+    else groups.set(key, [id]);
+  }
+  for (const g of groups.values()) {
+    const r = g[0]!;
+    members.set(r, g);
+    for (const id of g) rep.set(id, r);
+  }
+  const ranked = [...members.entries()]
+    .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
+  const rank = new Map<CoinId, number>();
+  ranked.forEach(([r], i) => rank.set(r, i + 1));
+  return { rep, members, rank, changeGuess: new Map() };
+}
+
+/**
+ * The true wallet partition — what the all-seeing lens contracts to: one
+ * vertex per person (the doc's user graph, reached by edge contraction),
+ * every one of them labeled, plus a single vertex for the outside world's
+ * merchants. No heuristics, no gray unknowns: this is the ground truth
+ * the observer's pseudonym graph is trying to approximate.
+ */
+export function clusterByOwner(chain: Chain): Clustering {
+  return partitionBy(chain, (id) => {
+    const o = chain.coins.get(id)!.owner;
+    return o === null ? "x" : `u${o}`;
+  });
+}
+
+/**
+ * One participant's contraction of the graph: coins they can attribute
+ * fuse per believed owner — direct evidence (fixed points) and
+ * cluster-propagated guesses kept apart, a suspicion is not a fact —
+ * and everything else stays an anonymous singleton, exactly as blind as
+ * the bare structure.
+ */
+export function clusterByKnowledge(
+  chain: Chain,
+  attributions: Map<CoinId, { owner: number | null; direct: boolean }>,
+): Clustering {
+  return partitionBy(chain, (id) => {
+    const a = attributions.get(id);
+    return a ? `${a.owner === null ? "x" : a.owner}/${a.direct ? "k" : "g"}` : null;
+  });
+}
+
 // a palette deliberately different from the owner colors: the observer's
 // map is not the truth, and should not look like it
 export const CLUSTER_COLORS = ["#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854",
