@@ -4,8 +4,18 @@
 // counterparty simply knows.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
-export function payjoinSteps(bipBounds: () => Rect, payjoinFocus: () => Rect): TutorialStep[] {
+export function payjoinSteps(
+  bipBounds: () => Rect,
+  payjoinFocus: () => Rect,
+  payjoinTx: () => string | undefined,
+): TutorialStep[] {
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
+  // the chapter's exhibit is one concrete transaction: keep it selected
+  // (traced) while the steps walk around it, so the eye never loses it
+  const selectIt = (): { kind: "tx"; id: string } | null => {
+    const id = payjoinTx();
+    return id ? { kind: "tx", id } : null;
+  };
   return [
     {
       id: "neighborhood-learns-a-trick",
@@ -21,10 +31,11 @@ export function payjoinSteps(bipBounds: () => Rect, payjoinFocus: () => Rect): T
         each payer weighs fees, hassle, and how much the naked link
         bothers them.</p>`,
       focus: () => pad(payjoinFocus()),
-      view: 1,
+      view: 0,
       lens: 0,
       scene: 1,
       minDay: 45,
+      select: selectIt,
     },
     {
       id: "the-heuristic-lies",
@@ -42,6 +53,7 @@ export function payjoinSteps(bipBounds: () => Rect, payjoinFocus: () => Rect): T
       lens: 1,
       scene: 1,
       minDay: 45,
+      select: selectIt,
     },
     {
       id: "no-privacy-from-the-counterparty",
@@ -64,6 +76,7 @@ export function payjoinSteps(bipBounds: () => Rect, payjoinFocus: () => Rect): T
       lens: 2,
       scene: 1,
       minDay: 45,
+      select: selectIt,
     },
     {
       id: "doubt-spreads",
@@ -81,6 +94,7 @@ export function payjoinSteps(bipBounds: () => Rect, payjoinFocus: () => Rect): T
       lens: 1,
       scene: 1,
       minDay: 45,
+      select: () => null, // the chapter widens back out: exhibit released
     },
   ];
 }

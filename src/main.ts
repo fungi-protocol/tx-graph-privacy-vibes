@@ -760,6 +760,11 @@ function playPing(wx: number, wy: number, pulses = 3): void {
 }
 
 // --- tutorial ---
+/** the payjoin chapter's exhibit: the first 2-input payjoin, if any */
+function firstPayjoinTx(): string | undefined {
+  const pjs = eco?.events.filter((e) => e.form === "payjoin") ?? [];
+  return (pjs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length === 2) ?? pjs[0])?.tid;
+}
 const steps = [
   ...introSteps(intro.layout, intro.bip),
   ...economySteps(() => {
@@ -770,14 +775,16 @@ const steps = [
   ...payjoinSteps(
     () => active().bip.bounds,
     () => {
-      // frame the first payjoin transaction (there is one by minDay 45);
-      // prefer a 2-input one so the step prose matches on every seed
+      // frame the first payjoin transaction (there is one by minDay 45) in
+      // whichever view the step just asked for; prefer a 2-input one so
+      // the step prose matches on every seed
       const s = active();
-      const pjs = eco?.events.filter((e) => e.form === "payjoin") ?? [];
-      const ev = pjs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length === 2) ?? pjs[0];
-      const r = ev ? s.bip.txs.get(ev.tid) : undefined;
-      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
+      const tid = firstPayjoinTx();
+      const r = tid ? txRectAt(s.layout, s.bip, tid, targetView) : undefined;
+      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 }
+        : targetView === 1 ? s.bip.bounds : s.layout.bounds;
     },
+    firstPayjoinTx,
   ),
   ...settlementSteps(
     () => active().bip.bounds,
