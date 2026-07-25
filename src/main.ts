@@ -100,6 +100,7 @@ function rebuildEconomy(toDay: number): void {
   recomputeTrace();
   renderDecisions();
   if (scene === 1) dayBtn.textContent = dayLabel();
+  syncTimebar();
   draw();
   void syncFragment();
 }
@@ -135,6 +136,7 @@ function rideDays(from: number, to: number): void {
     simRev += 1;
     recomputeTrace();
     dayBtn.textContent = dayLabel();
+    syncTimebar();
   };
   anim.add(ms, (t) => {
     if (gen !== rideGen) return;
@@ -171,6 +173,7 @@ function setViewDay(d: number | null): void {
   renderCast(); // the town roster follows the displayed day
   dayBtn.textContent = dayLabel();
   backBtn.style.display = scene === 1 && cursorDay() > 0 ? "block" : "none";
+  syncTimebar();
   draw();
   void syncFragment();
 }
@@ -592,6 +595,7 @@ function setScene(s: 0 | 1, minDay = 0, ride = false): void {
   dayBtn.style.display = s === 1 ? "block" : "none";
   backBtn.style.display = s === 1 && cursorDay() > 0 ? "block" : "none";
   if (s === 1) dayBtn.textContent = dayLabel();
+  syncTimebar();
   renderDecisions();
   draw();
 }
@@ -658,15 +662,58 @@ function stepDay(): void {
   }
   dayBtn.textContent = dayLabel();
   backBtn.style.display = cursorDay() > 0 ? "block" : "none";
+  syncTimebar();
   renderCast(); // someone may have moved to town today
   renderDecisions();
   draw();
   void syncFragment();
 }
-dayBtn.addEventListener("click", stepDay);
+dayBtn.addEventListener("click", () => { pausePlay(); stepDay(); });
 backBtn.addEventListener("click", () => {
   if (scene !== 1 || cursorDay() <= 0) return;
+  pausePlay();
   setViewDay(cursorDay() - 1);
+});
+
+// --- the time bar: a slider to skip along the recorded days, and
+// auto-play that lets days pass on their own at a chosen speed (#41) ---
+const timebar = document.getElementById("timebar") as HTMLDivElement;
+const playBtn = document.getElementById("playbtn") as HTMLButtonElement;
+const speedBtn = document.getElementById("speedbtn") as HTMLButtonElement;
+const daySlider = document.getElementById("dayslider") as HTMLInputElement;
+const SPEEDS = [1, 2, 4, 8]; // days per second
+let speedIx = 1;
+let playTimer: ReturnType<typeof setTimeout> | null = null;
+/** keep the slider spanning the recorded days with the cursor on it */
+function syncTimebar(): void {
+  timebar.style.display = scene === 1 && eco ? "flex" : "none";
+  if (!eco) return;
+  daySlider.max = String(eco.day);
+  daySlider.value = String(cursorDay());
+}
+function pausePlay(): void {
+  if (playTimer !== null) { clearTimeout(playTimer); playTimer = null; }
+  playBtn.textContent = "▶";
+}
+function playTick(): void {
+  if (scene !== 1) { pausePlay(); return; }
+  stepDay();
+  playTimer = setTimeout(playTick, 1000 / SPEEDS[speedIx]!);
+}
+playBtn.addEventListener("click", () => {
+  if (playTimer !== null) { pausePlay(); return; }
+  playBtn.textContent = "❚❚";
+  playTick();
+});
+speedBtn.addEventListener("click", () => {
+  speedIx = (speedIx + 1) % SPEEDS.length;
+  speedBtn.textContent = `${SPEEDS[speedIx]}×`;
+  if (playTimer !== null) { clearTimeout(playTimer); playTimer = setTimeout(playTick, 1000 / SPEEDS[speedIx]!); }
+});
+daySlider.addEventListener("input", () => {
+  pausePlay(); // a hand on the dial takes over
+  if (scene !== 1 || !eco) return;
+  setViewDay(Number(daySlider.value));
 });
 
 // --- manual play: the decision panel and the played agent. No UI offers
