@@ -16,7 +16,7 @@ import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterColor, clus
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
-import { payjoinSteps } from "./scenario/payjoinSteps";
+import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
@@ -937,10 +937,29 @@ function playPing(wx: number, wy: number, pulses = 3): void {
 }
 
 // --- tutorial ---
-/** the payjoin chapter's exhibit: the first 2-input payjoin, if any */
-function firstPayjoinTx(): string | undefined {
-  const pjs = eco?.events.filter((e) => e.form === "payjoin") ?? [];
-  return (pjs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length === 2) ?? pjs[0])?.tid;
+/** the payjoin chapter's exhibit (see selectPayjoinExhibit), computed
+ *  against the VISIBLE chain so rewinding stays honest. Sticky: once the
+ *  chosen exhibit detects, a later payjoin must not swap the exhibit
+ *  under the reader mid-chapter. */
+let pjCache: { rev: number; tid: string | undefined } | null = null;
+function payjoinExhibit(): string | undefined {
+  if (scene !== 1 || !eco) return undefined;
+  if (pjCache && pjCache.rev === simRev) return pjCache.tid;
+  const s = active();
+  const price = (d: number): number | undefined => eco!.prices[d];
+  const prev = pjCache?.tid;
+  const tid = prev !== undefined && s.chain.txs.has(prev)
+      && detectionFires(payjoinDetection(s.chain, price, prev))
+    ? prev
+    : selectPayjoinExhibit(eco.events, s.chain, price);
+  pjCache = { rev: simRev, tid };
+  return tid;
+}
+/** what the rest of the visible record says about the exhibit's inputs */
+function payjoinExhibitDetection(): PayjoinDetection | undefined {
+  const tid = payjoinExhibit();
+  if (tid === undefined || !eco) return undefined;
+  return payjoinDetection(active().chain, (d) => eco!.prices[d], tid);
 }
 const steps = [
   ...introSteps(intro.layout, intro.bip),
@@ -956,12 +975,13 @@ const steps = [
       // whichever view the step just asked for; prefer a 2-input one so
       // the step prose matches on every seed
       const s = active();
-      const tid = firstPayjoinTx();
+      const tid = payjoinExhibit();
       const r = tid ? txRectAt(s.layout, s.bip, tid, targetView) : undefined;
       return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 }
         : targetView === 1 ? s.bip.bounds : s.layout.bounds;
     },
-    firstPayjoinTx,
+    payjoinExhibit,
+    payjoinExhibitDetection,
   ),
   ...settlementSteps(
     () => active().bip.bounds,

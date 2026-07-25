@@ -73,3 +73,56 @@ test("payment values conserve through payjoins (payee nets exactly the obligatio
     .reduce((s, c) => s + c.value, 0);
   assert.ok(received - contributed > 0, "payee must net a positive payment");
 });
+
+// --- payjoin detection (#36): "the rest of the record" check ---
+// Set the exhibit's own evidence aside and ask where every other
+// observation puts its inputs. Distinct prior clusters of size >= 2 on
+// every input contradict CIOH's one-owner reading — detection.
+import { payjoinDetection, detectionFires, selectPayjoinExhibit } from "../src/scenario/payjoinSteps";
+
+test("payjoinDetection excludes only the exhibit's evidence and reads prior clusters", () => {
+  const eco = new Economy("golden");
+  eco.runTo(45);
+  const price = (d: number): number | undefined => eco.prices[d];
+  const pj = eco.events.find((e) => e.form === "payjoin" && eco.chain.txs.get(e.tid)!.inputs.length === 2)!;
+  const d = payjoinDetection(eco.chain, price, pj.tid)!;
+  assert.equal(d.sizes.length, 2);
+  // cross-check against a clustering built the same way
+  const cl = clusterObserver(eco.chain, price, { except: new Set([pj.tid]) });
+  const tx = eco.chain.txs.get(pj.tid)!;
+  const reps = tx.inputs.map((i) => cl.rep.get(i)!);
+  assert.equal(d.distinct, new Set(reps).size === reps.length);
+  assert.deepEqual(d.sizes, reps.map((r) => cl.members.get(r)!.length));
+  // and no weld in the excepted clustering cites the exhibit
+  assert.ok(cl.welds.every((w) => w.tx !== pj.tid));
+});
+
+test("detection verdicts across the tutorial seeds match the calibrated record", () => {
+  // both narration branches must stay reachable: seeds where the prior
+  // map is rich enough that the contradiction fires by the chapter's
+  // day, and seeds where the priors stay thin and the doubt stands
+  const verdictAt = (seed: string, day: number): boolean => {
+    const eco = new Economy(seed);
+    eco.runTo(day);
+    const price = (d: number): number | undefined => eco.prices[d];
+    const tid = selectPayjoinExhibit(eco.events, eco.chain, price)!;
+    return detectionFires(payjoinDetection(eco.chain, price, tid));
+  };
+  assert.equal(verdictAt("golden", 45), true, "golden: detection fires at the chapter's day");
+  assert.equal(verdictAt("alpha", 45), true, "alpha: detection fires at the chapter's day");
+  assert.equal(verdictAt("welcome", 115), false, "welcome: priors stay thin — the quiet branch");
+});
+
+test("the exhibit prefers a detected 2-input payjoin when one exists", () => {
+  const eco = new Economy("golden");
+  eco.runTo(45);
+  const price = (d: number): number | undefined => eco.prices[d];
+  const tid = selectPayjoinExhibit(eco.events, eco.chain, price)!;
+  const tx = eco.chain.txs.get(tid)!;
+  assert.equal(tx.inputs.length, 2, "exhibit keeps the 2-in shape the prose describes");
+  assert.ok(detectionFires(payjoinDetection(eco.chain, price, tid)));
+  // and the detection is not a truth leak: it must hold on the public
+  // record alone — the exhibit really is a payjoin the map catches
+  const ev = eco.events.find((e) => e.tid === tid)!;
+  assert.equal(ev.form, "payjoin");
+});

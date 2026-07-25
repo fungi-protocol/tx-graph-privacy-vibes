@@ -73,6 +73,11 @@ export interface Heuristics {
   cioh?: boolean;
   change?: boolean;
   subsum?: boolean;
+  /** transactions whose evidence is set aside entirely — the map "the
+   *  rest of the record" builds without them. Used to ask whether one
+   *  transaction's CIOH reading contradicts everything else the
+   *  observer holds (payjoin detection). */
+  except?: Set<TxId>;
 }
 
 /**
@@ -107,6 +112,7 @@ export function clusterObserver(
   const changeGuess = new Map<TxId, CoinId>();
   const welds: Weld[] = [];
   for (const tid of chain.order) {
+    if (heuristics.except?.has(tid)) continue;
     const tx = chain.txs.get(tid)!;
     // multi-output spends get the sub-transaction treatment first: a unique
     // sub-transaction partition beats CIOH (and identifies outputs too);
