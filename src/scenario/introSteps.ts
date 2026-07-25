@@ -62,8 +62,12 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         <p>On the chain, no label says "change" — the new coin that returns
         to Alice is minted just like the one that goes to Bob. An observer
         can only <i>guess</i> which output was the payment and which stayed
-        with the sender. Remember that; it matters soon — and so does how
-        shrewd those guesses can get.</p>`,
+        with the sender. But the guesses can be shrewd. Careless wallet
+        software always lists the payment first and the change after it.
+        Address types talk too: when every input a wallet spends is one
+        type and exactly one output matches it — while the other output is
+        a different type — the matching output is probably the change
+        going back home. Remember this game; it matters soon.</p>`,
       focus: pad(union(t1o2, t1), 70),
       view: 0,
       scene: 0,
@@ -112,8 +116,8 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       id: "two-drawings",
       title: "Two drawings, one graph",
       html: `<p>Here is the same history drawn differently: coins and
-        transactions are both dots now — a <b>bipartite graph</b>, two kinds
-        of vertex, edges only between kinds.</p>
+        transactions are both nodes now — a <b>bipartite graph</b>, two
+        kinds of node, edges only between kinds.</p>
         <p>Nothing changed but the picture. Every spent coin still sits
         between the transaction that minted it and the one that spent it;
         unspent coins dangle at the right, and coins that entered from
