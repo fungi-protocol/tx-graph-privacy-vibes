@@ -1,16 +1,23 @@
 // Third-party observer clustering: what someone with no names and no colors
-// can infer from the public graph alone. Two heuristics from the literature,
-// deliberately simple:
+// can infer from the public graph alone. Three heuristics from the
+// literature, deliberately simple:
 //   - CIOH (common-input-ownership): a transaction spending several inputs
 //     is evidence one entity owns all of them.
 //   - round-USD change identification (Androulaki et al.): if exactly one
 //     output of a 2-output payment lands on a round $10 amount at that
 //     day's exchange rate, it is probably the payment — so the other
 //     output is probably the change, and belongs with the inputs.
+//   - subset-sum sub-transaction analysis (Maurer et al.): a transaction
+//     with several outputs is checked for partitions into balancing
+//     sub-transactions. A unique partition welds each part — inputs AND
+//     outputs — together (stronger than CIOH); several valid partitions
+//     mean the mapping is underdetermined, and a careful observer
+//     declines to weld anything at all.
 // Heuristics, not proofs: the change guess can be wrong, and when it is
 // wrong it welds a stranger's coin into the cluster. That failure mode is
 // left in on purpose.
 import { type Chain, type CoinId, type TxId } from "../model/chain";
+import { subTransactionMapping } from "./subsetsum";
 
 export interface Clustering {
   /** coin -> its cluster's representative coin */
@@ -51,6 +58,27 @@ export function clusterObserver(
   const changeGuess = new Map<TxId, CoinId>();
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
+    // multi-output spends get the subset-sum treatment first: a unique
+    // sub-transaction partition beats CIOH (and identifies outputs too);
+    // an underdetermined one suspends it — outputs link to inputs only
+    // if the mapping is determined. The >=3-output gate keeps payjoins
+    // and settlements on their own heuristics; a 2-output multiparty
+    // join (the doc's 4-in/2-out bad coinjoin) would slip past it into
+    // CIOH, but no form here produces that shape
+    if (tx.inputs.length >= 2 && tx.outputs.length >= 3) {
+      const value = (id: CoinId): number => chain.coins.get(id)!.value;
+      const map = subTransactionMapping(tx.inputs.map(value), tx.outputs.map(value), tx.fee);
+      if (map.kind === "unique") {
+        for (const part of map.parts) {
+          const anchor = tx.inputs[part.ins[0]!]!;
+          for (const i of part.ins) union(tx.inputs[i]!, anchor);
+          for (const o of part.outs) union(tx.outputs[o]!, anchor);
+        }
+        continue;
+      }
+      if (map.kind === "ambiguous") continue;
+      // atomic: no way to split it — fall through to plain CIOH
+    }
     // CIOH: all inputs of one transaction, one owner
     for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
     // round-USD change identification

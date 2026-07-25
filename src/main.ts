@@ -16,6 +16,7 @@ import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayou
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps } from "./scenario/settlementSteps";
+import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
@@ -92,7 +93,7 @@ function knowledge(): Knowledge {
   const s = active();
   const u = lensAgent ?? 0;
   if (!knCache || knCache.n !== s.chain.order.length || knCache.sc !== scene || knCache.u !== u) {
-    knCache = { n: s.chain.order.length, sc: scene, u, k: agentKnowledge(s.chain, eco?.events ?? [], u, clustering()) };
+    knCache = { n: s.chain.order.length, sc: scene, u, k: agentKnowledge(s.chain, eco?.events ?? [], u, clustering(), eco?.coinjoins.keys()) };
   }
   return knCache.k;
 }
@@ -351,7 +352,34 @@ const steps = [
     },
     () => firstSettlement()?.payer,
   ),
+  ...coinjoinSteps(
+    () => active().bip.bounds,
+    () => txRect(eco?.naiveTid),      // the careless first attempt (day 90)
+    () => txRect(denseCoinjoin()),    // a denominated session
+    () => {
+      const tid = denseCoinjoin();
+      const first = tid ? eco?.chain.txs.get(tid)?.inputs[0] : undefined;
+      const owner = first ? eco?.chain.coins.get(first)?.owner : undefined;
+      return owner ?? undefined;
+    },
+  ),
 ];
+function txRect(tid: string | undefined): Rect {
+  const s = active();
+  const r = tid ? s.bip.txs.get(tid) : undefined;
+  return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
+}
+function denseCoinjoin(): string | undefined {
+  // the first denominated session whose mapping stayed underdetermined;
+  // the careless one (and any unlucky session) doesn't count
+  let best: string | undefined;
+  for (const [tid, cj] of eco?.coinjoins ?? []) {
+    if (tid === eco?.naiveTid) continue;
+    if (best === undefined) best = tid;
+    if (!cj.determined && cj.density >= 0.5) return tid;
+  }
+  return best;
+}
 function firstSettlement(): { tid: string; payer: number } | undefined {
   // prefer a full cycle (as many obligations as parties), then any
   // three-party settlement, then whatever exists

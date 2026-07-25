@@ -3,14 +3,18 @@
 // each day the payer weighs its options — wait, pay unilaterally, or
 // (once the neighborhood learns the trick) payjoin with the payee — via
 // the simple legible cost terms in agents/decide.ts. External purchases
-// are impulse buys, paid unilaterally on the spot.
-import { Chain, type CoinId } from "../model/chain";
+// are impulse buys, paid unilaterally on the spot. From SETTLE_DAY an
+// oracle nets offsetting obligations into settlements; from COINJOIN_DAY
+// strangers spanning communities coinjoin with denominated outputs.
+import { Chain, type CoinId, type TxId } from "../model/chain";
 import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
+import { decomps, radixBelow } from "../denom/denominations";
+import { subsetSums, ambiguity, subTransactionMapping } from "../analysis/subsetsum";
 
-export type PaymentForm = "unilateral" | "payjoin" | "settlement";
+export type PaymentForm = "unilateral" | "payjoin" | "settlement" | "coinjoin";
 
 export interface EconomyEvent {
   tid: string;
@@ -38,6 +42,8 @@ export interface Obligation {
 export const PAYJOIN_DAY = 30;
 /** the day the neighborhood starts settling offsetting obligations together */
 export const SETTLE_DAY = 60;
+/** the day word crosses community lines: strangers can share a transaction */
+export const COINJOIN_DAY = 90;
 
 // directed, flavored community edges: who tends to owe whom, and for what
 const EDGES: { payer: number; payee: number; memos: [string, number, number][] }[] = [
@@ -105,6 +111,11 @@ export class Economy {
   prices: number[] = [];
   /** obligations awaiting payment */
   pending: Obligation[] = [];
+  /** coinjoin transactions, in order: subset-sum match rate, and whether
+   *  the amounts pin down a unique sub-transaction mapping */
+  coinjoins = new Map<TxId, { density: number; determined: boolean }>();
+  /** the first, carelessly valued coinjoin (injected on COINJOIN_DAY) */
+  naiveTid: TxId | undefined;
   private txn = 0;
   private rng: Rng;
   private price: number; // USD per BTC, drifts
@@ -298,6 +309,228 @@ export class Economy {
     return true;
   }
 
+  /**
+   * The first coinjoin: two strangers from different communities spend
+   * their coins in one transaction, no payment between them — but each
+   * takes back amounts chosen carelessly (a round figure plus the rest),
+   * so the only sub-transaction mapping consistent with the values is
+   * the true one, and subset sums fully partition the transaction.
+   */
+  private naiveCoinjoin(feerate: number): void {
+    const parts = [5, 8]; // Frank and Ivan: strangers, communities 1 and 2
+    const coins = parts.map((u) =>
+      this.wallet(u).map((id) => this.chain.coins.get(id)!).sort((a, b) => b.value - a.value).slice(0, 2));
+    if (coins.some((cs) => cs.length < 2)) return;
+    const gross = coins.map((cs) => cs[0]!.value + cs[1]!.value);
+    const fee = txfee(4, 4, feerate);
+    const share = [fee - Math.floor(fee / 2), Math.floor(fee / 2)];
+    const outs: { owner: number; value: number; label: string }[] = [];
+    for (let i = 0; i < 2; i++) {
+      const usd = (gross[i]! * this.price) / 1e8;
+      const round = this.sats(Math.max(10, Math.floor((usd * 0.45) / 10) * 10));
+      const change = gross[i]! - round - share[i]!;
+      if (round < 294 || change < 294) return;
+      outs.push(
+        { owner: parts[i]!, value: round, label: "own funds, a round figure" },
+        { owner: parts[i]!, value: change, label: "own funds, the rest" },
+      );
+    }
+    this.txn += 1;
+    const tid = `t${this.txn}`;
+    const ivs = coins.flat().map((c) => c.value);
+    // tolerance widened by one fee share: each party's outputs sit that
+    // much below their inputs, and the analyst knows to allow for it
+    const ovs = outs.map((o) => o.value);
+    const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / 2));
+    this.chain.addTx(tid, this.day, coins.flat().map((c) => c.id), outs, feerate,
+      `Frank and Ivan coinjoin — amounts chosen carelessly; ` +
+      `${Math.round(density * 100)}% of input-subset sums matched`);
+    this.naiveTid = tid;
+    this.coinjoins.set(tid, {
+      density,
+      determined: subTransactionMapping(ivs, ovs, fee).kind === "unique",
+    });
+    this.events.push({
+      tid, day: this.day, payer: 5, payee: null, memo: "a first coinjoin", form: "coinjoin",
+      why: "Frank and Ivan, strangers from different corners of town, spend " +
+        "their coins in one transaction with no payment between them. But " +
+        "each takes back amounts chosen carelessly, so the only " +
+        "sub-transaction mapping consistent with the values is the true " +
+        "one — a subset-sum analysis fully partitions the transaction.",
+    });
+  }
+
+  /**
+   * An oracle-formed coinjoin session: three or four strangers spanning
+   * at least two communities each contribute one coin and take back
+   * denominated outputs from the shared menu — one denomination plus
+   * guarded change, chosen uniformly at random among the acceptable
+   * splits (randomness among acceptable choices beats always-best, which
+   * would let the choice itself fingerprint the chooser). A participant
+   * with a pending obligation to someone outside the session can pay it
+   * inline: as a single arbitrary-amount output if the amount happens to
+   * be matched by other participants' coins, otherwise decomposed into
+   * the same standard denominations as everyone else's outputs.
+   */
+  private coinjoin(parts: number[], feerate: number): boolean {
+    const coin = new Map<number, { id: CoinId; value: number }>();
+    for (const u of parts) {
+      const best = this.wallet(u)
+        .map((id) => this.chain.coins.get(id)!)
+        .sort((a, b) => b.value - a.value)[0];
+      if (!best || best.value < 250_000) return false;
+      coin.set(u, best);
+    }
+    const n = parts.length;
+    const ivs = parts.map((u) => coin.get(u)!.value);
+
+    // inline payment: the first pending obligation a participant can
+    // afford to settle through the session
+    let pay: { obl: Obligation; outs: { owner: number; value: number; label: string }[]; paid: number } | null = null;
+    for (const obl of this.pending) {
+      if (!parts.includes(obl.payer) || parts.includes(obl.payee)) continue;
+      const v = this.sats(obl.usd);
+      if (coin.get(obl.payer)!.value < v + 170_000) continue;
+      // plausibly attributable to other users' inputs? then the odd
+      // amount hides as-is; otherwise fall back to radix decomposition
+      const others = parts.filter((u) => u !== obl.payer).map((u) => coin.get(u)!.value);
+      const near = subsetSums(others).filter((s) => Math.abs(s - v) <= 500).length;
+      if (near >= 2) {
+        pay = { obl, outs: [{ owner: obl.payee, value: v, label: obl.memo }], paid: v };
+      } else {
+        const { parts: ds } = radixBelow(v);
+        if (ds.length === 0 || ds.length > 6) continue;
+        pay = {
+          obl,
+          outs: ds.map((d) => ({ owner: obl.payee, value: d, label: `${obl.memo} (denominated)` })),
+          paid: ds.reduce((s, d) => s + d, 0),
+        };
+      }
+      break;
+    }
+
+    // each participant takes one denomination plus change (or plain
+    // change), picked uniformly among the acceptable splits; the fee is
+    // settled once the output count is known, with change absorbing the
+    // final shares
+    const payOuts = pay ? pay.outs.length : 0;
+    const fee1 = txfee(n, n * 2 + payOuts, feerate);
+    const target = (u: number, share: number): number =>
+      coin.get(u)!.value - share - (pay && u === pay.obl.payer ? pay.paid : 0);
+    const opts = new Map<number, number[][]>();
+    for (const u of parts) {
+      const t = target(u, Math.ceil(fee1 / n));
+      if (t < 294) return false;
+      opts.set(u, decomps(t, ivs));
+    }
+    // the oracle samples a few acceptable joint assignments and keeps the
+    // best: an underdetermined mapping beats a determined one (repeating a
+    // denomination another party took makes outputs swappable between
+    // readings), denser subset sums break ties. Sampling rather than
+    // exhaustive argmax keeps the selection itself from fingerprinting
+    // anyone (always-best is a bias of its own) — and still comes out
+    // unlucky now and then.
+    let ds = new Map<number, number[]>();
+    let bestScore = -1;
+    for (let trial = 0; trial < 8; trial++) {
+      const cand = new Map(parts.map((u) => [u, this.rng.pick(opts.get(u)!)]));
+      const ovs = parts.flatMap((u) => {
+        const d = cand.get(u)!;
+        return [...d, target(u, Math.ceil(fee1 / n)) - d.reduce((s, x) => s + x, 0)];
+      });
+      if (pay) ovs.push(...pay.outs.map((o) => o.value));
+      const underdetermined = subTransactionMapping(ivs, ovs, fee1).kind === "ambiguous";
+      const score = (underdetermined ? 1 : 0) + ambiguity(ivs, ovs, 500 + Math.ceil(fee1 / n));
+      if (score > bestScore) {
+        bestScore = score;
+        ds = cand;
+      }
+    }
+    const nOut = parts.reduce((s, u) => s + ds.get(u)!.length + 1, 0) + payOuts;
+    const fee = txfee(n, nOut, feerate);
+    const share = Math.floor(fee / n);
+    const biggest = parts.reduce((a, b) => (coin.get(a)!.value >= coin.get(b)!.value ? a : b));
+    const shareOf = (u: number): number => share + (u === biggest ? fee - share * n : 0);
+    const outs: { owner: number; value: number; label: string }[] = [];
+    for (const u of parts) {
+      const denoms = ds.get(u)!;
+      const change = target(u, shareOf(u)) - denoms.reduce((s, d) => s + d, 0);
+      if (change < 294) return false;
+      for (const d of denoms) outs.push({ owner: u, value: d, label: "denominated" });
+      outs.push({ owner: u, value: change, label: "coinjoin change" });
+    }
+    if (pay) outs.push(...pay.outs);
+
+    this.txn += 1;
+    const tid = `t${this.txn}`;
+    const ovs = outs.map((o) => o.value);
+    // tolerance widened by one fee share: each party's outputs sit that
+    // much below their inputs, and the analyst knows to allow for it
+    const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / n));
+    const determined = subTransactionMapping(ivs, ovs, fee).kind === "unique";
+    this.chain.addTx(tid, this.day, parts.map((u) => coin.get(u)!.id), outs, feerate,
+      `coinjoin, ${n} parties — denominated outputs; ` +
+      `${Math.round(density * 100)}% of input-subset sums matched` +
+      (determined ? "; still, one reading balances" : "; several readings balance"));
+    this.coinjoins.set(tid, { density, determined });
+    // the randomness among acceptable splits sometimes comes out unlucky:
+    // a session whose amounts still admit a single balanced reading bought
+    // its parties little, and the narrative says so
+    const unlucky = " This session came out unlucky, though: a single " +
+      "reading of the amounts balances, and the cover is thin.";
+    if (pay) {
+      this.pending = this.pending.filter((o) => o !== pay.obl);
+      const single = pay.outs.length === 1;
+      this.events.push({
+        tid, day: this.day, payer: pay.obl.payer, payee: pay.obl.payee,
+        memo: pay.obl.memo, form: "coinjoin",
+        why: `${PERSONAS[pay.obl.payer]!.name} pays ${PERSONAS[pay.obl.payee]!.name} ` +
+          "inside a coinjoin among strangers. " + (determined
+            ? "The denominations were meant to hide it, but the session " +
+              "came out unlucky: a single reading of the amounts balances, " +
+              "tying the payment back to the payer's coins."
+            : single
+              ? "The odd amount happens to be matched by other participants' " +
+                "coins, so even as a single output it does not pin down whose " +
+                "payment it was."
+              : "The amount is decomposed into standard denominations, " +
+                "indistinguishable from everyone else's outputs; outsiders " +
+                "see only denominations that could belong to anyone.") +
+          ` ${PERSONAS[pay.obl.payee]!.name} still knows who paid.`,
+      });
+    } else {
+      this.events.push({
+        tid, day: this.day, payer: parts[0]!, payee: null, memo: "coinjoin session", form: "coinjoin",
+        why: `${parts.map((u) => PERSONAS[u]!.name).join(", ")} — strangers ` +
+          "spanning communities — spend coins in one transaction with no " +
+          "payment between them, taking back denominated outputs from a " +
+          "shared menu." + (determined
+            ? unlucky
+            : " The coinjoin does not sever any coin's past; it makes " +
+              "that past one of many plausible pasts."),
+      });
+    }
+    return true;
+  }
+
+  /** pick 3–4 strangers spanning at least two communities, all of whom
+   *  see a privacy benefit and hold a coin worth joining with */
+  private pickStrangers(): number[] | null {
+    const cands = PERSONAS
+      .map((p, u) => u)
+      .filter((u) => PERSONAS[u]!.stats.privacy > 0)
+      .filter((u) => this.wallet(u).some((id) => this.chain.coins.get(id)!.value >= 250_000));
+    const n = 3 + (this.rng.next() < 0.35 ? 1 : 0);
+    if (cands.length < n) return null;
+    const parts: number[] = [];
+    while (parts.length < n) {
+      const pick = cands[this.rng.int(cands.length)]!;
+      if (!parts.includes(pick)) parts.push(pick);
+    }
+    const communities = new Set(parts.map((u) => PERSONAS[u]!.community));
+    return communities.size >= 2 ? parts : null;
+  }
+
   /** weigh wait / unilateral / payjoin for one pending obligation */
   private settle(obl: Obligation): boolean {
     const p = PERSONAS[obl.payer]!;
@@ -374,6 +607,15 @@ export class Economy {
           break;
         }
       }
+    }
+    // strangers coinjoin: a first careless attempt on COINJOIN_DAY, then
+    // oracle-formed sessions among cross-community strangers, at most one
+    // a day — no negotiation is modeled, sessions simply arrive
+    if (this.day === COINJOIN_DAY) {
+      this.naiveCoinjoin(Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2)));
+    } else if (this.day > COINJOIN_DAY && this.rng.next() < 0.45) {
+      const parts = this.pickStrangers();
+      if (parts) this.coinjoin(parts, Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2)));
     }
     // each payer weighs its pending obligations; unpayable ones slip a day
     this.pending = this.pending.filter((obl) => {
