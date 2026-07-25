@@ -1,10 +1,18 @@
 // URL-fragment codec: the entire shareable state travels as
-// #s=<base64url(deflate-raw(JSON))>. For M0 the state is just the seed;
-// params, manual interventions, view state and the copy-reference selector
-// join it in later milestones.
+// #s=<base64url(deflate-raw(JSON))>. Everything needed to reproduce what
+// the user is looking at: the seed, the camera, the tutorial position, and
+// (for the right-click "copy reference" reviewing aid) a click position
+// plus the element under the cursor. Params and manual interventions join
+// in later milestones.
 
 export interface FragmentState {
   seed: string;
+  /** tutorial step index; -1 or absent = tour hidden */
+  t?: number;
+  /** camera [x, y, scale] */
+  cam?: [number, number, number];
+  /** copy-reference: world position clicked + element selector under cursor */
+  ref?: { wx: number; wy: number; sel?: string };
 }
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

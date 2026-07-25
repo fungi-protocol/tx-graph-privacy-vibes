@@ -11,6 +11,27 @@
   #view:active { cursor: grabbing; }
   #hud { position: fixed; left: 10px; bottom: 8px; opacity: 0.6; font-size: 12px;
          pointer-events: none; user-select: none; }
+  #tutorial { position: fixed; right: 16px; top: 16px; width: 340px; max-height: calc(100vh - 48px);
+              overflow-y: auto; background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
+              padding: 14px 16px; box-shadow: 0 6px 24px #0006; }
+  .tut-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+              margin-bottom: 6px; }
+  .tut-title { font-weight: 600; font-size: 15px; }
+  .tut-progress { opacity: 0.5; font-size: 12px; white-space: nowrap; }
+  .tut-body p { margin: 0.5em 0; }
+  .tut-body b { color: #edc948; font-weight: 600; }
+  .tut-aside { opacity: 0.55; font-size: 12px; }
+  .tut-nav { display: flex; gap: 8px; margin-top: 10px; }
+  .tut-nav button { background: #33363e; color: #d8dade; border: 1px solid #4a4e57;
+                    border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 13px;
+                    cursor: pointer; }
+  .tut-nav button:hover:not(:disabled) { background: #3d414a; }
+  .tut-nav button:disabled { opacity: 0.4; cursor: default; }
+  .tut-skip { margin-left: auto; opacity: 0.7; }
+  .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%);
+           background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
+           padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
+  .toast.gone { opacity: 0; }
 </style>
 </head>
 <body>

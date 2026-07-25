@@ -14,6 +14,16 @@ test("fragment round-trip with unicode seed", async () => {
   assert.deepEqual(state, { seed: "コイン☂ジョイン" });
 });
 
+test("fragment round-trip with camera, tutorial step, and reference", async () => {
+  const full = {
+    seed: "welcome",
+    t: 4,
+    cam: [766, 94, 0.775] as [number, number, number],
+    ref: { wx: 521, wy: 100, sel: "coin:t1o2" },
+  };
+  assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+});
+
 test("missing fragment decodes to null", async () => {
   assert.equal(await decodeFragment(""), null);
   assert.equal(await decodeFragment("#other=1"), null);
