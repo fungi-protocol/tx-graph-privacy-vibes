@@ -15,8 +15,10 @@ export interface FragmentState {
   v?: number;
   /** scene: 0 = intro story (default), 1 = the economy */
   sc?: number;
-  /** lens: 0 = all-seeing (default), 1 = third-party observer */
+  /** lens: 0 = all-seeing (default), 1 = third-party observer, 2 = one agent's view */
   l?: number;
+  /** lens 2 only: which agent's view (participant index) */
+  a?: number;
   /** economy day (scene 1 only) */
   n?: number;
   /** copy-reference: world position clicked + element selector under cursor */

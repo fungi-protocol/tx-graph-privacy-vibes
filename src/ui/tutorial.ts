@@ -9,8 +9,8 @@ export interface TutorialStep {
   focus?: Rect | (() => Rect);
   /** which view this step wants: 0 = block explorer, 1 = bipartite, 2 = clusters */
   view?: 0 | 1 | 2;
-  /** which lens this step wants: 0 = all-seeing, 1 = observer */
-  lens?: 0 | 1;
+  /** which lens this step wants: 0 = all-seeing, 1 = observer, 2 = agent */
+  lens?: 0 | 1 | 2;
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
@@ -23,7 +23,7 @@ export interface TutorialCallbacks {
   onFocus: (focus: Rect) => void;
   onStepChange?: (index: number) => void;
   onView?: (view: 0 | 1 | 2) => void;
-  onLens?: (lens: 0 | 1) => void;
+  onLens?: (lens: 0 | 1 | 2) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
 }

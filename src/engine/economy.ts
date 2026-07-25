@@ -1,11 +1,16 @@
-// The unilateral economy: the cast pays its obligations with ordinary
-// 1-2-in / 2-out transactions, one timestep ("day") at a time. Everything
-// is derived deterministically from the seed. This milestone deliberately
-// has no collaborative forms — every payment is naive, which is the point.
+// The neighborhood economy, one timestep ("day") at a time, derived
+// deterministically from the seed. Internal obligations carry deadlines;
+// each day the payer weighs its options — wait, pay unilaterally, or
+// (once the neighborhood learns the trick) payjoin with the payee — via
+// the simple legible cost terms in agents/decide.ts. External purchases
+// are impulse buys, paid unilaterally on the spot.
 import { Chain, type CoinId } from "../model/chain";
 import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS } from "../scenario/cast";
+import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
+
+export type PaymentForm = "unilateral" | "payjoin";
 
 export interface EconomyEvent {
   tid: string;
@@ -14,17 +19,23 @@ export interface EconomyEvent {
   /** participant index, or null for an external merchant */
   payee: number | null;
   memo: string;
+  form: PaymentForm;
   /** narrative rationale shown in the inspector */
   why: string;
 }
 
-interface Obligation {
+export interface Obligation {
   payer: number;
   payee: number;
   memo: string;
   /** dollars, rounded to $10 like invoices and rent */
   usd: number;
+  /** pay by this day */
+  due: number;
 }
+
+/** the day the neighborhood learns payjoin exists */
+export const PAYJOIN_DAY = 30;
 
 // directed, flavored community edges: who tends to owe whom, and for what
 const EDGES: { payer: number; payee: number; memos: [string, number, number][] }[] = [
@@ -53,17 +64,26 @@ const EXTERNAL_MEMOS: [string, number, number][] = [
   ["online order", 15, 150], ["fuel", 35, 70], ["subscription", 5, 20],
 ];
 
-function why(payer: number, payee: number | null): string {
+function why(payer: number, payee: number | null, form: PaymentForm, day: number): string {
+  const p = PERSONAS[payer]!;
+  if (form === "payjoin") {
+    return `${p.name} and ${PERSONAS[payee!]!.name} sign one transaction ` +
+      "together: the payee contributes a coin of their own, so the payment " +
+      "hides inside what looks like an ordinary spend.";
+  }
   if (payer === CARELESS) {
     return "Carol pays straight from coins that chain back to her " +
       "identified withdrawal — she sees no problem.";
   }
-  const p = PERSONAS[payer]!;
-  return payee === null
-    ? `${p.name} pays a merchant unilaterally; the purchase joins the same ` +
-      "history as everything else in the wallet."
-    : `${p.name} has no better option yet: the payment and its change both ` +
-      "link this obligation to the rest of the wallet's history.";
+  if (payee === null) {
+    return `${p.name} pays a merchant unilaterally; the purchase joins the ` +
+      "same history as everything else in the wallet.";
+  }
+  return day < PAYJOIN_DAY
+    ? `${p.name} has no better option yet: the payment and its change both ` +
+      "link this obligation to the rest of the wallet's history."
+    : `${p.name} pays unilaterally this time — coordinating wasn't worth ` +
+      "the bother today, and the link goes on the record.";
 }
 
 export interface EconomyParams {
@@ -81,6 +101,8 @@ export class Economy {
   day = 0;
   /** public exchange-rate history, USD per BTC, indexed by day */
   prices: number[] = [];
+  /** obligations awaiting payment */
+  pending: Obligation[] = [];
   private txn = 0;
   private rng: Rng;
   private price: number; // USD per BTC, drifts
@@ -109,27 +131,24 @@ export class Economy {
     return this.chain.utxos().filter((c) => c.owner === u).map((c) => c.id);
   }
 
-  /** largest-first selection of 1-2 coins covering target + fee + dust change */
-  private select(u: number, target: number, feerate: number): CoinId[] | null {
+  /** smallest-sufficient single coin, else the two largest; covers target + fee + dust change */
+  private select(u: number, target: number, feerate: number, extraIn = 0): CoinId[] | null {
     const coins = this.wallet(u)
       .map((id) => this.chain.coins.get(id)!)
       .sort((a, b) => b.value - a.value);
-    const need1 = target + txfee(1, 2, feerate) + 294;
+    const need1 = target + txfee(1 + extraIn, 2, feerate) + 294;
     const single = [...coins].reverse().find((c) => c.value >= need1);
     if (single) return [single.id];
-    const need2 = target + txfee(2, 2, feerate) + 294;
+    const need2 = target + txfee(2 + extraIn, 2, feerate) + 294;
     if (coins.length >= 2 && coins[0]!.value + coins[1]!.value >= need2) {
       return [coins[0]!.id, coins[1]!.id];
     }
     return null;
   }
 
-  private pay(payer: number, payee: number | null, value: number, memo: string): void {
-    // impatient unilateral payments occasionally pay up in a fee spike
-    const impatient = this.rng.next() < 0.15;
-    const feerate = Number((this.feebase * (impatient ? 3 + this.rng.next() * 6 : 0.8 + this.rng.next() * 0.6)).toFixed(2));
+  private unilateral(payer: number, payee: number | null, value: number, memo: string, feerate: number): boolean {
     const inputs = this.select(payer, value, feerate);
-    if (!inputs) return; // can't cover: obligation quietly deferred
+    if (!inputs) return false;
     const inValue = inputs.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
     const fee = txfee(inputs.length, 2, feerate);
     this.txn += 1;
@@ -138,7 +157,56 @@ export class Economy {
       { owner: payee, value, label: memo },
       { owner: payer, value: inValue - value - fee, label: "change" },
     ], feerate, `${PERSONAS[payer]!.name} pays ${payee === null ? "a merchant" : PERSONAS[payee]!.name} — ${memo}`);
-    this.events.push({ tid, day: this.day, payer, payee, memo, why: why(payer, payee) });
+    this.events.push({ tid, day: this.day, payer, payee, memo, form: "unilateral", why: why(payer, payee, "unilateral", this.day) });
+    return true;
+  }
+
+  /** the payee contributes a coin of their own; payer funds payment + fee */
+  private payjoin(payer: number, payee: number, value: number, memo: string, feerate: number): boolean {
+    const contributed = this.wallet(payee)
+      .map((id) => this.chain.coins.get(id)!)
+      .sort((a, b) => a.value - b.value)[0];
+    if (!contributed) return false;
+    const inputs = this.select(payer, value, feerate, 1);
+    if (!inputs) return false;
+    const inValue = inputs.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
+    const fee = txfee(inputs.length + 1, 2, feerate);
+    this.txn += 1;
+    const tid = `t${this.txn}`;
+    this.chain.addTx(tid, this.day, [...inputs, contributed.id], [
+      { owner: payee, value: value + contributed.value, label: `${memo} + own coin` },
+      { owner: payer, value: inValue - value - fee, label: "change" },
+    ], feerate, `${PERSONAS[payer]!.name} pays ${PERSONAS[payee]!.name} — ${memo} (payjoin)`);
+    this.events.push({ tid, day: this.day, payer, payee, memo, form: "payjoin", why: why(payer, payee, "payjoin", this.day) });
+    return true;
+  }
+
+  /** weigh wait / unilateral / payjoin for one pending obligation */
+  private settle(obl: Obligation): boolean {
+    const p = PERSONAS[obl.payer]!;
+    const value = this.sats(obl.usd);
+    const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
+    type Act = "wait" | "unilateral" | "payjoin";
+    const plans: CostedPlan<Act>[] = [];
+    if (obl.due > this.day) {
+      const urgency = urgencyCost(obl.due - this.day);
+      plans.push({ plan: "wait", cost: urgency, terms: { urgency } });
+    }
+    {
+      const fee = feeCost(p, txfee(1, 2, feerate));
+      const naive = naiveCost(p);
+      plans.push({ plan: "unilateral", cost: fee + naive, terms: { fee, naive } });
+    }
+    // someone who sees no privacy benefit never bothers coordinating
+    if (this.day >= PAYJOIN_DAY && p.stats.privacy > 0 && this.wallet(obl.payee).length > 0) {
+      const fee = feeCost(p, txfee(2, 2, feerate));
+      const hassle = hassleCost(p);
+      plans.push({ plan: "payjoin", cost: fee + hassle, terms: { fee, hassle } });
+    }
+    const chosen = chooseWeighted(this.rng, plans);
+    if (chosen.plan === "wait") return false;
+    if (chosen.plan === "payjoin" && this.payjoin(obl.payer, obl.payee, value, obl.memo, feerate)) return true;
+    return this.unilateral(obl.payer, obl.payee, value, obl.memo, feerate);
   }
 
   /** advance one day; returns the events it produced */
@@ -150,7 +218,7 @@ export class Economy {
     this.feebase = Math.min(8, Math.max(0.8, this.feebase * (1 + (this.rng.next() - 0.5) * 0.2)));
     this.prices[this.day] = this.price;
 
-    const obligations: Obligation[] = [];
+    // new internal obligations arrive with a few days' notice
     for (const edge of EDGES) {
       const n = this.rng.poisson(this.params.oblRate);
       for (let i = 0; i < n; i++) {
@@ -158,19 +226,28 @@ export class Economy {
         const usd = memo[1] === memo[2]
           ? memo[1]
           : Math.round((memo[1] + this.rng.next() * (memo[2] - memo[1])) / 10) * 10;
-        obligations.push({ payer: edge.payer, payee: edge.payee, memo: memo[0], usd });
+        this.pending.push({
+          payer: edge.payer, payee: edge.payee, memo: memo[0], usd,
+          due: this.day + 2 + this.rng.int(8),
+        });
       }
     }
-    for (const obl of obligations) {
-      this.pay(obl.payer, obl.payee, this.sats(obl.usd), obl.memo);
-    }
-    // external purchases: unrounded retail prices
+    // each payer weighs its pending obligations; unpayable ones slip a day
+    this.pending = this.pending.filter((obl) => {
+      const paid = this.settle(obl);
+      if (!paid && obl.due <= this.day) obl.due = this.day + 1;
+      return !paid;
+    });
+    // external purchases: unrounded retail prices, paid on the spot
     for (let u = 0; u < PERSONAS.length; u++) {
       const n = this.rng.poisson(this.params.extRate);
       for (let i = 0; i < n; i++) {
         const memo = this.rng.pick(EXTERNAL_MEMOS);
         const usd = memo[1] + this.rng.next() * (memo[2] - memo[1]);
-        this.pay(u, null, this.sats(Math.round(usd * 100) / 100), memo[0]);
+        // impulse buys sometimes pay up in a fee spike rather than wait
+        const impatient = this.rng.next() < 0.15;
+        const feerate = Number((this.feebase * (impatient ? 3 + this.rng.next() * 6 : 0.8 + this.rng.next() * 0.6)).toFixed(2));
+        this.unilateral(u, null, this.sats(Math.round(usd * 100) / 100), memo[0], feerate);
       }
     }
     return this.events.slice(before);

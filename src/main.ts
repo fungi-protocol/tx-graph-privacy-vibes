@@ -10,9 +10,11 @@ import { economySteps } from "./scenario/economySteps";
 import { PERSONAS, OWNER_COLORS, CARELESS } from "./scenario/cast";
 import { Economy } from "./engine/economy";
 import { ancestry, txAncestry, type Ancestry } from "./analysis/ancestry";
-import { clusterObserver, clusterColor, clusterLabel, type Clustering } from "./analysis/clusters";
+import { clusterObserver, clusterColor, clusterLabel, CLUSTER_MISC, type Clustering } from "./analysis/clusters";
+import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, type ClusterLayout } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
+import { payjoinSteps } from "./scenario/payjoinSteps";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
 import { drawMorph, hitTestMorph, type Paint } from "./ui/morph";
@@ -48,8 +50,9 @@ function active(): SceneData {
   return scene === 1 && ecoScene ? ecoScene : intro;
 }
 
-// --- observer lens: colors by inferred cluster, no names, no memos ---
-let lens: 0 | 1 = 0; // 0 = all-seeing, 1 = observer
+// --- lenses: 0 = all-seeing, 1 = third-party observer, 2 = one agent's view ---
+let lens: 0 | 1 | 2 = 0;
+let lensAgent: number | null = null;
 let clCache: { n: number; sc: number; cl: Clustering; clay: ClusterLayout } | null = null;
 function clustering(): Clustering {
   const s = active();
@@ -71,6 +74,46 @@ function observerPaint(): Paint {
     coinText: () => "#111",
     coinCaption: (c) => clusterLabel(cl, c.id),
     txMemo: () => null,
+  };
+}
+
+// --- agent lens: one participant's ledger — own coins, counterparty
+// fixed points, cluster-seeded guesses, gray where they are as blind as
+// any outsider ---
+function defaultLensAgent(): number {
+  // the payee of the tutorial's focused payjoin, if the economy has one
+  const pjs = eco?.events.filter((e) => e.form === "payjoin") ?? [];
+  const ev = pjs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length === 2) ?? pjs[0];
+  return ev?.payee ?? 0;
+}
+let knCache: { n: number; sc: number; u: number; k: Knowledge } | null = null;
+function knowledge(): Knowledge {
+  const s = active();
+  const u = lensAgent ?? 0;
+  if (!knCache || knCache.n !== s.chain.order.length || knCache.sc !== scene || knCache.u !== u) {
+    knCache = { n: s.chain.order.length, sc: scene, u, k: agentKnowledge(s.chain, eco?.events ?? [], u, clustering()) };
+  }
+  return knCache.k;
+}
+function agentPaint(): Paint {
+  const k = knowledge();
+  const u = lensAgent ?? 0;
+  const name = (o: number | null): string => (o === null ? "a merchant" : PERSONAS[o]!.name);
+  return {
+    coinFill: (c) => {
+      const a = k.coins.get(c.id);
+      if (!a) return CLUSTER_MISC;
+      const color = a.owner === null ? "#e8e5da" : OWNER_COLORS[a.owner]!;
+      return a.direct ? color : color + "88";
+    },
+    coinText: (c) => (k.coins.has(c.id) ? "#111" : "#e6e8ec"),
+    coinCaption: (c) => {
+      const a = k.coins.get(c.id);
+      if (!a) return "";
+      if (a.owner === u) return `own${c.label ? " · " + c.label : ""}`;
+      return a.direct ? `${name(a.owner)} · known` : `${name(a.owner)} · likely`;
+    },
+    txMemo: (t) => (k.txs.has(t.id) ? t.memo ?? null : null),
   };
 }
 
@@ -110,7 +153,7 @@ function draw(): void {
   if (viewT <= 1) {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight,
-      ...(lens === 1 ? { paint: observerPaint() } : {}),
+      ...(lens === 1 ? { paint: observerPaint() } : lens === 2 ? { paint: agentPaint() } : {}),
     });
   } else {
     drawContraction(ctx, s.chain, s.bip, clusterLayout(), clustering(), viewT - 1);
@@ -150,18 +193,22 @@ function setView(view: 0 | 1 | 2, animate = true): void {
 viewBtn.addEventListener("click", () => setView(((targetView + 1) % 3) as 0 | 1 | 2));
 
 const lensBtn = document.getElementById("lens") as HTMLButtonElement;
-function setLens(l: 0 | 1): void {
+function setLens(l: 0 | 1 | 2): void {
   lens = l;
-  lensBtn.textContent = l === 0 ? "lens: all-seeing" : "lens: observer";
+  if (l === 2 && lensAgent === null) lensAgent = defaultLensAgent();
+  lensBtn.textContent =
+    l === 0 ? "lens: all-seeing" :
+    l === 1 ? "lens: observer" :
+    `lens: ${PERSONAS[lensAgent ?? 0]!.name}'s`;
   draw();
   void syncFragment();
 }
-lensBtn.addEventListener("click", () => setLens(lens === 0 ? 1 : 0));
+lensBtn.addEventListener("click", () => setLens(((lens + 1) % 3) as 0 | 1 | 2));
 
 window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === "v") setView(((targetView + 1) % 3) as 0 | 1 | 2);
-  if (e.key === "o") setLens(lens === 0 ? 1 : 0);
+  if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
 });
 
 // --- scene switching + day stepping ---
@@ -279,12 +326,27 @@ const steps = [
     return targetView === 1 ? s.bip.bounds : { x: s.layout.bounds.x, y: s.layout.bounds.y, w: s.layout.bounds.w, h: s.layout.bounds.h };
   }),
   ...observerSteps(() => active().bip.bounds, () => clusterLayout().bounds),
+  ...payjoinSteps(
+    () => active().bip.bounds,
+    () => {
+      // frame the first payjoin transaction (there is one by minDay 45);
+      // prefer a 2-input one so the step prose matches on every seed
+      const s = active();
+      const pjs = eco?.events.filter((e) => e.form === "payjoin") ?? [];
+      const ev = pjs.find((e) => eco!.chain.txs.get(e.tid)!.inputs.length === 2) ?? pjs[0];
+      const r = ev ? s.bip.txs.get(ev.tid) : undefined;
+      return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
+    },
+  ),
 ];
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
   onStepChange: () => void syncFragment(),
   onView: (view) => { if (view !== targetView) setView(view); },
-  onLens: (l) => { if (l !== lens) setLens(l); },
+  onLens: (l) => {
+    if (l === 2) lensAgent = defaultLensAgent(); // the focused payjoin's payee
+    if (l !== lens || l === 2) setLens(l);
+  },
   onScene: (s, minDay) => setScene(s, minDay),
 });
 
@@ -306,6 +368,10 @@ castPanel.addEventListener("click", (e) => {
   const row = (e.target as HTMLElement).closest(".cast-row") as HTMLElement | null;
   if (!row) return;
   const u = Number(row.dataset["u"]);
+  if (lens === 2 && lensAgent !== u) {
+    lensAgent = u;
+    setLens(2); // relabel the button, repaint through the new agent's eyes
+  }
   const p = PERSONAS[u]!;
   const chain = active().chain;
   const utxos = chain.utxos().filter((c) => c.owner === u);
@@ -332,6 +398,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (t >= 0) state.t = t;
   if (targetView !== 0) state.v = targetView;
   if (lens !== 0) state.l = lens;
+  if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (scene === 1) {
     state.sc = 1;
     state.n = economy().day;
@@ -422,8 +489,12 @@ async function init(): Promise<void> {
   const state = await decodeFragment(location.hash).catch(() => null);
   if (state?.seed) seed = state.seed;
   setView(state?.v === 1 || state?.v === 2 ? state.v : 0, false);
-  if (state?.l === 1) setLens(1);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
+  // lens after scene: the agent lens defaults to a payee the economy knows
+  if (state?.l === 1 || state?.l === 2) {
+    if (state.l === 2 && typeof state.a === "number" && PERSONAS[state.a]) lensAgent = state.a;
+    setLens(state.l);
+  }
 
   if (state?.cam) {
     cam = { x: state.cam[0], y: state.cam[1], scale: state.cam[2] };
