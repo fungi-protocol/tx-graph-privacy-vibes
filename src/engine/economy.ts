@@ -11,7 +11,7 @@ import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
 import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
-import { decomps, radixBelow } from "../denom/denominations";
+import { decomps, radixBelow, DUST } from "../denom/denominations";
 import { subsetSums, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { ancestry } from "../analysis/ancestry";
 import { scheduleForDay, incomeFor, INCOME_EVERY, PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
@@ -251,7 +251,7 @@ export class Economy {
     const coins = this.wallet(u)
       .map((id) => this.chain.coins.get(id)!)
       .sort((a, b) => b.value - a.value);
-    const need = (ins: number) => target + txfee(ins + extraIn, outs, feerate) + 294;
+    const need = (ins: number) => target + txfee(ins + extraIn, outs, feerate) + DUST;
     const singles = coins.filter((c) => c.value >= need(1)); // still descending
     if (singles.length > 0) {
       const chosen = vary >= 0.85 && singles.length >= 2
@@ -426,7 +426,7 @@ export class Economy {
       shareOf = (u: number): number => share + (u === biggest ? fee - share * n : 0);
       coins = new Map<number, CoinId[]>();
       for (const u of parts) {
-        const need = -Math.min(0, net.get(u)!) + shareOf(u) + 294;
+        const need = -Math.min(0, net.get(u)!) + shareOf(u) + DUST;
         const mine = this.wallet(u)
           .map((id) => this.chain.coins.get(id)!)
           .sort((a, b) => b.value - a.value);
@@ -505,7 +505,7 @@ export class Economy {
       const feerate = Number(this.feebase.toFixed(2));
       const fee = txfee(2, 1, feerate);
       const total = change.value + coined.value - fee;
-      if (total < 294) continue;
+      if (total < DUST) continue;
       this.txn += 1;
       const tid = `t${this.txn}`;
       const name = this.cast[u]!.name;
@@ -567,7 +567,7 @@ export class Economy {
       const feerate = Number(this.feebase.toFixed(2));
       const fee = txfee(2, 1, feerate);
       const total = picks.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0) - fee;
-      if (total < 294) continue;
+      if (total < DUST) continue;
       this.txn += 1;
       const tid = `t${this.txn}`;
       const name = this.cast[u]!.name;
@@ -608,7 +608,7 @@ export class Economy {
       const usd = (gross[i]! * this.price) / 1e8;
       const round = this.sats(Math.max(10, Math.floor((usd * 0.45) / 10) * 10));
       const change = gross[i]! - round - share[i]!;
-      if (round < 294 || change < 294) return;
+      if (round < DUST || change < DUST) return;
       outs.push(
         { owner: parts[i]!, value: round, label: "own funds, a round figure" },
         { owner: parts[i]!, value: change, label: "own funds, the rest" },
@@ -631,13 +631,20 @@ export class Economy {
       determined: naiveVerdict === "unique",
       verdict: naiveVerdict,
     });
+    // the narration follows the computed verdict — the careless amounts
+    // are expected to pin the true mapping (the tests hold the tutorial
+    // seeds to it), but prose never asserts what the analysis didn't find
     this.events.push({
       tid, day: this.day, payer: 5, payee: null, memo: "a first coinjoin", form: "coinjoin",
       why: "Frank and Ivan, strangers from different corners of town, spend " +
-        "their coins in one transaction with no payment between them. But " +
-        "each takes back amounts chosen carelessly, so the only " +
-        "sub-transaction mapping consistent with the values is the true " +
-        "one — a subset-sum analysis fully partitions the transaction.",
+        "their coins in one transaction with no payment between them. " +
+        (naiveVerdict === "unique"
+          ? "But each takes back amounts chosen carelessly, so the only " +
+            "sub-transaction mapping consistent with the values is the true " +
+            "one — the amounts fully partition the transaction."
+          : "Each takes back amounts chosen carelessly; this time the " +
+            "values happen to leave more than one consistent reading, but " +
+            "nothing about the choice earned that."),
     });
   }
 
@@ -705,7 +712,7 @@ export class Economy {
     const opts = new Map<number, number[][]>();
     for (const u of parts) {
       const t = target(u, Math.ceil(fee1 / n));
-      if (t < 294) return false;
+      if (t < DUST) return false;
       opts.set(u, decomps(t, ivs));
     }
     // the oracle samples a few acceptable joint assignments and keeps the
@@ -744,7 +751,7 @@ export class Economy {
     for (const u of parts) {
       const denoms = ds.get(u)!;
       const change = target(u, shareOf(u)) - denoms.reduce((s, d) => s + d, 0);
-      if (change < 294) return false;
+      if (change < DUST) return false;
       for (const d of denoms) outs.push({ owner: u, value: d, label: "denominated" });
       outs.push({ owner: u, value: change, label: "coinjoin change" });
     }

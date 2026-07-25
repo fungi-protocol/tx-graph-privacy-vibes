@@ -6,8 +6,9 @@
 // power of two above dust), the largest 100,000,000.
 import { type Sats } from "../core/sats";
 
-/** dust threshold: a 98-vbyte spend at 3 sat/vb */
-export const DUST = 294;
+/** dust threshold: Bitcoin Core's figure for P2TR outputs — everything
+ *  here is taproot, so the P2WPKH 294 would be the wrong constant */
+export const DUST = 330;
 const MAX_DENOM = 100_000_000;
 
 function series(base: number, coeffs: number[]): number[] {

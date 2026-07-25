@@ -57,8 +57,8 @@ export function settlementSteps(
         <b>solve the edge they are not on</b>: two knowns and the nets
         leave one unknown.</p>
         <p>You are looking through one participant's eyes. Same rule as the
-        payjoin, more of it: what insiders learn compounds with every
-        settlement, and it never decays.</p>`,
+        payjoin, more of it: every settlement adds to what its insiders
+        hold.</p>`,
       focus: () => pad(settleFocus()),
       view: 1,
       lens: 2,

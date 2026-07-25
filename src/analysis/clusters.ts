@@ -3,7 +3,9 @@
 // literature, deliberately simple:
 //   - CIOH (common-input-ownership): a transaction spending several inputs
 //     is evidence one entity owns all of them.
-//   - round-USD change identification (Androulaki et al.): if exactly one
+//   - round-USD change identification (the wiki's "round numbers"
+//     fingerprint; change heuristics generally: Androulaki et al.,
+//     Meiklejohn et al.): if exactly one
 //     output of a 2-output payment lands on a round $10 amount at that
 //     day's exchange rate, it is probably the payment — so the other
 //     output is probably the change, and belongs with the inputs.

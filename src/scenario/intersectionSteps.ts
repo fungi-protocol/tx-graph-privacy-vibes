@@ -115,10 +115,10 @@ export function intersectionSteps(
         Spend it beside a coinjoined coin, as happened here, and the two
         pasts are joined: the session's ambiguity is spent along with
         it.</p>
-        <p>Denominated outputs bought plausible company; the change's
-        plausible company was never real — its amount gives it away.
-        Merging the two in one transaction answers the observer's
-        question for free.</p>`,
+        <p>The denominated outputs hide among identical ones — they have
+        an anonymity set. The change never did: its amount is unique to
+        its owner, so spending it beside a coinjoined coin hands the
+        observer the link for free.</p>`,
       focus: at(toxicTx),
       select: sel("tx", toxicTx),
       view: 1,

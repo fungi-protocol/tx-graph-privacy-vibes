@@ -188,7 +188,7 @@ const ARCHETYPES: Archetype[] = [
       name: "Kai", role: "miner, mostly holds", income: "coinbase reward", arrives: 102,
       concern: "Block rewards, held for years. Coinbase outputs have no " +
         "past at all — the block that made them is public, so every " +
-        "thread he starts from them begins, unmistakably, at him. He " +
+        "thread he starts from them begins at his coinbase reward. He " +
         "prefers not to start many.",
       roots: [6_250_000, 6_250_000, 3_125_000],
       rootLabel: "coinbase reward",

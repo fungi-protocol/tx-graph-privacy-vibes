@@ -40,13 +40,14 @@ export function gameSteps(
       id: "through-the-landlords-eyes",
       title: "Through the landlord's eyes",
       html: `<p>Before she chooses, look through <b>Heidi's</b> eyes.
-        Everything she has ever been paid with is a fixed point, and fixed
-        points compound — they never decay. Pay the rent naively, month
-        after month, and each payment hands her another anchor: Judy's
-        coins, her change, the shape of her wallet slowly filling in.</p>
-        <p>That is the map Judy is trying not to draw for her. Heidi is not
-        an adversary — she is just a landlord with a ledger and a memory,
-        which is all it takes.</p>`,
+        Everything she has ever been paid with is a fixed point. Pay the
+        rent naively, month after month, and each payment hands her another
+        anchor: Judy's coins, her change, the shape of her wallet slowly
+        filling in.</p>
+        <p>That is the map Judy is trying not to draw for her. Heidi
+        doesn't need to be hostile to be the adversary in this
+        arrangement — a counterparty with a ledger and a memory is
+        one.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 2,
@@ -59,7 +60,8 @@ export function gameSteps(
       title: "Patience pays",
       html: `<p>Judy waited — and the studio's debts came around: Heidi owed
         Ivan for shelves, Ivan owed Judy for the exhibition catalogue. The
-        oracle nets the three obligations into <b>one settlement</b>. The rent is paid in
+        three net their obligations by building <b>one settlement</b>
+        together. The rent is paid in
         full, yet no transaction anywhere says "$850, Judy to Heidi" — the
         amounts are hidden from every outsider.</p>
         <p>The win has a boundary, and it is worth knowing exactly where:

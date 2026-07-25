@@ -109,8 +109,9 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         neighborhood is only the names. One identified point — Carol's
         exchange withdrawal, an invoice with a name on it, a delivery
         address — ties a pseudonym to a person, and everything its cluster
-        ever did comes with it. The map is patient: it never forgets, and
-        it can be joined with data from outside the chain.</p>
+        ever did comes with it. The map is patient — a name learned today
+        applies to everything already on it, and it can be joined with
+        data from outside the chain.</p>
         <p>Everything so far assumed each transaction has <b>one
         author</b>. The rest of this story is about what happens when the
         neighborhood breaks that assumption.</p>`,

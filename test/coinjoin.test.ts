@@ -24,6 +24,19 @@ test("no coinjoins before the idea crosses community lines", () => {
   assert.ok(eco.events.every((e) => e.form !== "coinjoin"));
 });
 
+test("careless values map uniquely on every tutorial seed", () => {
+  // the narration branches on the verdict, but the story expects the
+  // careless coinjoin to be fully partitioned — hold every seed the
+  // tutorial and tests reach to it, so prose and world never diverge
+  for (const seed of ["welcome", "golden", "gamma", "alpha", "silver"]) {
+    const eco = new Economy(seed);
+    eco.runTo(COINJOIN_DAY);
+    assert.ok(eco.naiveTid, `${seed}: no naive coinjoin on COINJOIN_DAY`);
+    assert.ok(eco.coinjoins.get(eco.naiveTid!)!.determined,
+      `${seed}: careless values must map uniquely`);
+  }
+});
+
 test("the careless first coinjoin is fully partitioned by the observer", () => {
   const eco = eco115();
   assert.ok(eco.naiveTid, "no naive coinjoin on COINJOIN_DAY");

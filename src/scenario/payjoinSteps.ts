@@ -65,8 +65,8 @@ export function payjoinSteps(
         doesn't say which input was whose.</p>
         <p>The payee is not fooled at all: they contributed their coin, so
         they know <b>exactly</b> which inputs were the payer's. What a
-        counterparty learns is a fixed point — it compounds with every
-        payment, and it never decays.</p>
+        counterparty learns is a fixed point, and each payment adds
+        another.</p>
         <p>You are looking through the payee's eyes now: their own coins,
         everything their payments taught them — <b>known</b> for direct
         evidence, <b>likely</b> where it seeds the public heuristics — and

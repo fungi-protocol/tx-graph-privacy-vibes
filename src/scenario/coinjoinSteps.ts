@@ -26,7 +26,7 @@ export function coinjoinSteps(
         <p>Because no payment passes between them, peers can be picked from
         anywhere — no economic relationship shows up to explain the
         grouping. The join itself, though, is easy to spot: what it can
-        hide is which stranger is which, never that strangers joined.
+        hide is which stranger is which — that strangers joined is public.
         Frank and Ivan, from different corners of town, try it first. Each
         puts in two coins and takes back what he put in, split into a
         round figure and the rest.</p>`,
@@ -48,7 +48,7 @@ export function coinjoinSteps(
         <p>Frank and Ivan's values are just as careless, and the analysis is
         stronger than CIOH ever was: it doesn't just group the inputs — it
         hands each output back to its side too. Carelessly chosen values are
-        no better than paying alone.</p>`,
+        no better than a naive batch.</p>`,
       focus: () => pad(naiveFocus()),
       view: 1,
       lens: 1,
