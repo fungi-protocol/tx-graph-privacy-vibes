@@ -16,7 +16,9 @@ test("income covers each persona's expected deficit with headroom", () => {
 test("paydays are staggered and rng-free, with stable inflow IDs", () => {
   const town = buildCast("golden", 10);
   const seen = new Set<number>();
-  for (let day = 1; day <= INCOME_EVERY; day++) {
+  // scan one pay period after the whole base cast has arrived (#15: the
+  // bike-shop crowd, last in, moves to town on day 76)
+  for (let day = 77; day <= 77 + INCOME_EVERY - 1; day++) {
     const s = scheduleForDay("golden", DEFAULT_PARAMS, town.personas, town.edges, day);
     for (const inf of s.inflows) {
       assert.equal(inf.id, `${day}.i${inf.owner}`);

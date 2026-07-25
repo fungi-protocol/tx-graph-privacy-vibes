@@ -132,8 +132,13 @@ export function scheduleForDay(
   day: number,
 ): DaySchedule {
   const obligations: ScheduledObligation[] = [];
+  // staged arrivals (#15): nobody owes, buys, or earns before they move to
+  // town. Streams are namespaced per edge/person, so skipping a draw for
+  // an absent party never shifts anyone else's dice.
+  const here = (u: number): boolean => (cast[u]!.arrives ?? 0) <= day;
   // new internal obligations arrive with a few days' notice
   edges.forEach((edge, ei) => {
+    if (!here(edge.payer) || !here(edge.payee)) return;
     const rng = new Rng(`${seed}/sched/${day}/e${ei}`);
     const n = rng.poisson(params.oblRate * (edge.rate ?? 1));
     for (let k = 0; k < n; k++) {
@@ -175,6 +180,7 @@ export function scheduleForDay(
   // external purchases: unrounded retail prices, paid on the spot
   const purchases: ScheduledPurchase[] = [];
   for (let u = 0; u < cast.length; u++) {
+    if (!here(u)) continue;
     const rng = new Rng(`${seed}/sched/${day}/x${u}`);
     const n = rng.poisson(params.extRate);
     for (let k = 0; k < n; k++) {
@@ -189,7 +195,7 @@ export function scheduleForDay(
   const incomes = incomeFor(params, cast, edges);
   const inflows: ScheduledInflow[] = [];
   for (let u = 0; u < cast.length; u++) {
-    if (day % INCOME_EVERY !== u % INCOME_EVERY) continue;
+    if (!here(u) || day % INCOME_EVERY !== u % INCOME_EVERY) continue;
     inflows.push({ id: `${day}.i${u}`, owner: u, memo: cast[u]!.income ?? "outside income", usd: incomes[u]! });
   }
   return { obligations, purchases, inflows };

@@ -44,10 +44,11 @@ test("townsfolk are seeded: same seed same town, different seed different town",
 });
 
 test("the batching desk pays several dues in one transaction", () => {
-  // all four tutorial seeds produce at least one batch by day 130
+  // all four tutorial seeds produce at least one batch by day 150 — Nadia
+  // is the last arrival (#15, day 108), so the window starts late
   for (const seed of ["golden", "welcome", "gamma", "alpha"]) {
     const eco = new Economy(seed, { pop: 14 });
-    eco.runTo(130);
+    eco.runTo(150);
     const batch = eco.events.find((e) => e.payer === 13 && e.memo.startsWith("batch payout"));
     assert.ok(batch, `${seed}: Nadia never batched`);
     const tx = eco.chain.txs.get(batch!.tid)!;

@@ -14,7 +14,7 @@ import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type Coste
 import { decomps, radixBelow } from "../denom/denominations";
 import { subsetSums, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { ancestry } from "../analysis/ancestry";
-import { scheduleForDay, PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
+import { scheduleForDay, incomeFor, INCOME_EVERY, PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
 
 export { PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
 
@@ -163,6 +163,8 @@ export class Economy {
   private market: Rng;
   private price: number; // USD per BTC, drifts
   private feebase: number;
+  /** savings of people who arrive mid-story, minted on their arrival day */
+  private arrivals = new Map<number, { id: string; value: number; owner: number; label: string }[]>();
 
   constructor(seed: string, params: Partial<EconomyParams> = {}) {
     this.params = { ...DEFAULT_PARAMS, ...params };
@@ -178,11 +180,36 @@ export class Economy {
     let rc = 0;
     this.cast.forEach((p, u) => {
       for (const v of p.roots) {
-        rc += 1;
+        rc += 1; // ids follow cast order whether or not the person is here yet
+        const value = Math.round(v * this.params.wealth);
         // Carol's origin is the one identified root in the story
-        this.chain.addRoot(`r${rc}`, Math.round(v * this.params.wealth), u,
-          p.rootLabel ?? (u === CARELESS ? "exchange withdrawal" : "savings"));
+        const label = p.rootLabel ?? (u === CARELESS ? "exchange withdrawal" : "savings");
+        const arrives = p.arrives ?? 0;
+        if (arrives === 0) this.chain.addRoot(`r${rc}`, value, u, label);
+        else {
+          // savings move to town with their owner (#15)
+          const due = this.arrivals.get(arrives) ?? [];
+          due.push({ id: `r${rc}`, value, owner: u, label });
+          this.arrivals.set(arrives, due);
+        }
       }
+    });
+    // late arrivals also bring what they earned before the move: the paydays
+    // they missed, as one extra root. The solvency calibration (incomeFor)
+    // assumes income lands from day one; without this stake a mid-story
+    // arrival starts short of it and a lean wealth sweep can starve their
+    // first bills. Income is never wealth-scaled, so neither is the stake.
+    const incomes = incomeFor(this.params, this.cast, this.edges);
+    this.cast.forEach((p, u) => {
+      const arrives = p.arrives ?? 0;
+      if (arrives === 0) return;
+      let missed = 0;
+      for (let d = 1; d < arrives; d++) if (d % INCOME_EVERY === u % INCOME_EVERY) missed += 1;
+      if (missed === 0) return;
+      const value = Math.round((missed * incomes[u]! * 1e8) / (this.price * this.params.fx));
+      const due = this.arrivals.get(arrives) ?? [];
+      due.push({ id: `ra${u}`, value, owner: u, label: p.income ?? "outside income" });
+      this.arrivals.set(arrives, due);
     });
   }
 
@@ -343,7 +370,10 @@ export class Economy {
    */
   private findSettlements(): Obligation[][] {
     const ok = (o: Obligation): boolean =>
-      this.cast[o.payer]!.stats.privacy > 0 && this.cast[o.payee]!.stats.privacy > 0;
+      this.cast[o.payer]!.stats.privacy > 0 && this.cast[o.payee]!.stats.privacy > 0 &&
+      // a batching desk's back office queues dues for the batch run instead
+      // of handing them to the oracle one at a time
+      !this.cast[o.payer]!.batches;
     const os = this.pending.filter(ok);
     const found: Obligation[][] = [];
     // 3-cycles: Alice pays Bob, Bob pays Carol, Carol pays Alice
@@ -640,6 +670,10 @@ export class Economy {
     let pay: { obl: Obligation; outs: { owner: number; value: number; label: string }[]; paid: number } | null = null;
     for (const obl of this.pending) {
       if (!parts.includes(obl.payer) || parts.includes(obl.payee)) continue;
+      // the played agent's bills follow the player's choices, never the oracle
+      if (obl.payer === this.manual && this.day >= this.manualFrom) continue;
+      // a batching desk's dues wait for the batch run
+      if (this.cast[obl.payer]!.batches) continue;
       const v = this.sats(obl.usd);
       if (coin.get(obl.payer)!.value < v + 170_000) continue;
       // plausibly attributable to other users' inputs? then the odd
@@ -878,6 +912,12 @@ export class Economy {
   step(): EconomyEvent[] {
     this.day += 1;
     const before = this.events.length;
+    // newcomers move to town: their pre-story savings enter the chain
+    // today, with the entry day on record (the time cursor hides them
+    // before it, and the layout glide is their arrival animation)
+    for (const r of this.arrivals.get(this.day) ?? []) {
+      this.chain.addRoot(r.id, r.value, r.owner, r.label, this.day);
+    }
     // markets drift on their own stream: two draws a day, no more, so the
     // series depends on the seed alone no matter what behavior does
     this.price = Math.min(110_000, Math.max(101_000, this.price * (1 + (this.market.next() - 0.48) * 0.01)));
@@ -937,11 +977,14 @@ export class Economy {
     // batching desks queue their dues and pay them all in one transaction
     for (let u = 0; u < this.cast.length; u++) {
       if (!this.cast[u]!.batches || u === this.manual) continue;
-      const due = this.pending.filter((o) => o.payer === u && o.due <= this.day);
-      if (due.length < 2) continue; // a lone due bill goes through the ordinary menu
+      // a batch run fires when a bill hits its deadline, and sweeps every
+      // queued bill with it — the desk pays on schedule, not per invoice
+      if (!this.pending.some((o) => o.payer === u && o.due <= this.day)) continue;
+      const queued = this.pending.filter((o) => o.payer === u);
+      if (queued.length < 2) continue; // a lone due bill goes through the ordinary menu
       const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
-      if (this.batchPay(u, due, feerate)) {
-        this.pending = this.pending.filter((o) => !due.includes(o));
+      if (this.batchPay(u, queued, feerate)) {
+        this.pending = this.pending.filter((o) => !queued.includes(o));
       }
     }
     // each payer weighs its pending obligations; unpayable ones slip a day

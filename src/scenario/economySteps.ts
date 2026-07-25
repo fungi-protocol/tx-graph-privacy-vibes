@@ -1,6 +1,7 @@
-// Chapter 2: the unilateral economy — ten people, three communities,
-// everyday obligations, and every payment made the naive way. The chapter
-// ends where the observer's story (clustering) begins.
+// Chapter 2: the unilateral economy — a small neighborhood to start (the
+// town grows as the story needs it, #15), everyday obligations, and every
+// payment made the naive way. The chapter ends where the observer's story
+// (clustering) begins.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
 export function economySteps(bounds: () => Rect): TutorialStep[] {
@@ -12,10 +13,12 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
     {
       id: "neighborhood",
       title: "The neighborhood",
-      html: `<p>Meet the rest of the cast: <b>ten people, three
-        communities</b>. Grace runs a bike shop, Heidi owns a studio and
-        rents to Judy, Bob fixes things, Dave builds websites. Each color
-        is one person's coins; white coins left the neighborhood.</p>
+      html: `<p>Meet Alice's neighborhood: <b>four people</b>, for now.
+        Bob fixes things, Carol pays the obvious way, Dave builds
+        websites. Each color is one person's coins; white coins left the
+        neighborhood. The town will grow as the story does — the studio
+        across town, the bike shop crowd, others — and you will see each
+        arrival land on the chain.</p>
         <p>The colors and labels are your storyteller's-eye view — none of
         it is written on the chain.</p>
         <p>Everyone starts with savings — the coins on the left edge.</p>
@@ -59,12 +62,16 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
       title: "What leaks, and to whom",
       html: `<p>Carol thinks she has nothing to hide — every spend chains
         back to her identified exchange withdrawal, and she is fine with
-        it. The others are not: Judy pays her landlord from the same
-        wallet her clients pay into; Bob's clients can compare his rates;
-        Grace's suppliers can size her revenue.</p>
-        <p>Nobody here is doing anything wrong. They just have ordinary
+        it. The others are not: Bob's clients can compare his rates and
+        size his savings; Dave's client X can learn that client Y exists,
+        and his subcontractors can read his margin.</p>
+        <p>Nobody here is doing anything wrong. They have ordinary
         counterparties with ordinary curiosity — and, so far, no better
-        way to pay.</p>`,
+        way to pay. The stakes are not abstract, either: a public record
+        of who holds what has repeatedly marked real people for robbery
+        and extortion, and the record compounds — data gathered for one
+        purpose (an exchange's records, a tax file) has leaked to people
+        who use it for another.</p>`,
       focus,
       view: 1,
       scene: 1,

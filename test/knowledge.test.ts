@@ -34,13 +34,14 @@ test("a payjoin payee knows exactly which inputs were the payer's", () => {
 });
 
 test("an agent only knows the memos of payments they took part in", () => {
-  const eco = ecoAt(60);
+  // Erin only moves to town on day 76 (#15), so look after her arrival
+  const eco = ecoAt(90);
   const k = agentKnowledge(eco.chain, eco.events, 4);
   for (const tid of k.txs) {
     const ev = eco.events.find((e) => e.tid === tid)!;
     assert.ok(ev.payer === 4 || ev.payee === 4);
   }
-  assert.ok(k.txs.size > 0, "Erin took part in payments by day 60");
+  assert.ok(k.txs.size > 0, "Erin took part in payments by day 90");
 });
 
 test("direct knowledge compounds and never decays", () => {

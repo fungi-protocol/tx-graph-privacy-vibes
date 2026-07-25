@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
+import { PERSONAS } from "../src/scenario/cast";
 
 // Characterization of the execution layer: how wallets pick coins is
 // behavior (varied by the seeded dice), and the variation keeps wallets
@@ -24,7 +25,10 @@ test("wallets hold a spread of coins at every tutorial checkpoint", () => {
     for (const day of CHECKPOINTS) {
       eco.runTo(day);
       const sizes = walletSizes(eco);
-      assert.ok(sizes.length >= 10, `${seed} d${day}: someone's wallet emptied out`);
+      // the town grows as the story needs it (#15): only personas who have
+      // moved in are expected to hold coins
+      const arrived = PERSONAS.filter((p) => (p.arrives ?? 0) <= day).length;
+      assert.ok(sizes.length >= arrived, `${seed} d${day}: someone's wallet emptied out`);
       assert.ok(sizes[0]! >= 1, `${seed} d${day}: a persona holds nothing`);
       assert.ok(sizes[Math.floor(sizes.length / 2)]! >= 4,
         `${seed} d${day}: median wallet peeled down to ${sizes[Math.floor(sizes.length / 2)]} coins`);

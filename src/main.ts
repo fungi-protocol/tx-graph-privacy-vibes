@@ -168,6 +168,7 @@ function setViewDay(d: number | null): void {
   viewDay = d !== null && eco && d >= eco.day ? null : d;
   simRev += 1; // the visible chain changed, even though the record didn't
   recomputeTrace(); // a selection may have slipped beyond the cursor
+  renderCast(); // the town roster follows the displayed day
   dayBtn.textContent = dayLabel();
   backBtn.style.display = scene === 1 && cursorDay() > 0 ? "block" : "none";
   draw();
@@ -657,6 +658,7 @@ function stepDay(): void {
   }
   dayBtn.textContent = dayLabel();
   backBtn.style.display = cursorDay() > 0 ? "block" : "none";
+  renderCast(); // someone may have moved to town today
   renderDecisions();
   draw();
   void syncFragment();
@@ -1071,7 +1073,11 @@ const tutorial = new Tutorial(steps, {
 const castBtn = document.getElementById("castbtn") as HTMLButtonElement;
 const castPanel = document.getElementById("cast")!;
 function renderCast(): void {
+  // the panel is the town as it stands on the displayed day: people who
+  // haven't moved in yet aren't listed (they arrive on chain, in view)
+  const day = scene === 1 && eco ? cursorDay() : 0;
   castPanel.innerHTML = castList().map((p, u) =>
+    (p.arrives ?? 0) > day ? "" :
     `<div class="cast-row" data-u="${u}">
       <span class="swatch" style="background:${ownerColor(u)}"></span>
       <b>${p.name}</b> <span class="role">${p.role}</span>

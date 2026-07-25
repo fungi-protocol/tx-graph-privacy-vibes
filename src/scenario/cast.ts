@@ -21,6 +21,11 @@ export interface Persona {
   income?: string;
   /** pays all obligations due on a day in one multi-output transaction */
   batches?: boolean;
+  /** the day this person moves to town (savings, income, and obligations
+   *  all start then); 0/undefined = here from the start. The town grows
+   *  as the story needs it: one community first, the studio trio before
+   *  rent day, the bike-shop crowd before word crosses community lines. */
+  arrives?: number;
   /** character-sheet stats, 0–5, feeding the (deliberately simple) cost terms */
   stats: {
     /** how much a naive, history-linking spend bothers them */
@@ -88,7 +93,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 4, thrift: 2, hassle: 2 },
   },
   {
-    name: "Erin", role: "freelancer for the bike shop", community: 1, income: "remote gig",
+    name: "Erin", role: "freelancer for the bike shop", community: 1, income: "remote gig", arrives: 76,
     concern: "Her main client is the bike shop. She does not want the shop " +
       "seeing whom she hires or how she spends her pay — but her receipts " +
       "from the shop and her spending share one wallet, and the chain " +
@@ -97,7 +102,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 2, hassle: 3 },
   },
   {
-    name: "Frank", role: "photographer", community: 1, income: "photo licensing",
+    name: "Frank", role: "photographer", community: 1, income: "photo licensing", arrives: 76,
     concern: "Irregular gig income. Some months are thin, and he would " +
       "rather his counterparties not know which. A wallet that pays " +
       "unilaterally publishes his cash flow to anyone who transacts " +
@@ -106,7 +111,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 2, thrift: 4, hassle: 3 },
   },
   {
-    name: "Grace", role: "bike shop", community: 1, income: "till revenue",
+    name: "Grace", role: "bike shop", community: 1, income: "till revenue", arrives: 76,
     concern: "A business wallet is a magnet: revenue volume, payroll and " +
       "supplier margins all live in one cluster. Customers see her " +
       "supplier payments; suppliers can size her revenue. One identified " +
@@ -115,7 +120,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 3, hassle: 1 },
   },
   {
-    name: "Heidi", role: "potter, owns the studio", community: 2, income: "gallery sales",
+    name: "Heidi", role: "potter, owns the studio", community: 2, income: "gallery sales", arrives: 36,
     concern: "Her tenant pays her rent into the same wallet she pays the " +
       "carpenter and the designer from. She does not want Judy gauging " +
       "her finances, nor the people she hires seeing her rental income. " +
@@ -124,7 +129,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 3, thrift: 2, hassle: 2 },
   },
   {
-    name: "Ivan", role: "carpenter", community: 2, income: "out-of-town job",
+    name: "Ivan", role: "carpenter", community: 2, income: "out-of-town job", arrives: 36,
     concern: "Rate privacy between clients, and materials purchases that " +
       "do not let a client estimate his markup. The lumber yard receipt " +
       "sits one hop from the invoice it was bought for.",
@@ -132,7 +137,7 @@ export const PERSONAS: Persona[] = [
     stats: { privacy: 2, thrift: 3, hassle: 3 },
   },
   {
-    name: "Judy", role: "designer, rents from Heidi", community: 2, income: "client retainer",
+    name: "Judy", role: "designer, rents from Heidi", community: 2, income: "client retainer", arrives: 36,
     concern: "The sharpest case: her landlord must not assess her income, " +
       "and her clients must not learn her rent. But she pays Heidi every " +
       "month from the same wallet her clients pay into, and the chain " +
@@ -180,7 +185,7 @@ interface Archetype {
 const ARCHETYPES: Archetype[] = [
   {
     persona: {
-      name: "Kai", role: "miner, mostly holds", income: "coinbase reward",
+      name: "Kai", role: "miner, mostly holds", income: "coinbase reward", arrives: 102,
       concern: "Block rewards, held for years. Coinbase outputs have no " +
         "past at all — the block that made them is public, so every " +
         "thread he starts from them begins, unmistakably, at him. He " +
@@ -197,7 +202,7 @@ const ARCHETYPES: Archetype[] = [
   },
   {
     persona: {
-      name: "Lena", role: "market stall, high volume", income: "till revenue",
+      name: "Lena", role: "market stall, high volume", income: "till revenue", arrives: 104,
       concern: "A steady run of small sales, all into one till. Any single " +
         "customer who identifies one sale can read the whole till — volume, " +
         "regulars, the supplier she underpays.",
@@ -213,7 +218,7 @@ const ARCHETYPES: Archetype[] = [
   },
   {
     persona: {
-      name: "Max", role: "privacy maximalist", income: "consulting retainer",
+      name: "Max", role: "privacy maximalist", income: "consulting retainer", arrives: 106,
       concern: "Treats every link as a leak: coordinates whenever the menu " +
         "offers it, never declines a session, never consolidates. The town's " +
         "counterexample — and a reminder that even discipline only buys " +
@@ -229,7 +234,7 @@ const ARCHETYPES: Archetype[] = [
   },
   {
     persona: {
-      name: "Nadia", role: "exchange desk, batches payouts", income: "desk float top-up",
+      name: "Nadia", role: "exchange desk, batches payouts", income: "desk float top-up", arrives: 108,
       concern: "A desk that owes many people at once and pays them all in " +
         "one transaction to save fees. Cheap — and it publishes her whole " +
         "payout list as a single record every time.",
@@ -292,6 +297,8 @@ export function buildCast(seed: string, pop: number): { personas: Persona[]; edg
         `unilateral spend threads the ${role}'s wallet into the record, ` +
         "and every counterparty keeps what it learns.",
       roots,
+      // townsfolk trickle in across the story rather than all at once
+      arrives: rng.int(90),
       stats: { privacy: 1 + rng.int(4), thrift: 1 + rng.int(4), hassle: 1 + rng.int(4) },
     });
     // one or two edges into the local community, either direction
