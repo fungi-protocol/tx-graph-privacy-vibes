@@ -151,7 +151,9 @@ export class Economy {
   readonly params: EconomyParams;
   /** the town: the fixed ten, plus archetypes/townsfolk when pop > 10 */
   readonly cast: Persona[];
-  private edges: Edge[];
+  /** the town's recurring relationships — the auxiliary graph anyone
+   *  who knows the town holds */
+  readonly edges: Edge[];
   private consumed = new Set<Intervention>();
   private txn = 0;
   private readonly seed: string;
