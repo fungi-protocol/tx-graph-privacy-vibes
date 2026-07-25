@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
 import { clusterObserver } from "../src/analysis/clusters";
 import { synthesisSweepExhibit, clusterOwner } from "../src/scenario/synthesisStaging";
-import { claimExhibit, rentForms, premiseDemo } from "../src/scenario/synthesisSteps";
+import { claimExhibit, rentForms, premiseDemo, counterpartyExhibit } from "../src/scenario/synthesisSteps";
 
 const SEEDS = ["welcome", "golden", "gamma", "alpha", "silver"];
 const DAY = 115; // the chapter's minDay
@@ -78,4 +78,17 @@ test("the hand-built miniature accepts its one mapping CORRECTLY with a finite s
   assert.equal(d.accepted.get("cX"), "x");
   assert.ok(Number.isFinite(d.eccentricity) && d.eccentricity >= 1.5);
   assert.ok(d.score > 0);
+});
+
+test("the counterparty card's map is non-trivial on every seed: Heidi holds a compounding map of Judy's coins", () => {
+  for (const seed of SEEDS) {
+    const eco = new Economy(seed);
+    eco.runTo(DAY);
+    const c = counterpartyExhibit(eco.chain, eco.events, 7, 9);
+    assert.ok(c.directOthers >= 20, `${seed}: ${c.directOthers} direct`);
+    assert.ok(c.ofTarget >= 10, `${seed}: ${c.ofTarget} of Judy's`);
+    assert.ok(c.targetRemaining >= 1, `${seed}: ${c.targetRemaining} remaining`);
+    // the map is a subset chain: remaining ⊆ of-target ⊆ direct
+    assert.ok(c.targetRemaining <= c.ofTarget && c.ofTarget <= c.directOthers);
+  }
 });

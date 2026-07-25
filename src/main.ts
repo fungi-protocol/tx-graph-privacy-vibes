@@ -20,7 +20,7 @@ import { payjoinSteps } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused } from "./scenario/intersectionSteps";
-import { synthesisSteps, claimExhibit, rentForms, type ClaimExhibit, type SweepView } from "./scenario/synthesisSteps";
+import { synthesisSteps, claimExhibit, rentForms, counterpartyExhibit, type ClaimExhibit, type SweepView } from "./scenario/synthesisSteps";
 import { synthesisSweepExhibit, clusterOwner, outsiderEdges } from "./scenario/synthesisStaging";
 import { gameSteps } from "./scenario/gameSteps";
 import { setCastNames, OMNISCIENT } from "./scenario/omniscient";
@@ -972,6 +972,7 @@ const steps = [
     () => eco?.naiveTid,
     () => (eco ? rentForms(eco.events) : new Map()),
     () => synthExhibits().sweep,
+    () => (eco ? counterpartyExhibit(eco.chain, eco.events, 7, 9) : undefined),
     (i) => castList()[i]?.name ?? "someone",
   ),
   ...gameSteps(

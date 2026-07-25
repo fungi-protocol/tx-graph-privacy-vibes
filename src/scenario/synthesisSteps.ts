@@ -17,6 +17,7 @@ import { support, removeOneMethod, type Method } from "../analysis/provenance";
 import { propagationStep, type DGraph } from "../analysis/propagation";
 import { type Grade } from "./synthesisStaging";
 import { type EconomyEvent } from "../engine/economy";
+import { agentKnowledge } from "../analysis/knowledge";
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
 /** the elimination beat's claim: two inputs of the careless coinjoin
@@ -67,6 +68,30 @@ export function rentForms(events: EconomyEvent[]): Map<string, number> {
     forms.set(e.form, (forms.get(e.form) ?? 0) + 1);
   }
   return forms;
+}
+
+/** the counterparty tier card's live numbers: what the watcher can
+ *  attribute DIRECTLY (payments they took part in; own coins excluded)
+ *  and, of the target's coins, how many they hold in the map — the
+ *  writeup's "map of their remaining coins": direct attributions of the
+ *  target's still-unspent coins. Fixed points that compound and never
+ *  decay. */
+export function counterpartyExhibit(
+  chain: Chain,
+  events: EconomyEvent[],
+  watcher: number,
+  target: number,
+): { directOthers: number; ofTarget: number; targetRemaining: number } {
+  const k = agentKnowledge(chain, events, watcher);
+  let directOthers = 0, ofTarget = 0, targetRemaining = 0;
+  for (const [id, a] of k.coins) {
+    if (!a.direct || a.owner === watcher) continue;
+    directOthers++;
+    if (a.owner !== target) continue;
+    ofTarget++;
+    if (chain.coins.get(id)!.dest === null) targetRemaining++;
+  }
+  return { directOthers, ofTarget, targetRemaining };
 }
 
 /** the hand-built miniature for the premise beat: two seeded
@@ -134,6 +159,7 @@ export function synthesisSteps(
   naiveTid: () => string | undefined,
   rents: () => Map<string, number>,
   sweep: () => SweepView | undefined,
+  counterparty: () => { directOthers: number; ofTarget: number; targetRemaining: number } | undefined,
   names: (i: number) => string,
 ): TutorialStep[] {
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
@@ -386,11 +412,93 @@ export function synthesisSteps(
       minDay: 115,
     },
     {
+      id: "the-public-analyst",
+      title: "Card one: the public analyst",
+      html: `<p>Now name who actually holds each level of power — three
+        cards, weakest first. The first is the observer you have watched
+        all along: the <b>full chain</b>, commodity computation, every
+        modeled on-chain feature, and a <b>memory that never forgets</b>.
+        Anyone can hold this card — it takes a laptop and patience, no
+        account and no permission.</p>
+        <p>Everything this chapter computed so far was this card's work.
+        The next two cards don't replace it; they <b>start from it</b>
+        and add what their position hands them.</p>`,
+      focus: () => pad(bipBounds()),
+      select: () => null,
+      view: 1,
+      lens: 1,
+      scene: 1,
+      minDay: 115,
+    },
+    {
+      id: "the-counterparty",
+      title: "Card two: the counterparty",
+      html: () => {
+        const c = counterparty();
+        const numbers = c
+          ? `${names(7)} can attribute <b>${c.directOthers} coins</b> of
+        other people's directly this run — ${c.ofTarget} of them
+        ${names(9)}'s, of which <b>${c.targetRemaining} are still sitting
+        unspent</b> in ${names(9)}'s wallet right now.`
+          : `every payment adds to the map.`;
+        return `<p>The second card is the view here: <b>${names(7)}</b>,
+        ${names(9)}'s landlord. A counterparty starts with everything the
+        public analyst has and adds what the relationship hands over. In
+        every payment the payee learns the payer's <b>inputs</b> and the
+        <b>change</b> they took back — a map of the payer's remaining
+        coins — and the map <b>compounds</b>: these are fixed points that
+        never decay. ${numbers} A counterparty also knows a name, a face,
+        a business — which makes tier two a <b>seed factory</b> for the
+        card after this one.</p>
+        <p>Inside multiparty transactions, what an insider sees depends on
+        the <b>protocol</b>: the town's settlements are coordinated in the
+        open, so an insider sees every contribution and can solve the edge
+        it is not on — while the town's coinjoins are arranged blind, so
+        elimination leaves the rest ambiguous and an insider is nearly as
+        blind as an outsider. That is a disclosed protocol assumption of
+        this town, not a law of nature.</p>`;
+      },
+      focus: () => pad(bipBounds()),
+      select: () => null,
+      view: 1,
+      lens: 2,
+      agent: () => 7,
+      scene: 1,
+      minDay: 115,
+    },
+    {
+      id: "the-aggregator",
+      title: "Card three: the aggregator",
+      html: `<p>The third card has no new lens to show, and that is the
+        point. An <b>institutional aggregator</b> is the public analyst
+        plus what flows in: <b>many identified seeds</b> and the records
+        of the services that share with it — subscribers, partners,
+        acquisitions, breaches. No aggregator holds everything, and who
+        shares with whom is unobservable from here: <b>you cannot audit
+        the adversary's feeds</b>, which is itself a lesson. Some feeds
+        cost nothing to build — a lightweight wallet that asks a server
+        about its addresses hands the operator its own cluster,
+        ready-made, collection without analysis — and web trackers on
+        checkout pages have been shown to link payments to identities
+        (Goldfeder&nbsp;et&nbsp;al.).</p>
+        <p>What sets this card apart is not a new technique — it is the
+        <b>seed count</b>. The sweep you watched ran on a handful of
+        seeds and stalled; the propagation paper's own experiments make
+        the number of seeds the variable that separates stalling from
+        cascading. Tier three holds exactly that variable.</p>`,
+      focus: () => pad(bipBounds()),
+      select: () => null,
+      view: 1,
+      lens: 1,
+      scene: 1,
+      minDay: 115,
+    },
+    {
       id: "a-lower-bound",
       title: "A lower bound",
-      html: `<p>Everything in this chapter ran on the public record plus
-        rumor-grade knowledge of the town's arrangements — still the
-        weakest access tier, and still no names needed up front. Real
+      html: `<p>Every analysis this chapter ran used the public record
+        plus rumor-grade knowledge of the town's arrangements — the
+        weakest of the three cards, and no names needed up front. Real
         analysts hold more: wallet <b>fingerprints</b>, network metadata,
         timing, purchased records — none of which this town models. Read
         every result here as a <b>lower bound</b> on exposure.</p>
