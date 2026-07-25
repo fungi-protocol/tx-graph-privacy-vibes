@@ -21,7 +21,7 @@ export function settlementSteps(
         everyone takes one output.</p>
         <p>Only the <b>net balances</b> touch the chain. No output is a
         payment: what shows is each person's net — and because these
-        debts <b>loop</b>, the nets can be far from any amount owed. Not
+        obligations <b>loop</b>, the nets can be far from any amount owed. Not
         the rent, not the shelves, not the logo. And one transaction is
         cheaper than three.</p>`,
       focus: () => pad(settleFocus()),
@@ -41,7 +41,10 @@ export function settlementSteps(
         payment amount at least still constrained the guesses; here the
         amounts on chain say almost nothing about who owed whom what.
         (Only the full loop earns this — most days the neighborhood only
-        finds pairs and chains to net, and those still whisper.)</p>`,
+        finds pairs and chains to net, and those still whisper.) Even the
+        matching game the observer learns next chapter usually finds
+        nothing to split here: value moved between the participants, so
+        no group of inputs and outputs balances on its own.</p>`,
       focus: () => pad(settleFocus()),
       view: 1,
       lens: 1,
@@ -56,6 +59,9 @@ export function settlementSteps(
         — and everyone's nets are visible to the room. That is enough to
         <b>solve the edge they are not on</b>: two knowns and the nets
         leave one unknown.</p>
+        <p>That is a property of the <b>protocol</b>, not of multiparty
+        transactions as such: this town's settlements are coordinated in
+        the open, so the room sees every contribution.</p>
         <p>You are looking through one participant's eyes. Same rule as the
         payjoin, more of it: every settlement adds to what its insiders
         hold.</p>`,

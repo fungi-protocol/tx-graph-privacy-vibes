@@ -1,6 +1,6 @@
 // Chapter 4: payjoin — the first collaborative form. The one-author
 // assumption breaks, CIOH is falsified by construction, and the honest
-// limits appear: outsiders can suspect but not cheaply prove; the
+// limits appear: the record cannot settle an outsider's suspicion; the
 // counterparty simply knows.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
@@ -61,8 +61,10 @@ export function payjoinSteps(
       html: `<p>Be precise about who is fooled. An outsider <i>can
         suspect</i> this is a payjoin — any two-input spend could be one,
         and sometimes an input looks unnecessary, more coin than the
-        payment needed — but cannot cheaply prove it, and suspicion alone
-        doesn't say which input was whose.</p>
+        payment needed. But the record cannot settle it: a payjoin is
+        built to look exactly like an ordinary spend, so nothing on chain
+        separates the two, and suspicion alone doesn't say which input
+        was whose.</p>
         <p>The payee is not fooled at all: they contributed their coin, so
         they know <b>exactly</b> which inputs were the payer's. What a
         counterparty learns is a fixed point, and each payment adds

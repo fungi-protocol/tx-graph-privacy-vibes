@@ -47,9 +47,13 @@ export function ambiguity(ivs: Sats[], ovs: Sats[], tol = 500): number {
   const b = sumsWithEmpty(ovs.slice(half));
   let good = 0;
   for (const s of isums) {
-    // some x ∈ a, y ∈ b with |x + y − s| ≤ tol? (the empty halves are
-    // present, so single-half subsets count; s itself is far above tol,
-    // so the doubly-empty 0 never matches)
+    // some x ∈ a, y ∈ b with |x + y − s| ≤ tol? The empty halves are
+    // present, so single-half subsets count. The assumption is on the
+    // INPUT side: no input-subset sum s is ≤ tol, so the doubly-empty 0
+    // never matches (in-sim inputs run to tens of thousands of sats
+    // against tol ≈ 500). Output values near tol — the 330–842-sat
+    // residuals — are harmless: nonempty output subsets are included in
+    // both this and the naive semantics.
     let hit = false;
     for (const x of a) {
       if (x > s + tol) break;

@@ -525,7 +525,7 @@ const overlaysPanel = document.getElementById("overlays")!;
 const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
   { bit: OV_CHANGE, label: "round-USD change", title: "the round-dollar output is probably the payment; the other is change" },
-  { bit: OV_SUBSUM, label: "subset-sum analysis", title: "a unique balancing partition welds its sub-transactions together" },
+  { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition welds its sub-transactions together" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
   `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>`).join("");

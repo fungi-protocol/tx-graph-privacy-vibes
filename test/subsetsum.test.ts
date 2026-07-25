@@ -144,9 +144,10 @@ test("ambiguity: meet-in-the-middle matches a naive reference exactly", () => {
     const tol = [0, 1, 499, 500, 1_000][rng.int(5)]!;
     const ni = 1 + rng.int(6);
     const no = 1 + rng.int(12);
-    // values comfortably above the tolerance (the measure assumes sums
-    // dwarf it), with deliberate repeats (denominated sessions are full
-    // of them) and near-boundary gaps
+    // values comfortably above the tolerance — the measure assumes no
+    // INPUT-subset sum is ≤ tol (output values near tol would be fine
+    // either way) — with deliberate repeats (denominated sessions are
+    // full of them) and near-boundary gaps
     const pool = [2_000, 5_000, 5_000, 50_000, 50_500, 512_000, 500_000, 1_000_000];
     const draw = (): number => rng.int(2) === 0 ? pool[rng.int(pool.length)]! : 2_000 + rng.int(2_000_000);
     const ivs = Array.from({ length: ni }, draw);

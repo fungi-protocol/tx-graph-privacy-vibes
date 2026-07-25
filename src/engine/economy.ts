@@ -125,7 +125,7 @@ export class Economy {
   prices: number[] = [];
   /** obligations awaiting payment */
   pending: Obligation[] = [];
-  /** coinjoin transactions, in order: subset-sum match rate, and whether
+  /** coinjoin transactions, in order: amount match rate, and whether
    *  the amounts pin down a unique sub-transaction mapping */
   coinjoins = new Map<TxId, { density: number; determined: boolean; verdict: SubMapping["kind"] }>();
   /** the first, carelessly valued coinjoin (injected on COINJOIN_DAY) */
@@ -459,7 +459,7 @@ export class Economy {
     // obligations, and only a cycle makes the amounts truly vanish
     const why =
       n === 2
-        ? `${names.join(" and ")} settle their mutual debts in one spend. ` +
+        ? `${names.join(" and ")} settle their mutual obligations in one spend. ` +
           "Outsiders see only the difference of the two obligations; between " +
           "the two of them nothing is hidden — privacy within a transaction " +
           "takes three or more parties."
@@ -593,7 +593,7 @@ export class Economy {
    * their coins in one transaction, no payment between them — but each
    * takes back amounts chosen carelessly (a round figure plus the rest),
    * so the only sub-transaction mapping consistent with the values is
-   * the true one, and subset sums fully partition the transaction.
+   * the true one, and the amounts fully partition the transaction.
    */
   private naiveCoinjoin(feerate: number): void {
     const parts = [5, 8]; // Frank and Ivan: strangers, communities 1 and 2
@@ -721,7 +721,7 @@ export class Economy {
     // the oracle samples a few acceptable joint assignments and keeps the
     // best: an underdetermined mapping beats a determined one (repeating a
     // denomination another party took makes outputs swappable between
-    // readings), denser subset sums break ties. Sampling rather than
+    // readings), a denser match rate breaks ties. Sampling rather than
     // exhaustive argmax keeps the selection itself from fingerprinting
     // anyone (always-best is a bias of its own) — and still comes out
     // unlucky now and then.

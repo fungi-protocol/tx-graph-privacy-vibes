@@ -9,7 +9,8 @@
 //     output of a 2-output payment lands on a round $10 amount at that
 //     day's exchange rate, it is probably the payment — so the other
 //     output is probably the change, and belongs with the inputs.
-//   - subset-sum sub-transaction analysis (Maurer et al.): a transaction
+//   - sub-transaction analysis (the sub-transaction model, Maurer et
+//     al.): a transaction
 //     with several outputs is checked for partitions into balancing
 //     sub-transactions. A unique partition welds each part — inputs AND
 //     outputs — together (stronger than CIOH); several valid partitions
@@ -71,7 +72,7 @@ export function clusterObserver(
   const changeGuess = new Map<TxId, CoinId>();
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
-    // multi-output spends get the subset-sum treatment first: a unique
+    // multi-output spends get the sub-transaction treatment first: a unique
     // sub-transaction partition beats CIOH (and identifies outputs too);
     // an underdetermined one suspends it — outputs link to inputs only
     // if the mapping is determined. The >=3-output gate keeps payjoins

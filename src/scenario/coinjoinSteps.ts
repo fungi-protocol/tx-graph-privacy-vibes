@@ -1,8 +1,8 @@
 // Chapter 6: coinjoin — strangers share a transaction. No payment needs
 // to pass between the parties, so peers can come from anywhere; whether
 // anything is hidden comes down to the amounts. Carelessly chosen values
-// are fully partitioned by subset sums; values drawn from a shared
-// denomination menu leave the mapping underdetermined. Honest limits
+// are fully partitioned by the sub-transaction analysis; values drawn
+// from a shared denomination menu leave the mapping underdetermined. Honest limits
 // stay in frame: bounded ambiguity, and a past that is blended into
 // many plausible pasts — never severed.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
@@ -19,7 +19,7 @@ export function coinjoinSteps(
       id: "strangers-share-a-transaction",
       title: "Strangers share a transaction",
       html: `<p>Around day 90 the idea crosses community lines. Every form so
-        far settled a debt — which meant transacting with the people you
+        far settled an obligation — which meant transacting with the people you
         already know. But nothing forces that: people with <b>no business
         between them</b> can spend their coins in one transaction and each
         take their own money back. A <b>coinjoin</b>.</p>
@@ -37,14 +37,16 @@ export function coinjoinSteps(
       minDay: 90,
     },
     {
-      id: "subset-sums-undo-it",
-      title: "Subset sums undo it",
+      id: "the-amounts-undo-it",
+      title: "The amounts undo it",
       html: `<p>Flip to the observer, who now plays a matching game with the
         amounts: which groups of inputs and outputs <b>balance</b>? Think of
         a join where inputs of 0.1, 0.3, 2 and 5 meet outputs of 0.4 and 7 —
         the only reading is 0.1&#8202;+&#8202;0.3&#8202;=&#8202;0.4 and
         2&#8202;+&#8202;5&#8202;=&#8202;7. One consistent mapping, so the
-        amounts <b>fully partition</b> the transaction.</p>
+        amounts <b>fully partition</b> the transaction. Analysts call the
+        balanced groups <i>sub-transactions</i>, and the matching game the
+        <b>sub-transaction model</b> (Maurer et al.).</p>
         <p>Frank and Ivan's values are just as careless, and the analysis is
         stronger than CIOH ever was: it doesn't just group the inputs — it
         hands each output back to its side too. Carelessly chosen values are
@@ -98,8 +100,8 @@ export function coinjoinSteps(
       minDay: 100,
     },
     {
-      id: "even-insiders-shrug",
-      title: "Even insiders shrug",
+      id: "even-insiders-are-blinded",
+      title: "Even insiders are blinded",
       html: `<p>Here is what the earlier forms could not offer. A payjoin
         counterparty knew exactly whose coins were whose; a settlement
         insider could solve the edge they were not on. A coinjoin
@@ -107,7 +109,9 @@ export function coinjoinSteps(
         everyone else: <b>several strangers, and no reading they can
         single out</b>. That takes arranging — these sessions are set up so
         nobody learns whose outputs are whose, the strongest honest
-        version of the idea.</p>
+        version of the idea. Both are <b>protocol choices</b>: this town
+        coordinates its settlements in the open among the people involved,
+        and arranges its coinjoins blind.</p>
         <p>You are looking through a participant's eyes: their own coins,
         the session they took part in — and gray where even an insider has
         nothing. Only a payment made through the session is known to its
