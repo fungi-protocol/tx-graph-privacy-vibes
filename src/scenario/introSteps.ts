@@ -73,6 +73,27 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       scene: 0,
     },
     {
+      id: "ordered-on-chain",
+      title: "Ordered on chain, shuffled here",
+      html: `<p>One more thing the record keeps that this drawing hides:
+        a transaction's inputs and outputs are <b>ordered</b>. That order
+        is chosen by wallet software, and it can talk. A wallet that
+        always puts the change in the same position hands the observer
+        the change for free; a wallet that sorts by a fixed public rule
+        (<b>BIP&nbsp;69</b>) avoids that leak but wears the rule itself
+        as a <b>fingerprint</b> — sorted transactions point back to the
+        software that sorts.</p>
+        <p>In this simulation every wallet <b>shuffles</b> its inputs and
+        outputs, so position carries nothing — and the drawings take the
+        same liberty, reordering boxes and edges however reads most
+        clearly. Nothing is lost by that: the observer's material is the
+        graph's <b>topology</b> — which output feeds which input, and the
+        amounts — not where anything sits on a screen.</p>`,
+      focus: pad(t1, 90),
+      view: 0,
+      scene: 0,
+    },
+    {
       id: "fees",
       title: "Fees",
       html: `<p>Add up the outputs and they come to slightly less than the
@@ -109,6 +130,26 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         <p>What that means for Alice — and what a whole neighborhood of
         people can do about it — is the rest of this story.</p>`,
       focus: pad(union(coinAnchor(layout, "r1")!, t2), 60),
+      view: 0,
+      scene: 0,
+    },
+    {
+      id: "one-address-once",
+      title: "One address, once",
+      html: `<p>Each coin is locked to an <b>address</b> — a fresh
+        destination its owner's wallet generated for it. Nothing stops a
+        wallet from handing out the same address twice, and when that
+        happens the record links the two coins on its face: one key
+        plainly controls both. <b>Address reuse</b> is by far the worst
+        form of clustering — no inference, no guessing, just reading —
+        and, sadly, it is still pervasive on the real chain: donation
+        pages, exchange deposit addresses, lazy software.</p>
+        <p>Every wallet in this simulation draws a <b>fresh address for
+        every output</b>, as well-made wallets do. Keep that assumption
+        in mind: everything an observer manages in this story is managed
+        <i>without</i> the easiest lever, the one the real world still
+        offers.</p>`,
+      focus: pad(all, 60),
       view: 0,
       scene: 0,
     },
