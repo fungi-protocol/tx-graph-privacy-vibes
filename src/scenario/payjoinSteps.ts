@@ -13,7 +13,7 @@
 // channel (#103, per Sabouri 2026): wallet fingerprints — the observer
 // switches statistical fingerprinting on, and inputs sitting on two
 // script families read as two wallets' coins in one transaction, so
-// CIOH abstains instead of welding the lie. The chapter closes with the
+// CIOH abstains instead of linking the lie. The chapter closes with the
 // generalization ladder the town skips (NS1R, NSNR — writeup's
 // many-senders sections) on the way to the general form.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
@@ -314,7 +314,7 @@ export function payjoinSteps(
         spends their own coins from two families in one transaction, and
         the check misreads that housekeeping as collaboration — the
         observer then <i>misses</i> a true link. One buys the mistake of
-        welding strangers, the other of losing a user's own thread; the
+        linking strangers, the other of losing a user's own thread; the
         observer picks which error to spend.</p>`;
       },
       focus: () => pad(payjoinFocus()),

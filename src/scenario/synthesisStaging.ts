@@ -54,7 +54,7 @@ export function clusterOwner(
 /** the `n` largest PURE clusters after passing over the `skip`
  *  largest, as seed mappings rep -> agent id (as a string, matching
  *  auxGraph's node names). Distinct owners: seeding two clusters to
- *  one agent would itself assert a weld the observer never made.
+ *  one agent would itself assert a link the observer never made.
  *  `skip` is a staging dial with the same license as `n`: WHICH pure
  *  clusters an analyst happens to hold out-of-band names for is
  *  arbitrary, so the exhibit may pick among them. */

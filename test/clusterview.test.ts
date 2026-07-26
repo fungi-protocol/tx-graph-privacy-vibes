@@ -23,7 +23,7 @@ function partition(groups: string[][]): Clustering {
       rank.set(g[0]!, i + 1);
       for (const id of g) rep.set(id, g[0]!);
     });
-  return { rep, members, rank, changeGuess: new Map(), welds: [] } as unknown as Clustering;
+  return { rep, members, rank, changeGuess: new Map(), links: [] } as unknown as Clustering;
 }
 
 test("truthSlices: a pure cluster is one slice, a mixed one lists every owner largest-first summing to 1", () => {
@@ -131,7 +131,7 @@ test("truth paint stays honest on a real run: every observer vertex's slices sum
       if (slices.length > 1) mixed += 1;
     }
     // the device has something to show: the observer's map really does
-    // weld different people together somewhere by day 115
+    // link different people together somewhere by day 115
     assert.ok(mixed >= 1, `${seed}: no mixed cluster to expose`);
   }
 });

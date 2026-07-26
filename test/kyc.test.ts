@@ -104,10 +104,10 @@ test("grantAttribution: unanimous clusters attributed wholesale, conflicted clus
     changeGuess: new Map(),
     payGuess: new Map(),
     changeReads: new Map(),
-    welds: [],
+    links: [],
   };
   // cluster a: one grant -> both coins attributed; cluster b: grants
-  // naming two owners -> the weld is exposed as a lie, no propagation
+  // naming two owners -> the link is exposed as a lie, no propagation
   const grants = new Map<CoinId, Owner>([["a1", 3], ["b1", 4], ["b2", 5]]);
   const attr = grantAttribution(grants, cl);
   assert.deepEqual(attr.get("a1"), { owner: 3, direct: true });
@@ -153,7 +153,7 @@ test("grantMerges: same-named clusters fuse, and at the slider's top the map col
 test("full disclosure IS omniscience: at fraction 1 the observer's fused map equals the by-owner partition", () => {
   // the aux slider's stated maximum (#67, #100): every heuristic is
   // overridden by the auxiliary data. Along the pipeline's own path —
-  // grants handed to clusterObserver (where they veto welds the
+  // grants handed to clusterObserver (where they veto links the
   // attributions refute) and then fused by grantMerges — the result
   // must match clusterByOwner exactly, coinjoins and forced sub-tx
   // pairings included.

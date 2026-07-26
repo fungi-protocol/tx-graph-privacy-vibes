@@ -1,9 +1,9 @@
 // Provenance over the observer's map. A cluster is a CLAIM ("these
-// coins share an owner"), and every claim rests on welds — recorded
+// coins share an owner"), and every claim rests on links — recorded
 // observations, each one a method applied to a transaction (see
-// Clustering.welds). Two questions keep the claims honest:
+// Clustering.links). Two questions keep the claims honest:
 //
-//   - support(): exhibit one chain of inference — a sequence of welds
+//   - support(): exhibit one chain of inference — a sequence of links
 //     connecting two coins back to base observations. What the claim
 //     rests on, stated, not implied.
 //   - withoutMethod(): the remove-one-method comparison — re-run the
@@ -14,18 +14,18 @@
 //     this scale; there is no incremental belief machinery to get
 //     subtly wrong.
 //
-// Correlated evidence needs no extra bookkeeping here: welds citing
+// Correlated evidence needs no extra bookkeeping here: links citing
 // the same transaction are correlated by construction (one observation,
 // however many features it feeds), and a re-run with a method disabled
-// drops every weld that method produced — the double-counting guard
+// drops every link that method produced — the double-counting guard
 // lives in input construction, not in a fusion layer.
 //
 // Two boundaries to keep straight when teaching from this ledger:
-//   - Welds are OWNERSHIP claims, and a weld can add an assumption on
-//     top of its method's verdict (a subtx weld's verdict proves value
+//   - Links are OWNERSHIP claims, and a link can add an assumption on
+//     top of its method's verdict (a subtx link's verdict proves value
 //     flow; `assumption: "one-owner-per-part"` is the observer's added
-//     reading — see the Weld doc comment). support() exhibits the
-//     welds, assumptions included; it does not launder them into facts.
+//     reading — see the Link doc comment). support() exhibits the
+//     links, assumptions included; it does not launder them into facts.
 //   - withoutMethod() measures METHOD-LEVEL survival: does some other
 //     TECHNIQUE still link the coins? That is not independent
 //     observation-level support — disabling subtx can expose CIOH on
@@ -33,30 +33,30 @@
 //     surviving claim means blocking that method wouldn't have helped,
 //     not that a second independent observation corroborates it.
 import { type Chain, type CoinId } from "../model/chain";
-import { clusterObserver, type Clustering, type Heuristics, type Weld } from "./clusters";
+import { clusterObserver, type Clustering, type Heuristics, type Link } from "./clusters";
 
 /**
  * One chain of inference for the claim that `a` and `b` share an owner:
- * a shortest sequence of welds in which consecutive welds share a coin,
+ * a shortest sequence of links in which consecutive links share a coin,
  * the first contains `a` and the last contains `b`. Null when the map
- * never welds them (or when either coin is unknown to it). Shortest by
- * weld count — there may be other routes; withoutMethod() is the way to
+ * never links them (or when either coin is unknown to it). Shortest by
+ * link count — there may be other routes; withoutMethod() is the way to
  * ask whether any survive a method's removal.
  */
-export function support(cl: Clustering, a: CoinId, b: CoinId): Weld[] | null {
+export function support(cl: Clustering, a: CoinId, b: CoinId): Link[] | null {
   if (a === b) return [];
   const ra = cl.rep.get(a), rb = cl.rep.get(b);
   if (ra === undefined || ra !== rb) return null;
-  // BFS over coins, stepping through welds (hyperedges)
-  const byCoin = new Map<CoinId, Weld[]>();
-  for (const w of cl.welds) {
+  // BFS over coins, stepping through links (hyperedges)
+  const byCoin = new Map<CoinId, Link[]>();
+  for (const w of cl.links) {
     for (const c of w.coins) {
       const l = byCoin.get(c);
       if (l) l.push(w); else byCoin.set(c, [w]);
     }
   }
-  const via = new Map<CoinId, Weld>(); // coin -> weld that reached it
-  const enteredVia = new Map<Weld, CoinId>(); // weld -> coin BFS entered through
+  const via = new Map<CoinId, Link>(); // coin -> link that reached it
+  const enteredVia = new Map<Link, CoinId>(); // link -> coin BFS entered through
   let frontier: CoinId[] = [a];
   const seen = new Set<CoinId>([a]);
   while (frontier.length > 0) {
@@ -70,7 +70,7 @@ export function support(cl: Clustering, a: CoinId, b: CoinId): Weld[] | null {
           seen.add(d);
           via.set(d, w);
           if (d === b) {
-            const path: Weld[] = [];
+            const path: Link[] = [];
             let cur: CoinId = b;
             while (cur !== a) {
               const step = via.get(cur)!;
@@ -88,7 +88,7 @@ export function support(cl: Clustering, a: CoinId, b: CoinId): Weld[] | null {
   return null; // unreachable if rep matched, kept for safety
 }
 
-export type Method = Weld["method"];
+export type Method = Link["method"];
 export const METHODS: Method[] = ["reuse", "cioh", "change", "subtx", "remeet"];
 
 /** Does the claim that `a` and `b` share an owner survive re-analysis

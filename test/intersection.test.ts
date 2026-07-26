@@ -58,14 +58,14 @@ test("coinjoin change gets spent beside a coinjoined coin by day 115", () => {
   assert.ok(toxic, "no toxic-change moment for the chapter to frame");
 });
 
-test("the session itself never welds its change to its inputs", () => {
+test("the session itself never links its change to its inputs", () => {
   // chapter 7's toxic-change step relies on this: the cautious observer
-  // shown on screen declines to weld change through the session — only an
+  // shown on screen declines to link change through the session — only an
   // amount analyst (or a later co-spend) hands it back to its owner
   const eco = eco115();
   const cl = clusterObserver(eco.chain);
   // unspent change of underdetermined sessions only: a later co-spend may
-  // (rightly) weld via CIOH, and a determined session's amounts already
+  // (rightly) link via CIOH, and a determined session's amounts already
   // hand the observer the full sub-transaction mapping
   const change = [...eco.chain.coins.values()].filter(
     (c) => c.label === "coinjoin change" && c.dest === null &&
@@ -76,7 +76,7 @@ test("the session itself never welds its change to its inputs", () => {
     const cluster = new Set(cl.members.get(rep) ?? [c.id]);
     for (const i of eco.chain.txs.get(c.producer!)!.inputs) {
       assert.ok(!cluster.has(i),
-        `${c.id} was welded to session input ${i} by the session itself`);
+        `${c.id} was linked to session input ${i} by the session itself`);
     }
   }
 });

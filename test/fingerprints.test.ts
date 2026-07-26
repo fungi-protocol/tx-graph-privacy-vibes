@@ -140,18 +140,18 @@ test("fingerprint veto: divergent input families make CIOH abstain (#103)", () =
     { owner: 0, value: 876_543 - fee },
   ], 2);
   c.assignAddresses(new Set(), (who) => (who === 0 ? "segwit" : "taproot"));
-  // without the fingerprint knob CIOH welds the payjoin's lie
+  // without the fingerprint knob CIOH links the payjoin's lie
   const naive = clusterObserver(c, at);
   assert.equal(naive.rep.get("a"), naive.rep.get("b"));
-  assert.ok(naive.welds.some((w) => w.method === "cioh" && w.tx === "t1"));
+  assert.ok(naive.links.some((w) => w.method === "cioh" && w.tx === "t1"));
   // with it, two families in one spend read as two wallets: abstention
   const sharp = clusterObserver(c, at, { fingerprints: true });
   assert.notEqual(sharp.rep.get("a"), sharp.rep.get("b"));
-  assert.ok(!sharp.welds.some((w) => w.method === "cioh" && w.tx === "t1"));
+  assert.ok(!sharp.links.some((w) => w.method === "cioh" && w.tx === "t1"));
 });
 
 test("fingerprint veto: homogeneous families keep CIOH, and a migration misfires (#103)", () => {
-  // same-family inputs: the check is quiet, the weld stands — a payjoin
+  // same-family inputs: the check is quiet, the link stands — a payjoin
   // between users of one product keeps its cover
   const c = new Chain();
   const fee = txfee(2, 2, 2);

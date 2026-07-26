@@ -96,20 +96,20 @@ test("fresh wallets never share an address; the walk is stable as the chain grow
 test("the observer links reused addresses with no inference at all", () => {
   const eco = new Economy("welcome");
   eco.runTo(30);
-  // reuse alone: everything the map welds is a genuinely shared address
+  // reuse alone: everything the map links is a genuinely shared address
   const cl = clusterObserver(eco.chain, undefined,
     { reuse: true, cioh: false, change: false, subsum: false });
   const carols = [...eco.chain.coins.values()].filter((c) => c.owner === CARELESS).map((c) => c.id);
   const reps = new Set(carols.map((id) => cl.rep.get(id)!));
   assert.equal(reps.size, 1, "Carol's coins should share one cluster");
-  // the welds carry the address observed, not a transaction
-  const welds = cl.welds.filter((w) => w.method === "reuse");
-  assert.ok(welds.length >= 1);
-  for (const w of welds) {
+  // the links carry the address observed, not a transaction
+  const links = cl.links.filter((w) => w.method === "reuse");
+  assert.ok(links.length >= 1);
+  for (const w of links) {
     assert.equal(w.tx, undefined);
     // Carol runs Brightpay, a segwit wallet — her one address is bc1q
     assert.match(w.addr!, /^bc1q[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{8}$/);
-    // inference-free means never wrong: one true owner per weld
+    // inference-free means never wrong: one true owner per link
     assert.equal(new Set(w.coins.map((c) => eco.chain.coins.get(c)!.owner)).size, 1);
   }
   // no one else clusters: reuse finds Carol and only Carol

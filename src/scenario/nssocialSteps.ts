@@ -10,7 +10,7 @@
 // match is an ownership claim, so accepting it merges the clusters.
 // The chapter displays the live run's own match count rather than
 // asserting one, and closes on the honest limits: matches are claims
-// scored by similarity, not probabilities, and a wrong one welds
+// scored by similarity, not probabilities, and a wrong one links
 // strangers just as CIOH did.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
@@ -99,7 +99,7 @@ export function nsSocialSteps(
         are the leak, not the numbers.</p>
         <p>And the same honesty as every heuristic before it: a match is
         a <b>claim</b>, scored by similarity — the score is not a
-        probability — and a wrong match welds two strangers' histories
+        probability — and a wrong match links two strangers' histories
         together exactly as a wrong change guess did. The method earns
         its keep where relationships really do recur; where they don't,
         it invents them.</p>`,

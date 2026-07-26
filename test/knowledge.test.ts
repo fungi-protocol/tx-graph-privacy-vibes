@@ -78,13 +78,13 @@ test("fixed points seed the public clustering into 'likely' attributions", () =>
   assert.ok(wrong < seeded, `all ${seeded} seeded attributions are wrong`);
 });
 
-test("a conflicted cluster (the payjoin weld) earns no guess", () => {
+test("a conflicted cluster (the payjoin link) earns no guess", () => {
   const eco = ecoAt(90);
   const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
   const pj = eco.events.find((e) => e.form === "payjoin")!;
   const tx = eco.chain.txs.get(pj.tid)!;
   // a bystander with direct knowledge about both parties must not
-  // attribute the welded cluster to either one
+  // attribute the linked cluster to either one
   const bystander = [...Array(10).keys()].find((u) => u !== pj.payer && u !== pj.payee)!;
   const k = agentKnowledge(eco.chain, eco.events, bystander, cl);
   const rep = cl.rep.get(tx.inputs[0]!)!;

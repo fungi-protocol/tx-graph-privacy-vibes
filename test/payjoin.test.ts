@@ -93,8 +93,8 @@ test("payjoinDetection excludes only the exhibit's evidence and reads prior clus
   const reps = tx.inputs.map((i) => cl.rep.get(i)!);
   assert.equal(d.distinct, new Set(reps).size === reps.length);
   assert.deepEqual(d.sizes, reps.map((r) => cl.members.get(r)!.length));
-  // and no weld in the excepted clustering cites the exhibit
-  assert.ok(cl.welds.every((w) => w.tx !== pj.tid));
+  // and no link in the excepted clustering cites the exhibit
+  assert.ok(cl.links.every((w) => w.tx !== pj.tid));
 });
 
 test("detection verdicts across the tutorial seeds match the calibrated record", () => {

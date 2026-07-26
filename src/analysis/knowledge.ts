@@ -16,7 +16,7 @@
 // decay. And they seed the same public heuristics an outsider runs: a
 // cluster that contains a coin the agent can attribute is attributed
 // wholesale (unless the cluster mixes evidence about two different
-// owners — a participant knows exactly when the weld is a lie, so a
+// owners — a participant knows exactly when the link is a lie, so a
 // conflicted cluster earns no guess at all).
 import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { type EconomyEvent } from "../engine/economy";
@@ -122,7 +122,7 @@ export function agentKnowledge(
         const a = coins.get(id);
         if (a?.direct) owners.add(a.owner);
       }
-      if (owners.size !== 1) continue; // no evidence, or a weld the agent knows is a lie
+      if (owners.size !== 1) continue; // no evidence, or a link the agent knows is a lie
       const owner = [...owners][0]!;
       for (const id of members) {
         if (!coins.has(id)) coins.set(id, { owner, direct: false });

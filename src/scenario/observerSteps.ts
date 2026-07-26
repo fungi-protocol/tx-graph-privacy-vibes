@@ -9,7 +9,7 @@
 // read as a batch payment and the observer abstains) with its
 // real-world family of heuristics and the configurable evidence bar, cluster
 // contraction, and the pseudonym graph — which the chapter closes by
-// combining with the exchange's records: names seed clusters, welds
+// combining with the exchange's records: names seed clusters, links
 // spread names. The Scroll #2/#3 arc: familiar heuristics first, then
 // the honest caveat that attacks always get better, then the observer's
 // real product — a social graph. The random-leaks slider is deliberately
@@ -282,7 +282,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       minDay: 21,
     },
     {
-      id: "names-meet-the-welds",
+      id: "names-meet-the-links",
       title: "Names meet the guesses",
       html: `<p>Now play the card from earlier. The heuristics panel has
         an <b>auxiliary information</b> section, and checking <i>exchange

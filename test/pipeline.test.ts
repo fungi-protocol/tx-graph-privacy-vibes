@@ -1,7 +1,7 @@
 // #84: the shared analysis pipeline is exactly the composition main.ts
 // used to run inline — the base clustering with the grant read as a
 // payment identifier, the grant state compounded over it, the two
-// propagation matchers on the fused map, and the weld grading. The
+// propagation matchers on the fused map, and the link grading. The
 // worker and the page both call runAnalysis, so this parity is what
 // guarantees a job computed off the main thread installs the same
 // results a synchronous toggle would have produced.
@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
 import { runAnalysis, observerOpts, type AnalysisKnobs } from "../src/analysis/pipeline";
-import { clusterObserver, gradeWelds, TELL_ALL, TELL_AUX } from "../src/analysis/clusters";
+import { clusterObserver, gradeLinks, TELL_ALL, TELL_AUX } from "../src/analysis/clusters";
 import {
   observerGrants, grantAttribution, grantMerges, clusterGrantOwners,
 } from "../src/analysis/auxinfo";
@@ -34,7 +34,7 @@ test("plain observer: the bundle's clustering is clusterObserver's, and nothing 
   const b = runAnalysis(eco.chain, priceAt, SEED, ALL_ON, { ns: null, nf: null, mistakes: false });
   const direct = clusterObserver(eco.chain, priceAt, { reuse: true, cioh: true, change: true, subsum: true });
   assert.deepEqual(b.cl.rep, direct.rep);
-  assert.deepEqual(b.cl.welds, direct.welds);
+  assert.deepEqual(b.cl.links, direct.links);
   assert.equal(b.grantMap, null);
   assert.equal(b.grant, null);
   assert.equal(b.nsEvents, null);
@@ -54,7 +54,7 @@ test("knob translation: caps, bar and tells reach clusterObserver exactly as mai
     ciohMaxInputs: 3, changeEvidence: 2, changeTells: TELL_ALL & ~TELL_AUX,
   });
   assert.deepEqual(b.cl.rep, direct.rep);
-  assert.deepEqual(b.mistakes, gradeWelds(eco.chain, direct.welds));
+  assert.deepEqual(b.mistakes, gradeLinks(eco.chain, direct.links));
 });
 
 test("grant + matchers: the same composition, in the same order, on the same fused base", () => {
@@ -79,7 +79,7 @@ test("grant + matchers: the same composition, in the same order, on the same fus
   assert.deepEqual(b.grant!.fused.rep, fused.rep);
   assert.deepEqual(b.nsEvents, ns);
   assert.deepEqual(b.nfEvents, nf);
-  assert.deepEqual(b.mistakes, gradeWelds(eco.chain, cl.welds));
+  assert.deepEqual(b.mistakes, gradeLinks(eco.chain, cl.links));
 });
 
 test("nf replay position: a partial ns prefix changes the matcher's base the same way the display's cursor does", () => {
@@ -114,5 +114,5 @@ test("a truncated chain analyzes like the display's rewound view: same record pr
   shorter.runTo(40);
   const direct = clusterObserver(shorter.chain, (d) => shorter.prices[d], observerOpts(ALL_ON, null));
   assert.deepEqual(b.cl.rep, direct.rep);
-  assert.deepEqual(b.mistakes, gradeWelds(shorter.chain, direct.welds));
+  assert.deepEqual(b.mistakes, gradeLinks(shorter.chain, direct.links));
 });

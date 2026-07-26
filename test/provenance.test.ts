@@ -7,8 +7,8 @@ import { support, removeOneMethod, withoutMethod } from "../src/analysis/provena
 import { Economy, COINJOIN_DAY } from "../src/engine/economy";
 
 // a payment whose two-output shape feeds the round-USD change guess:
-// inputs a+b, outputs a round-USD payment and the change. CIOH welds
-// a~b; the change guess welds change~a. Price pinned so 500_000 sats
+// inputs a+b, outputs a round-USD payment and the change. CIOH links
+// a~b; the change guess links change~a. Price pinned so 500_000 sats
 // reads as exactly $50.
 function paymentChain(): Chain {
   const c = new Chain();
@@ -23,17 +23,17 @@ function paymentChain(): Chain {
 }
 const price = (): number => 10_000; // $10k/BTC: 500k sats = $50
 
-test("welds are recorded with their method and base observation", () => {
+test("links are recorded with their method and base observation", () => {
   const c = paymentChain();
   const cl = clusterObserver(c, price);
-  assert.equal(cl.welds.length, 2);
-  const methods = cl.welds.map((w) => w.method).sort();
+  assert.equal(cl.links.length, 2);
+  const methods = cl.links.map((w) => w.method).sort();
   assert.deepEqual(methods, ["change", "cioh"]);
-  for (const w of cl.welds) {
+  for (const w of cl.links) {
     assert.equal(w.tx, "t1");
-    // every weld's coins really do share the cluster it claims
+    // every link's coins really do share the cluster it claims
     const reps = new Set(w.coins.map((id) => cl.rep.get(id)));
-    assert.equal(reps.size, 1, `${w.method}: weld not honored by the map`);
+    assert.equal(reps.size, 1, `${w.method}: link not honored by the map`);
   }
 });
 
@@ -46,14 +46,14 @@ test("support exhibits a chain of inference back to base observations", () => {
   // a ~ change rests on the change guess alone
   const ac = support(cl, "a", "t1o2")!;
   assert.deepEqual(ac.map((w) => w.method), ["change"]);
-  // the payment output is never welded to anything
+  // the payment output is never linked to anything
   assert.equal(support(cl, "a", "t1o1"), null);
   assert.equal(cl.rep.get("t1o1"), "t1o1");
 });
 
 test("remove-one-method: each claim names the method it cannot survive without", () => {
   const c = paymentChain();
-  // a ~ b: survives losing the change guess (CIOH still welds the
+  // a ~ b: survives losing the change guess (CIOH still links the
   // inputs), dies with CIOH disabled
   const ab = removeOneMethod(c, price, "a", "b");
   assert.equal(ab.get("change"), true);
@@ -69,9 +69,9 @@ test("remove-one-method: each claim names the method it cannot survive without",
 });
 
 test("closure: blocking one heuristic does not restore privacy, on every tutorial seed", () => {
-  // the careless first coinjoin is welded by the sub-transaction
-  // analysis (unique partition). Disable it and the weld between a
-  // participant's two inputs SURVIVES — plain CIOH takes over (welding
+  // the careless first coinjoin is linked by the sub-transaction
+  // analysis (unique partition). Disable it and the link between a
+  // participant's two inputs SURVIVES — plain CIOH takes over (linking
   // the other participants in too, wrongly, but the coins stay linked).
   // Blocking the stronger method does not un-link what a cruder one
   // still links. Held on every seed the tutorial reaches, not just the
@@ -94,7 +94,7 @@ test("closure: blocking one heuristic does not restore privacy, on every tutoria
     const cl = clusterObserver(eco.chain, p);
     const chainOfInference = support(cl, a, b)!;
     assert.ok(chainOfInference.some((w) => w.method === "subtx" && w.tx === eco.naiveTid),
-      `${seed}: the naive coinjoin weld should rest on the sub-transaction analysis`);
+      `${seed}: the naive coinjoin link should rest on the sub-transaction analysis`);
     assert.equal(withoutMethod(eco.chain, p, "subtx", a, b), true,
       `${seed}: removing the sub-transaction analysis must not restore privacy here`);
   }
@@ -103,7 +103,7 @@ test("closure: blocking one heuristic does not restore privacy, on every tutoria
 test("with every method disabled the ledger is empty and all coins are singletons", () => {
   const c = paymentChain();
   const cl = clusterObserver(c, price, { cioh: false, change: false, subsum: false });
-  assert.equal(cl.welds.length, 0);
+  assert.equal(cl.links.length, 0);
   for (const id of c.coins.keys()) {
     assert.equal(cl.members.get(cl.rep.get(id)!)!.length, 1);
   }

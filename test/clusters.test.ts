@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Chain } from "../src/model/chain";
 import { txfee } from "../src/core/sats";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, gradeWelds, mergeInputs, TELL_USD, TELL_BTC, TELL_AUX } from "../src/analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, gradeLinks, mergeInputs, TELL_USD, TELL_BTC, TELL_AUX } from "../src/analysis/clusters";
 import { subTransactionMapping } from "../src/analysis/subsetsum";
 import { Economy } from "../src/engine/economy";
 
@@ -86,7 +86,7 @@ test("clusters are ranked by size, largest first", () => {
   c.addRoot("z", 500_000, 1);
   const fee = txfee(3, 2, 2);
   // neither output is round in BTC or (rateless) dollars: two unknowns,
-  // the batch-payment null hypothesis, no change weld to muddy the count
+  // the batch-payment null hypothesis, no change link to muddy the count
   c.addTx("t1", 1, ["a", "b", "d"], [
     { owner: 1, value: 550_000 },
     { owner: 0, value: 350_000 - fee },
@@ -154,11 +154,11 @@ test("heuristic toggles gate their unions independently", () => {
   const noCioh = clusterObserver(c, at, { cioh: false });
   assert.notEqual(noCioh.rep.get("a"), noCioh.rep.get("b"));
   assert.equal(noCioh.changeGuess.get("t1"), undefined);
-  // both on: CIOH welds the inputs first, the tx reads unilateral, and
+  // both on: CIOH links the inputs first, the tx reads unilateral, and
   // only then does the change guess fire
   const both = clusterObserver(c, at);
   assert.deepEqual(both.changeGuess.get("t1"), ["t1o2"]);
-  // change off: the co-spend still welds, no output joins the inputs
+  // change off: the co-spend still links, no output joins the inputs
   const noChange = clusterObserver(c, at, { change: false });
   assert.equal(noChange.rep.get("a"), noChange.rep.get("b"));
   assert.equal(noChange.changeGuess.size, 0);
@@ -169,7 +169,7 @@ test("subset-sum toggle off falls back to CIOH on ambiguous spends", () => {
   const c = new Chain();
   // three equal outputs make the split proven-ambiguous: {a}<->{any one
   // of them} balances, so the analysis abstains — until it is switched
-  // off, when plain CIOH welds the co-spent inputs unconditionally
+  // off, when plain CIOH links the co-spent inputs unconditionally
   const fee = txfee(2, 3, 2);
   c.addRoot("a", 100_000, 0);
   c.addRoot("b", 200_000 + fee, 1);
@@ -245,7 +245,7 @@ test("CIOH abstains above the max-inputs cap", () => {
   const capped = clusterObserver(c, undefined, { ciohMaxInputs: 2 });
   assert.notEqual(capped.rep.get("a"), capped.rep.get("b"));
   assert.notEqual(capped.rep.get("b"), capped.rep.get("d"));
-  assert.equal(capped.welds.filter((w) => w.method === "cioh").length, 0);
+  assert.equal(capped.links.filter((w) => w.method === "cioh").length, 0);
   const roomy = clusterObserver(c, undefined, { ciohMaxInputs: 3 });
   assert.equal(roomy.rep.get("a"), roomy.rep.get("b"));
   assert.equal(roomy.rep.get("b"), roomy.rep.get("d"));
@@ -264,7 +264,7 @@ test("change identification applies per sub-transaction of a unique partition", 
     { owner: 2, value: 777_000 },
   ], 2);
   const cl = clusterObserver(c, at);
-  // the sub-transaction analysis welds each part...
+  // the sub-transaction analysis links each part...
   assert.equal(cl.rep.get("a"), cl.rep.get("t1o1"));
   assert.equal(cl.rep.get("a"), cl.rep.get("t1o2"));
   assert.equal(cl.rep.get("b"), cl.rep.get("t1o3"));
@@ -272,10 +272,10 @@ test("change identification applies per sub-transaction of a unique partition", 
   // ...and the round-USD rule runs inside part A: $100 reads as the
   // payment, so the other output is guessed to be its change
   assert.deepEqual(cl.changeGuess.get("t1"), ["t1o2"]);
-  const changeWelds = cl.welds.filter((w) => w.method === "change" && w.tx === "t1");
-  assert.equal(changeWelds.length, 1);
-  assert.ok(changeWelds[0]!.coins.includes("t1o2"));
-  // with the change toggle off, the part welds stay but no guess is made
+  const changeLinks = cl.links.filter((w) => w.method === "change" && w.tx === "t1");
+  assert.equal(changeLinks.length, 1);
+  assert.ok(changeLinks[0]!.coins.includes("t1o2"));
+  // with the change toggle off, the part links stay but no guess is made
   const noChange = clusterObserver(c, at, { change: false });
   assert.equal(noChange.changeGuess.size, 0);
 });
@@ -294,7 +294,7 @@ test("several unidentified outputs read as a batch payment: the observer abstain
   const cl = clusterObserver(c, at);
   assert.deepEqual(cl.payGuess.get("t1"), ["t1o1"]);
   assert.equal(cl.changeGuess.get("t1"), undefined);
-  assert.equal(cl.welds.filter((w) => w.method === "change").length, 0);
+  assert.equal(cl.links.filter((w) => w.method === "change").length, 0);
   // identify the second payment too (both round) and the sole remaining
   // unknown becomes the suspected change
   const d = new Chain();
@@ -405,7 +405,7 @@ test("auxiliary attribution identifies a payment no amount tell would", () => {
   assert.deepEqual(cl.payGuess.get("t1"), ["t1o1"]);
   assert.deepEqual(cl.changeGuess.get("t1"), ["t1o2"]);
   // an attribution matching the inputs' owner is a resolved self-spend,
-  // not a payment — and not a change weld either (the grant layer owns it)
+  // not a payment — and not a change link either (the grant layer owns it)
   const selfg = new Map([["a", 0], ["t1o1", 0]] as [string, number][]);
   const sl = clusterObserver(c, at, { grants: selfg });
   assert.equal(sl.payGuess.get("t1"), undefined);
@@ -415,7 +415,7 @@ test("auxiliary attribution identifies a payment no amount tell would", () => {
 test("an underdetermined partition still gets step one: payments identified, nothing linked", () => {
   const c = new Chain();
   // three equal NON-menu outputs ($150 each) make the split proven
-  // ambiguous; the observer welds nothing, but the round amounts are
+  // ambiguous; the observer links nothing, but the round amounts are
   // per-coin reads and land in payGuess anyway
   const fee = txfee(2, 3, 2);
   c.addRoot("a", 150_000, 0);
@@ -427,7 +427,7 @@ test("an underdetermined partition still gets step one: payments identified, not
   ], 2);
   const cl = clusterObserver(c, at);
   assert.notEqual(cl.rep.get("a"), cl.rep.get("b"));
-  assert.equal(cl.welds.length, 0);
+  assert.equal(cl.links.length, 0);
   assert.deepEqual(cl.payGuess.get("t1"), ["t1o1", "t1o2", "t1o3"]);
   assert.equal(cl.changeGuess.get("t1"), undefined);
 });
@@ -445,13 +445,13 @@ test("radix structure inverts the null hypothesis: repeated denominations and th
   ], 2);
   const cl = clusterObserver(c, at);
   // every output links to the input cluster — the denominations by the
-  // radix null hypothesis, welded but not guessed as change
+  // radix null hypothesis, linked but not guessed as change
   assert.equal(cl.rep.get("a"), cl.rep.get("t1o1"));
   assert.equal(cl.rep.get("a"), cl.rep.get("t1o2"));
   assert.equal(cl.rep.get("a"), cl.rep.get("t1o3"));
   assert.equal(cl.changeGuess.get("t1"), undefined);
-  const radixWelds = cl.welds.filter((w) => w.method === "change" && w.basis === "radix");
-  assert.equal(radixWelds.length, 3);
+  const radixLinks = cl.links.filter((w) => w.method === "change" && w.basis === "radix");
+  assert.equal(radixLinks.length, 3);
   // amount evidence still identifies a payment inside the structure: a
   // round-dollar output that is NOT a menu value keeps its tell
   const d = new Chain();
@@ -592,21 +592,21 @@ function remeetChain(owners: [number, number]): Chain {
   ], 2);
   return c;
 }
-// every other heuristic off, so the welds under test stand alone
+// every other heuristic off, so the links under test stand alone
 const ONLY_REMEET = { reuse: false, cioh: false, change: false, subsum: false, remeet: true };
 
-test("repeated co-membership welds a session's returning coins; off, they stay apart (#105)", () => {
+test("repeated co-membership links a session's returning coins; off, they stay apart (#105)", () => {
   const c = remeetChain([0, 0]);
   const on = clusterObserver(c, undefined, ONLY_REMEET);
   assert.equal(on.rep.get("s1o1"), on.rep.get("s1o2"));
-  const w = on.welds.find((x) => x.method === "remeet");
-  assert.ok(w, "no remeet weld recorded");
+  const w = on.links.find((x) => x.method === "remeet");
+  assert.ok(w, "no remeet link recorded");
   assert.equal(w!.tx, "s2");
   assert.equal(w!.via, "s1");
   assert.deepEqual([...w!.coins].sort(), ["s1o1", "s1o2"]);
   const off = clusterObserver(c, undefined, { ...ONLY_REMEET, remeet: false });
   assert.notEqual(off.rep.get("s1o1"), off.rep.get("s1o2"));
-  assert.equal(off.welds.length, 0);
+  assert.equal(off.links.length, 0);
 });
 
 test("repeated co-membership needs the session shape on both transactions (#105)", () => {
@@ -629,17 +629,17 @@ test("repeated co-membership needs the session shape on both transactions (#105)
     { owner: 2, value: 200_000 },
   ], 2);
   const cl = clusterObserver(c, undefined, ONLY_REMEET);
-  assert.ok(cl.welds.every((w) => w.method !== "remeet"));
+  assert.ok(cl.links.every((w) => w.method !== "remeet"));
 });
 
 test("a re-meeting that really was two users grades as a mistake, one user's does not (#105)", () => {
   const wrong = clusterObserver(remeetChain([0, 1]), undefined, ONLY_REMEET);
-  const flagged = gradeWelds(remeetChain([0, 1]), wrong.welds);
+  const flagged = gradeLinks(remeetChain([0, 1]), wrong.links);
   const notes = flagged.get("s2") ?? [];
   assert.ok(notes.some((m) => m.method === "remeet"),
     "the two-user re-meeting should grade as a mistake");
   const right = clusterObserver(remeetChain([0, 0]), undefined, ONLY_REMEET);
-  const clean = gradeWelds(remeetChain([0, 0]), right.welds);
+  const clean = gradeLinks(remeetChain([0, 0]), right.links);
   assert.equal(clean.size, 0);
 });
 

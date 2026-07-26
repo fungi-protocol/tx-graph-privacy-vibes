@@ -46,22 +46,22 @@
 //   - sub-transaction analysis (the sub-transaction model, Maurer et
 //     al.): a transaction
 //     with several outputs is checked for partitions into balancing
-//     sub-transactions. A unique partition welds each part — inputs AND
+//     sub-transactions. A unique partition links each part — inputs AND
 //     outputs — together (stronger than CIOH); several valid partitions
 //     mean the mapping is underdetermined, and a careful observer
-//     declines to weld anything at all.
+//     declines to link anything at all.
 //   - repeated co-membership (#105): inputs of a coinjoin-shaped
 //     transaction that were issued by ONE earlier coinjoin-shaped
 //     transaction. Peers are drawn from anywhere, so two users landing
 //     in the same two sessions by chance is the unlikely reading; the
 //     plain one is a single participant bringing their own coins back,
-//     and the group is welded. The group also counts as one combined
+//     and the group is linked. The group also counts as one combined
 //     input in the sub-transaction search, striking every balanced
 //     reading that splits it — which is why re-consolidating coins
 //     from one session inside another buys several inputs' block
 //     space and one combined coin's ambiguity.
 // Heuristics, not proofs: the change guess can be wrong, and when it is
-// wrong it welds a stranger's coin into the cluster. That failure mode is
+// wrong it links a stranger's coin into the cluster. That failure mode is
 // left in on purpose.
 import { type Chain, type CoinId, type TxId, type Owner, addrKey, addrText } from "../model/chain";
 import { type Sats } from "../core/sats";
@@ -69,9 +69,9 @@ import { isDenomination } from "../denom/denominations";
 import { subTransactionMapping, forcedLinks } from "./subsetsum";
 
 /** one observation the observer's map rests on: a method applied to a
- *  transaction welded these coins together.
+ *  transaction linked these coins together.
  *
- *  Every weld is an OWNERSHIP claim, and none of the methods proves
+ *  Every link is an OWNERSHIP claim, and none of the methods proves
  *  ownership outright. CIOH and the change guess are ownership
  *  inferences from the start. The sub-transaction verdict is subtler:
  *  what a unique partition PROVES is value flow — which inputs funded
@@ -80,29 +80,29 @@ import { subTransactionMapping, forcedLinks } from "./subsetsum";
  *  change inside it). The `assumption` field names that extra step, so
  *  anything teaching from this ledger can state separately what the
  *  verdict establishes and what the observer assumes. This is also why
- *  `Clustering.welds` is a ledger of ownership claims, not a complete
+ *  `Clustering.links` is a ledger of ownership claims, not a complete
  *  general evidence ledger — the underlying flow verdicts live in the
  *  sub-transaction analysis itself. */
-export interface Weld {
+export interface Link {
   method: "reuse" | "cioh" | "change" | "subtx" | "remeet";
   /** the base observation: the transaction the method looked at. Absent
-   *  on reuse welds, whose observation is an address, not a transaction. */
+   *  on reuse links, whose observation is an address, not a transaction. */
   tx?: TxId;
-  /** on a remeet weld, the earlier session the welded coins were all
+  /** on a remeet link, the earlier session the linked coins were all
    *  issued by — the observation spans two transactions */
   via?: TxId;
-  /** the reused address a reuse weld rests on (its base observation) */
+  /** the reused address a reuse link rests on (its base observation) */
   addr?: string;
-  /** the coins this single observation welds into one owner */
+  /** the coins this single observation links into one owner */
   coins: CoinId[];
-  /** the assumption the weld adds beyond what the method's verdict
-   *  establishes; present on subtx welds, whose verdict alone proves
+  /** the assumption the link adds beyond what the method's verdict
+   *  establishes; present on subtx links, whose verdict alone proves
    *  flow, not ownership */
   assumption?: "one-owner-per-part";
-  /** what a change weld rests on: "residue" = the sole non-payment
+  /** what a change link rests on: "residue" = the sole non-payment
    *  output left after payment identification; "radix" = a repeated
    *  denomination whose null hypothesis is a self-spend. On a subtx
-   *  weld, "bound" marks a forced pairing extracted from a mapping
+   *  link, "bound" marks a forced pairing extracted from a mapping
    *  the analysis otherwise abstains on: an output larger than the
    *  rest of the inputs combined (or an input larger than the rest of
    *  the outputs) pairs the same way in every balanced reading */
@@ -134,14 +134,14 @@ export interface Clustering {
    *  of leaving the abstention silent. Empty when the change heuristic
    *  is off. */
   changeReads: Map<TxId, ChangeRead[]>;
-  /** the ownership-weld ledger — deliberately narrow, NOT a general
+  /** the ownership-link ledger — deliberately narrow, NOT a general
    *  evidence ledger (it cannot hold rejected candidates, seeds,
    *  relationship features, or propagation decisions; those get their
-   *  own typed records): every weld, in the order it was made. Welds
+   *  own typed records): every link, in the order it was made. Links
    *  citing the same tx are correlated by construction — one
    *  observation, however many features it feeds — so disabling a
    *  method (or distrusting an observation) drops them together. */
-  welds: Weld[];
+  links: Link[];
 }
 
 /** One (sub-)transaction's change/payment identification verdict: what
@@ -193,10 +193,10 @@ export interface Heuristics {
   /** the evidentiary bar for linking the sole non-payment output as
    *  change: how many DISTINCT enabled tell kinds (round dollars,
    *  round bitcoin, auxiliary attributions) must have fired across the
-   *  sub-transaction's identified payment outputs before the weld is
+   *  sub-transaction's identified payment outputs before the link is
    *  made. 1 (the default) lets a single tell decide; higher bars
    *  demand corroboration between kinds, trading coverage for fewer
-   *  wrong welds. The radix self-spend link is a null hypothesis, not
+   *  wrong links. The radix self-spend link is a null hypothesis, not
    *  an inference from payment tells, so the bar does not gate it. */
   changeEvidence?: number;
   /** auxiliary attributions the observer holds (the #67 grant): coin →
@@ -204,12 +204,12 @@ export interface Heuristics {
    *  the aux tell): an output attributed to a different owner than a
    *  granted input is a payment (and never linked); one attributed to
    *  the same owner is a resolved self-spend, settled by the grant
-   *  layer rather than a change weld. And as a VETO on every heuristic
-   *  weld, regardless of which tells run: a weld whose coins carry
+   *  layer rather than a change link. And as a VETO on every heuristic
+   *  link, regardless of which tells run: a link whose coins carry
    *  attributions naming two different owners is a known lie, and the
    *  observer discards the observation rather than act on it. The veto
    *  is what makes the aux slider's maximum coincide with omniscience —
-   *  with every coin attributed, every wrong weld is visibly wrong, and
+   *  with every coin attributed, every wrong link is visibly wrong, and
    *  the grant layer's fusions finish the by-owner partition. */
   grants?: ReadonlyMap<CoinId, Owner>;
   /** CIOH abstains on transactions with more inputs than this: a cheap
@@ -224,11 +224,11 @@ export interface Heuristics {
    *  that partition the inputs restore what the payjoin broke; Ghesmati
    *  et al. 2022 for the detection framing). Every one-owner reading of
    *  such a transaction is suspect, so CIOH and the sub-transaction
-   *  analysis's one-owner-per-part welds abstain on it. A heuristic,
+   *  analysis's one-owner-per-part links abstain on it. A heuristic,
    *  not a proof: a wallet migration puts one user's own coins on two
    *  families, and co-spending them misfires this check — the observer
    *  then MISSES a true link (an abstention, so the mistakes grading,
-   *  which judges only welds made, never flags it). */
+   *  which judges only links made, never flags it). */
   fingerprints?: boolean;
   /** transactions whose evidence is set aside entirely — the map "the
    *  rest of the record" builds without them. Used to ask whether one
@@ -344,7 +344,7 @@ export function clusterObserver(
   const tellsOn = heuristics.changeTells ?? TELL_ALL;
   // the grant is read as a payment identifier only through the aux tell
   const grants = (tellsOn & TELL_AUX) !== 0 ? heuristics.grants : undefined;
-  // ... but the weld veto reads the grant ungated: knowing two coins'
+  // ... but the link veto reads the grant ungated: knowing two coins'
   // owners differ refutes any observation claiming them for one owner,
   // whether or not the change heuristic's aux tell is switched on
   const auxAll = heuristics.grants;
@@ -362,7 +362,7 @@ export function clusterObserver(
   };
   // the fingerprint reading (Heuristics.fingerprints): inputs sitting on
   // two script families read as two wallets' coins in one transaction,
-  // so every one-owner reading of it is suspect and the welds abstain
+  // so every one-owner reading of it is suspect and the links abstain
   const fp = heuristics.fingerprints ?? false;
   const mixedWallets = (ins: readonly CoinId[]): boolean => {
     if (!fp) return false;
@@ -395,7 +395,7 @@ export function clusterObserver(
   const changeGuess = new Map<TxId, CoinId[]>();
   const payGuess = new Map<TxId, CoinId[]>();
   const changeReads = new Map<TxId, ChangeRead[]>();
-  const welds: Weld[] = [];
+  const links: Link[] = [];
   // the repeated-co-membership read asks the same shape question of a
   // coin's producer over and over — memoized once per transaction
   const shapeMemo = new Map<TxId, boolean>();
@@ -410,7 +410,7 @@ export function clusterObserver(
   // address reuse first: the observer's address index is complete before a
   // single transaction is read. Coins paid to the same address are
   // controlled by the same key, so linking them is reading the record, not
-  // inferring from it — the weld carries no assumption that could be
+  // inferring from it — the link carries no assumption that could be
   // wrong. Addresses are compared as opaque identifiers; nothing here
   // reads whose they are.
   if (reuse) {
@@ -425,7 +425,7 @@ export function clusterObserver(
     for (const coins of byAddr.values()) {
       if (coins.length < 2) continue;
       for (let i = 1; i < coins.length; i++) union(coins[i]!, coins[0]!);
-      welds.push({
+      links.push({
         method: "reuse",
         addr: addrText(chain.coins.get(coins[0]!)!.addr!),
         coins: [...coins],
@@ -455,7 +455,7 @@ export function clusterObserver(
     // payments (a plausible payment amount, or an auxiliary
     // attribution naming a different owner than a granted input),
     // self-spends resolved by an attribution matching a granted
-    // input's owner (settled by the grant layer, no weld here), and
+    // input's owner (settled by the grant layer, no link here), and
     // unknowns. Step two links: payments are assumed NOT to belong
     // with the inputs; a sole unknown is suspected change and links if
     // the payment tells clear the evidentiary bar; several unknowns
@@ -468,7 +468,7 @@ export function clusterObserver(
     // evidence defaults to self-spend, treated like change and linked
     // to the input cluster. `linked` says whether the inputs already
     // read as one cluster (`anchor` stands in for them): step two's
-    // welds are contingent on it, step one's identifications are not.
+    // links are contingent on it, step one's identifications are not.
     const radixStructure = [...denomCount.values()].some((n) => n >= 2);
     // `whyUnlinked` names the caller's reason when `linked` is false, so
     // the recorded reading can say why step two had no cluster to link to
@@ -507,7 +507,7 @@ export function clusterObserver(
           // an auxiliary attribution outranks the other tells in both
           // directions: a different owner is a payment however the
           // amount or script reads; the same owner is a self-spend
-          // already settled by the grant layer, so no change weld is
+          // already settled by the grant layer, so no change link is
           // needed
           if (!inOwners.has(g)) {
             payments.push(o);
@@ -543,15 +543,15 @@ export function clusterObserver(
       }
       // the radix null hypothesis links self-spends like change — but
       // they are default readings, not change guesses, so they join
-      // the weld ledger without entering changeGuess; and a weld is
+      // the link ledger without entering changeGuess; and a link is
       // recorded only where it links something new (inside a unique
-      // part the part weld already claims these coins)
+      // part the part link already claims these coins)
       for (const s of selfs) {
         if (!refuted([s, ...ins])) {
           read.selfs.push(s);
           if (find(s) !== find(anchor)) {
             union(s, anchor);
-            welds.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
+            links.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
           }
         }
       }
@@ -570,7 +570,7 @@ export function clusterObserver(
           if (g) g.push(guess);
           else changeGuess.set(tid, [guess]);
           union(guess, anchor);
-          welds.push({ method: "change", tx: tid, coins: [guess, anchor], basis: "residue" });
+          links.push({ method: "change", tx: tid, coins: [guess, anchor], basis: "residue" });
         }
       } else if (unknowns.length > 1) {
         read.abstain = "batch";
@@ -582,7 +582,7 @@ export function clusterObserver(
     // transaction. Peers are drawn from anywhere, so distinct users
     // landing in the same two sessions by chance is the unlikely
     // reading; the plain one is a single participant bringing their own
-    // coins back — the group is welded, and counts as one combined
+    // coins back — the group is linked, and counts as one combined
     // input in the sub-transaction search below, striking every
     // balanced reading that splits it
     const regroups: number[][] = [];
@@ -604,7 +604,7 @@ export function clusterObserver(
         if (refuted(coins) || mixedWallets(coins)) continue;
         regroups.push(g);
         for (let i = 1; i < coins.length; i++) union(coins[i]!, coins[0]!);
-        welds.push({ method: "remeet", tx: tid, via, coins });
+        links.push({ method: "remeet", tx: tid, via, coins });
       }
     }
     // multi-output spends get the sub-transaction treatment first: a unique
@@ -631,7 +631,7 @@ export function clusterObserver(
           ];
           // attributions naming two owners inside the part refute the
           // one-owner-per-part assumption for that part (the flow
-          // verdict stands; the ownership weld does not) — and so do
+          // verdict stands; the ownership link does not) — and so do
           // divergent wallet fingerprints across the part's inputs
           if (refuted(coins) || mixedWallets(partIns.map((i) => tx.inputs[i]!))) {
             if (change) {
@@ -641,16 +641,16 @@ export function clusterObserver(
             continue;
           }
           for (const c of coins) union(c, anchor);
-          // the unique partition proves the FLOW; welding the part into
+          // the unique partition proves the FLOW; linking the part into
           // one owner adds the assumption that each sub-transaction is a
           // self-contained single-owner action. Right for this town's
           // coinjoins (each part is one participant's balance moving),
-          // fallible in general — and named on the weld so the ledger
+          // fallible in general — and named on the link so the ledger
           // never attributes the ownership conclusion to the model itself
-          welds.push({ method: "subtx", tx: tid, coins, assumption: "one-owner-per-part" });
+          links.push({ method: "subtx", tx: tid, coins, assumption: "one-owner-per-part" });
           // change identification applies to each sub-transaction
           // separately, with the same two steps as the plain payment:
-          // the part already reads as one spender (the weld above), so
+          // the part already reads as one spender (the link above), so
           // its payment outputs are identified and the sole remaining
           // unknown, if any, is suspected as its change
           if (change) {
@@ -661,11 +661,11 @@ export function clusterObserver(
         continue;
       }
       // proven ambiguous or merely inconclusive: either way the observer
-      // has no partition to justify a link, so it abstains from welding
+      // has no partition to justify a link, so it abstains from linking
       // anything — with one exception: a pairing FORCED by the sums
       // holds in every balanced reading (an output larger than the rest
       // of the inputs combined can only have been funded by the one
-      // input big enough), so those pairs weld even while the mapping
+      // input big enough), so those pairs link even while the mapping
       // stays open. Step one's payment identifications are per coin
       // and presume nothing about the split, so they are still recorded
       // (an auxiliary attribution can name a payment inside a session
@@ -676,7 +676,7 @@ export function clusterObserver(
           const b = tx.outputs[f.out]!;
           if (refuted([...ins, b])) continue; // forced flow, refuted ownership
           union(b, ins[0]!);
-          welds.push({ method: "subtx", tx: tid, coins: [...ins, b], assumption: "one-owner-per-part", basis: "bound" });
+          links.push({ method: "subtx", tx: tid, coins: [...ins, b], assumption: "one-owner-per-part", basis: "bound" });
         }
         if (change) identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, false, "mapping");
         continue;
@@ -691,13 +691,13 @@ export function clusterObserver(
         tx.inputs.length <= (heuristics.ciohMaxInputs ?? Infinity) &&
         !refuted(tx.inputs) && !mixedWallets(tx.inputs)) {
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
-      welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
+      links.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }
     // change identification over the whole transaction (the trivial
-    // sub-transaction). Step two's welds are only meaningful on a
+    // sub-transaction). Step two's links are only meaningful on a
     // transaction that already reads unilateral: linking an output to
     // "whoever paid" presumes one spender, so unless every input sits
-    // in the same apparent cluster by this point in the scan, the weld
+    // in the same apparent cluster by this point in the scan, the link
     // would arbitrarily pick one input among several candidate owners,
     // and the observer abstains (step one's payment identifications
     // are per coin and recorded regardless).
@@ -721,34 +721,34 @@ export function clusterObserver(
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess, payGuess, changeReads, welds };
+  return { rep, members, rank, changeGuess, payGuess, changeReads, links };
 }
 
-/** one graded error in the observer's map: a weld whose coins do NOT in
+/** one graded error in the observer's map: a link whose coins do NOT in
  *  truth share an owner — an incorrect local inference, named by the
  *  heuristic that made it */
 export interface Mistake {
   tx: TxId;
-  method: Weld["method"];
+  method: Link["method"];
   /** short display line for the learner */
   note: string;
 }
 
 /**
- * GRADING, not analysis: judge every weld in the observer's ledger
- * against the town's hidden truth. A weld is a mistake when the coins
+ * GRADING, not analysis: judge every link in the observer's ledger
+ * against the town's hidden truth. A link is a mistake when the coins
  * it claims share an owner actually belong to different users — the
- * change guess picked the payment output and welded the payee's coin
+ * change guess picked the payment output and linked the payee's coin
  * into the payer's cluster, CIOH read a multi-party spend as one
  * owner, or a balanced sub-transaction part mixed two users' coins.
  * Truth flows only toward the learner's display (the latent-truth
  * rule): no heuristic reads this, and the observer could never draw
  * this list themselves.
  */
-export function gradeWelds(chain: Chain, welds: Weld[]): Map<TxId, Mistake[]> {
+export function gradeLinks(chain: Chain, links: Link[]): Map<TxId, Mistake[]> {
   const out = new Map<TxId, Mistake[]>();
-  for (const w of welds) {
-    // reuse welds read the record rather than betting on it — same
+  for (const w of links) {
+    // reuse links read the record rather than betting on it — same
     // address, same key, same owner — so there is nothing to grade
     if (w.tx === undefined) continue;
     const owners = new Set(w.coins.map((c) => chain.coins.get(c)!.owner));
@@ -798,12 +798,12 @@ function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Cluste
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess: new Map(), payGuess: new Map(), changeReads: new Map(), welds: [] };
+  return { rep, members, rank, changeGuess: new Map(), payGuess: new Map(), changeReads: new Map(), links: [] };
 }
 
 /**
  * The bottom of the partition refinement lattice: every coin its own
- * vertex, nothing welded — the coin graph itself, dressed as a cluster
+ * vertex, nothing linked — the coin graph itself, dressed as a cluster
  * graph. Every lens's partition refines down to this, so it is the
  * natural waypoint for animating between the transaction graph and any
  * clustered view.

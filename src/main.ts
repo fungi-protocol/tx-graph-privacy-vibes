@@ -12,7 +12,7 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type ChangeRead, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeLinks, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type ChangeRead, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
@@ -234,13 +234,13 @@ function effOverlays(): number {
   return (overlays & OV_SUBSUM) !== 0 ? overlays | OV_CIOH : overlays;
 }
 // CIOH's max-inputs cap: transactions with more inputs than this are
-// not welded by CIOH. The slider's top position means "no cap".
+// not linked by CIOH. The slider's top position means "no cap".
 const CIOH_MAX_OFF = 10;
 let ciohMax = CIOH_MAX_OFF;
 // the change link's evidentiary bar (#66): how many payment tells the
 // sub-transaction's identified payments must total before the sole
-// remaining unknown output is welded as change. 1 = a single round
-// amount decides; higher bars trade coverage for fewer wrong welds.
+// remaining unknown output is linked as change. 1 = a single round
+// amount decides; higher bars trade coverage for fewer wrong links.
 const CHANGE_EV_MAX = 4;
 let changeEvidence = 1;
 // which payment-identification tells the change heuristic runs (#76):
@@ -309,7 +309,7 @@ function chainKey(): string {
 }
 /** everything the observer's base map is a function of — the
  *  statistical-fingerprinting knob included, since its intra-transaction
- *  reading (divergent input fingerprints veto the one-owner welds)
+ *  reading (divergent input fingerprints veto the one-owner links)
  *  reshapes the base clustering, not just the overlay run */
 function mapSig(): string {
   return `${chainKey()}§${overlays}|${ciohMax}|${changeEvidence}|${changeTells}|${nfOn ? 1 : 0}|${grantSig()}`;
@@ -317,7 +317,7 @@ function mapSig(): string {
 
 const mistakeMemo = memoLRU<Map<string, Mistake[]>>(16);
 function mistakes(): Map<string, Mistake[]> {
-  return mistakeMemo.get(mapSig(), () => gradeWelds(active().chain, clustering().welds));
+  return mistakeMemo.get(mapSig(), () => gradeLinks(active().chain, clustering().links));
 }
 // the base clustering reads the grant too (#66): an auxiliary
 // attribution is one of the change heuristic's payment identifiers, so
@@ -378,7 +378,7 @@ interface GrantState {
   attr: Map<string, Attribution>;
   /** attributed base-cluster representatives → the one owner their
    *  grants name (conflicted clusters are absent: the observer knows
-   *  one of those welds is a lie, so the vertex earns no name) */
+   *  one of those links is a lie, so the vertex earns no name) */
   owners: Map<string, number | null>;
   fused: Clustering;
 }
@@ -408,7 +408,7 @@ function grantSig(): string {
 }
 
 // --- ns-social (#59): Narayanan–Shmatikov propagation over the cluster
-// graph. A layer ON TOP of the observer's map: the base heuristics weld
+// graph. A layer ON TOP of the observer's map: the base heuristics link
 // coins into clusters, this matches clusters to each other by graph
 // structure. The checkbox controls both whether it is applied and
 // whether it is in view; to only look without applying, push the
@@ -479,7 +479,7 @@ const nfRunMemo = memoLRU<NfEvent[]>(16);
 function nfActive(): boolean {
   return nfOn && lens === 1 && !unclustered;
 }
-/** the clustering the behavioral matcher reads: the observer's welds,
+/** the clustering the behavioral matcher reads: the observer's links,
  *  with any ns-social matches already fused */
 function nfBase(): Clustering {
   const base = observerBase();
@@ -538,7 +538,7 @@ function collapseState(): CollapseState {
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : observerBase();
-    // the ns-social matches sit on top of the observer's welds, and the
+    // the ns-social matches sit on top of the observer's links, and the
     // behavioral (ns-netflix) matches fuse on top of both — the same
     // fusion, composed: matched clusters become one vertex at each
     // matcher's current replay position
@@ -625,7 +625,7 @@ function lensClusterPaint(): ClusterPaint {
   }
   // the observer's contracted map: granted names caption the vertices
   // they attribute. Only unanimous grants name a vertex — a cluster
-  // whose grants conflict exposes one of its welds as a lie and earns
+  // whose grants conflict exposes one of its links as a lie and earns
   // no name, however many of its coins are individually disclosed.
   const gs = grantsOn() ? grantState() : null;
   return {
@@ -634,7 +634,7 @@ function lensClusterPaint(): ClusterPaint {
       if (gs?.owners.has(rep)) {
         const o = gs.owners.get(rep)!;
         // "disclosed" only when every member coin was granted outright;
-        // any propagation over the map's own welds keeps it "likely"
+        // any propagation over the map's own links keeps it "likely"
         const all = (cl.members.get(rep) ?? [rep]).every((id) => gs.attr.get(id)?.direct);
         return `${o === null ? "outside town" : castList()[o]!.name} · ${all ? "disclosed" : "likely"}`;
       }
@@ -721,7 +721,7 @@ function observerPaint(): Paint {
   const cl = clustering();
   // grant attribution rides on top of the map: a granted coin is
   // disclosed truth, a coin colored through its cluster is the grant
-  // compounding over a weld — which can be wrong, so it says "likely"
+  // compounding over a link — which can be wrong, so it says "likely"
   const attr = grantsOn() ? grantState().attr : null;
   const nameOf = (o: number | null): string => (o === null ? "outside town" : castList()[o]!.name);
   return {
@@ -1276,7 +1276,7 @@ function setLens(l: 0 | 1 | 2): void {
 lensBtn.addEventListener("click", () => setLens(((lens + 1) % 3) as 0 | 1 | 2));
 
 // --- observer heuristic toggles: which inferences the map is running.
-// With all off, only the public structure remains — nothing is welded,
+// With all off, only the public structure remains — nothing is linked,
 // colored, or captioned beyond what the chain itself says.
 const overlaysPanel = document.getElementById("overlays")!;
 const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
@@ -1784,7 +1784,7 @@ function spinnerOff(): void {
   busyEl.hidden = true;
 }
 /** the repartition tween every routed handler replays on landing —
- *  matched discs glide together, a retracted weld pulls back apart */
+ *  matched discs glide together, a retracted link pulls back apart */
 function startRepartitionTween(before: { cl: Clustering; clay: ClusterLayout } | null): void {
   if (!before) return;
   const tr: ClusterTransition = {
@@ -1835,7 +1835,7 @@ function setChangeTells(mask: number): void {
   });
 }
 /** the shared landing for the live per-notch controls (no tween — the
- *  map re-welds in place under the pointer) */
+ *  map re-links in place under the pointer) */
 function knobFinishLive(): void {
   reflectOverlays();
   recomputeTrace();
@@ -1843,13 +1843,13 @@ function knobFinishLive(): void {
   syncFragmentSoon();
 }
 // the cap slider re-runs the observer's map live; "input" fires per
-// notch so dragging shows clusters splitting and re-welding as it moves
+// notch so dragging shows clusters splitting and re-linking as it moves
 document.getElementById("ciohmax")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   commitKnobs(() => { ciohMax = v; }, knobFinishLive);
 });
 // the evidence bar re-runs the observer's map live per notch: raising
-// it shows change welds letting go, coverage traded for caution
+// it shows change links letting go, coverage traded for caution
 document.getElementById("chev")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   commitKnobs(() => { changeEvidence = v; }, knobFinishLive);
@@ -1973,7 +1973,7 @@ function nsProposalPair(): [string, string] | null {
 document.getElementById("nssoc")!.addEventListener("change", (e) => {
   setNsSocial((e.target as HTMLInputElement).checked);
 });
-// dragging the threshold re-runs the propagation live, discs re-welding
+// dragging the threshold re-runs the propagation live, discs re-linking
 // under the pointer; the cursor stays pinned to the end (skip semantics)
 document.getElementById("nsth")!.addEventListener("input", (e) => {
   // read before nsSetPlaying: its reflectOverlays writes the old value back

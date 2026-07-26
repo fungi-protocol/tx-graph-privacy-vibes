@@ -368,7 +368,7 @@ export class Economy {
         "desk's coins — and each recipient can look up the record and see " +
         "everyone else the desk paid that day." + (consolidates
           ? " ⚠ The batch also consolidates coins with separate pasts — " +
-            "evidence for every observer to weld them into one."
+            "evidence for every observer to link them into one."
           : ""),
     });
     return true;
@@ -382,7 +382,7 @@ export class Economy {
     this.txn += 1;
     const tid = `t${this.txn}`;
     // the Python narratives' consolidation flag carries over: spending
-    // coins with separate pasts hands every observer evidence to weld them
+    // coins with separate pasts hands every observer evidence to link them
     const consolidates = new Set(inputs.map((id) => this.chain.coins.get(id)!.producer)).size > 1;
     this.chain.addTx(tid, this.day, inputs, [
       { owner: payee, value, label: memo },
@@ -392,7 +392,7 @@ export class Economy {
       tid, day: this.day, payer, payee, memo, form: "unilateral",
       ...(oblId !== undefined ? { oblIds: [oblId] } : {}),
       why: why(this.cast, payer, payee, "unilateral", this.day) + (consolidates
-        ? " ⚠ The spend consolidates coins with separate pasts — evidence for every observer to weld them into one, and proof for any counterparty who already knew either past."
+        ? " ⚠ The spend consolidates coins with separate pasts — evidence for every observer to link them into one, and proof for any counterparty who already knew either past."
         : ""),
     });
     return true;
@@ -587,7 +587,7 @@ export class Economy {
         memo: "sweeping up change", form: "unilateral",
         why: `${name} sweeps a session's change into savings alongside a ` +
           "coinjoined coin. The change still carries its pre-session past — " +
-          "spending the two together welds that past onto the coinjoined " +
+          "spending the two together links that past onto the coinjoined " +
           "coin, undoing much of the ambiguity the session bought it.",
       });
       return;

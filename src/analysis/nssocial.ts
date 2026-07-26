@@ -18,8 +18,8 @@
 // principle arbitrary; this implementation fixes a deterministic order
 // (sorted representatives, best partner first) so runs replay exactly.
 //
-// Match decisions are their own typed records (NsEvent), NOT Welds: the
-// weld ledger holds single-transaction observations, while a match rests
+// Match decisions are their own typed records (NsEvent), NOT Links: the
+// link ledger holds single-transaction observations, while a match rests
 // on the whole shape of the graph and can be retracted.
 import { type Chain, type CoinId } from "../model/chain";
 import { type Clustering } from "./clusters";
@@ -262,9 +262,9 @@ export function nsSocialRun(
 /**
  * Apply a replay position to the base clustering: clusters matched by
  * the active merges fuse into one vertex (members concatenated, the
- * smallest representative leads), rank recomputed by size. The weld
+ * smallest representative leads), rank recomputed by size. The link
  * ledger and change guesses pass through untouched — matches are not
- * welds, and the base observations still stand on their own.
+ * links, and the base observations still stand on their own.
  */
 export function nsApply(cl: Clustering, events: NsEvent[]): Clustering {
   const comp = matchComponents(cl.members.keys(), activePairs(events));
@@ -284,5 +284,5 @@ export function nsApply(cl: Clustering, events: NsEvent[]): Clustering {
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess: cl.changeGuess, payGuess: cl.payGuess, changeReads: cl.changeReads, welds: cl.welds };
+  return { rep, members, rank, changeGuess: cl.changeGuess, payGuess: cl.payGuess, changeReads: cl.changeReads, links: cl.links };
 }

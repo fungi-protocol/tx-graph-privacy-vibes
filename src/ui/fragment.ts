@@ -63,7 +63,7 @@ export interface FragmentState {
   /** lens 1 only: CIOH max-inputs cap (absent = no cap) */
   cm?: number;
   /** lens 1 only: the change link's evidentiary bar — total payment
-   *  tells required before the sole unidentified output welds (absent
+   *  tells required before the sole unidentified output links (absent
    *  = 1, a single tell decides) */
   ce?: number;
   /** lens 1 only: which change-identification tells run — a bitmask of
@@ -74,7 +74,7 @@ export interface FragmentState {
    *  exchange's KYC records, auxiliary-information reveals as a % of
    *  all coins (0 = the plain observer, 100 = omniscience)] */
   ai?: [number, number];
-  /** lens 1 only: 1 = grade the observer's welds, flagging wrong inferences */
+  /** lens 1 only: 1 = grade the observer's links, flagging wrong inferences */
   mi?: number;
   /** graph-view layout: 0 = layered left-to-right (default), 1 = force-directed */
   fd?: number;

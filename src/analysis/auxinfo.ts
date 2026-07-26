@@ -80,7 +80,7 @@ export function observerGrants(
  * the same way a participant's fixed points do (knowledge.ts): a
  * cluster containing a granted coin is attributed to that owner
  * wholesale — unless the cluster holds grants naming two different
- * owners, in which case the observer knows one of its welds is a lie
+ * owners, in which case the observer knows one of its links is a lie
  * and the cluster earns no propagated guess at all (the granted coins
  * themselves keep their labels). Runs on the grant and the public
  * clustering only; no coin's ownership is read here.

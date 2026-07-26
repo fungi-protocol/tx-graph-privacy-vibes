@@ -50,12 +50,12 @@ test("the careless first coinjoin is fully partitioned by the observer", () => {
   assert.equal(frankIns.length, 2);
   assert.equal(ivanIns.length, 2);
   const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
-  // each side welded — inputs and outputs — but never across
+  // each side linked — inputs and outputs — but never across
   assert.equal(cl.rep.get(frankIns[0]!), cl.rep.get(frankIns[1]!));
   assert.notEqual(cl.rep.get(frankIns[0]!), cl.rep.get(ivanIns[0]!));
   for (const o of tx.outputs) {
     const side = owner(o) === 5 ? frankIns[0]! : ivanIns[0]!;
-    assert.equal(cl.rep.get(o), cl.rep.get(side), `${o} not welded to its side`);
+    assert.equal(cl.rep.get(o), cl.rep.get(side), `${o} not linked to its side`);
   }
 });
 
@@ -133,7 +133,7 @@ test("a proven-ambiguous session exists by the chapter's day on every tutorial s
   }
 });
 
-test("an underdetermined coinjoin earns no welds from the observer", () => {
+test("an underdetermined coinjoin earns no links from the observer", () => {
   // hand-built: three strangers, everyone takes the same denomination
   const c = new Chain();
   c.addRoot("a", 800_000, 0);
@@ -152,7 +152,7 @@ test("an underdetermined coinjoin earns no welds from the observer", () => {
   assert.notEqual(cl.rep.get("b"), cl.rep.get("d"));
   assert.notEqual(cl.rep.get("a"), cl.rep.get("d"));
   for (const o of c.txs.get("cj")!.outputs) {
-    assert.equal(cl.members.get(cl.rep.get(o)!)!.length, 1, `${o} welded to something`);
+    assert.equal(cl.members.get(cl.rep.get(o)!)!.length, 1, `${o} linked to something`);
   }
 });
 

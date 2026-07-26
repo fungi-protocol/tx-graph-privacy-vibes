@@ -42,9 +42,9 @@ test("the narrated sweep features a pure-cluster FALSE acceptance on every tutor
     assert.equal(ex.result.accepted.get(ex.featured!.node), ex.featured!.agent);
     assert.ok(Number.isFinite(ex.featured!.eccentricity) && ex.featured!.eccentricity >= 1.5);
     // and abstention dominates: the sweep is a trickle, not a flood
-    // (the bound moved 2 -> 3 when address-reuse welds joined the map:
+    // (the bound moved 2 -> 3 when address-reuse links joined the map:
     // Carol's fused pseudonym gives the sweep one more solid anchor;
-    // 3 -> 4 when the sum-bound welds joined — outsized coinjoin
+    // 3 -> 4 when the sum-bound links joined — outsized coinjoin
     // outputs consolidate their funders' pseudonyms the same way)
     assert.ok(ex.result.accepted.size <= 4, `${seed}: ${ex.result.accepted.size} acceptances`);
   }
@@ -80,10 +80,10 @@ test("the elimination beat's claim exists and survives removing the sub-transact
     assert.ok(eco.naiveTid, `${seed}: no careless coinjoin`);
     const c = claimExhibit(eco.chain, cl, (d) => eco.prices[d], eco.naiveTid!);
     assert.ok(c, `${seed}: no claim exhibit`);
-    // the support is the sub-transaction weld, assumption named
+    // the support is the sub-transaction link, assumption named
     assert.ok(c!.support.length >= 1);
     assert.ok(c!.support.some((w) => w.method === "subtx" && w.assumption === "one-owner-per-part"),
-      `${seed}: support should include the subtx weld with its named assumption`);
+      `${seed}: support should include the subtx link with its named assumption`);
     // the narrated survival: CIOH reads the same transaction
     assert.equal(c!.rom.get("subtx"), true, `${seed}: claim should survive subtx removal`);
   }

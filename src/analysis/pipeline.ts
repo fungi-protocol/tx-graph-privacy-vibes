@@ -1,13 +1,13 @@
 // The one road every heavy analysis takes (#84): a pure function from
 // the visible chain and the observer's knob settings to the results the
 // display memoizes — the base clustering, the knowledge-grant state, the
-// two propagation matchers' runs, and the weld grading. main.ts runs it
+// two propagation matchers' runs, and the link grading. main.ts runs it
 // synchronously when the results are cheap or already cached; the
 // analysis worker runs the very same code off the main thread when they
 // are not. Keeping both callers on one function is the point: the worker
 // can never drift from what the page would have computed itself.
 import { type Chain, type CoinId, type Owner, type TxId } from "../model/chain";
-import { clusterObserver, gradeWelds, type Clustering, type Heuristics, type Mistake } from "./clusters";
+import { clusterObserver, gradeLinks, type Clustering, type Heuristics, type Mistake } from "./clusters";
 import { observerGrants, grantAttribution, grantMerges, clusterGrantOwners } from "./auxinfo";
 import { nsSocialRun, nsApply, type NsEvent } from "./nssocial";
 import { nfRun, type NfEvent } from "./nsnetflix";
@@ -33,7 +33,7 @@ export interface AnalysisKnobs {
   /** absent = all tells enabled */
   changeTells?: number;
   /** the statistical-fingerprinting knob's intra-transaction reading:
-   *  divergent input fingerprints veto the one-owner welds */
+   *  divergent input fingerprints veto the one-owner links */
   fingerprints?: boolean;
   kycObs: boolean;
   auxFrac: number;
@@ -126,6 +126,6 @@ export function runAnalysis(
     }
     nfEvents = nfRun(nfBase, chain, wants.nf.threshold);
   }
-  const mistakes = wants.mistakes ? gradeWelds(chain, cl.welds) : null;
+  const mistakes = wants.mistakes ? gradeLinks(chain, cl.links) : null;
   return { cl, grantMap, grant, nsEvents, nfEvents, mistakes };
 }

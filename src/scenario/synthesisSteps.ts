@@ -8,11 +8,11 @@
 // one confident acceptance grades FALSE against latent truth. A
 // hand-built miniature — labeled as built for the page, never found
 // in the town — shows the same sweep succeeding when the premise
-// holds, and consolidation (the change-welding the learner watched)
+// holds, and consolidation (the change-linking the learner watched)
 // is named as what closes the gap. Numbers are scores and
 // eccentricities, shown as what they are, never probabilities.
 import { type Chain, type CoinId, type TxId } from "../model/chain";
-import { type Clustering, type Weld } from "../analysis/clusters";
+import { type Clustering, type Link } from "../analysis/clusters";
 import { support, removeOneMethod, type Method } from "../analysis/provenance";
 import { propagationStep, type DGraph } from "../analysis/propagation";
 import { type Grade } from "./synthesisStaging";
@@ -31,7 +31,7 @@ export interface ClaimExhibit {
   /** the true owner of both coins (cast index) */
   owner: number;
   /** the observer's chain of inference for the claim */
-  support: Weld[];
+  support: Link[];
   /** method -> does the claim survive that method's removal? */
   rom: Map<Method, boolean>;
 }
