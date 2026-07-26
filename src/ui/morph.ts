@@ -114,9 +114,11 @@ export function txRectAt(block: Layout, bip: BipLayout, id: string, t: number): 
 export interface MorphDrawOptions {
   hover?: Hit | null;
   /**
-   * joint-trace highlight: the intersection (full) at full strength and
-   * ringed, the union (partial) half dimmed, everything else very dimmed
-   * — or hidden entirely when hideDim is set
+   * joint-trace highlight: what the lens singles out (full) at full
+   * strength and ringed, the union of the light cones (partial) half
+   * dimmed, everything else very dimmed — or hidden entirely when
+   * hideDim is set. full need not sit inside partial: an observer's
+   * cluster expansion reaches coins outside every traced cone.
    */
   highlight?: {
     full: { coins: Set<string>; txs: Set<string> };
@@ -157,14 +159,18 @@ export function drawMorph(
     !hl ? 1 : hl.full.coins.has(id) ? 1 : hl.partial.coins.has(id) ? PARTIAL : dim;
   const txAlpha = (id: string): number =>
     !hl ? 1 : hl.full.txs.has(id) ? 1 : hl.partial.txs.has(id) ? PARTIAL : dim;
-  // outside the union: gray, not merely faint
-  const coinMuted = (id: string): boolean => hl !== null && !hl.partial.coins.has(id);
-  const txMuted = (id: string): boolean => hl !== null && !hl.partial.txs.has(id);
+  // outside both tiers: gray, not merely faint
+  const coinMuted = (id: string): boolean =>
+    hl !== null && !hl.partial.coins.has(id) && !hl.full.coins.has(id);
+  const txMuted = (id: string): boolean =>
+    hl !== null && !hl.partial.txs.has(id) && !hl.full.txs.has(id);
   const sel = opts.selected ?? null;
-  // when the intersection is a proper subset of the union, alpha alone
-  // reads poorly — ring the shared origins in gold so they stand apart
+  // whenever the two tiers differ — in either direction — alpha alone
+  // reads poorly: ring what the lens singles out in gold
+  const differs = (a: Set<string>, b: Set<string>): boolean =>
+    a.size !== b.size || [...a].some((x) => !b.has(x));
   const ringing = hl !== null &&
-    (hl.partial.coins.size > hl.full.coins.size || hl.partial.txs.size > hl.full.txs.size);
+    (differs(hl.full.coins, hl.partial.coins) || differs(hl.full.txs, hl.partial.txs));
   const ring = (r: Rect, radius: number): void => {
     ctx.save();
     ctx.globalAlpha = 1;

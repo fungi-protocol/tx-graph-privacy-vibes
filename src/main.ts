@@ -438,7 +438,7 @@ function draw(): void {
     ? (rewound() ? ` · day ${cursorDay()} (of ${economy().day} recorded)` : ` · day ${economy().day}`)
     : "";
   const playPart = session.manual !== null ? ` · playing ${castList()[session.manual]!.name}` : "";
-  hud.textContent = `seed ${session.seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click coins: trace together (gold ring = shared origins) · h: hide the rest · right-click: copy a reference${originsPart()}`;
+  hud.textContent = `seed ${session.seed}${dayPart}${playPart} · zoom ${cam.scale.toFixed(2)}× · v: flip view · click coins: trace together (gold ring = what this lens singles out) · h: hide the rest · right-click: copy a reference${originsPart()}`;
 }
 
 // counterfactual-path counting for the selected coin (memoized: the flow
@@ -902,10 +902,11 @@ function harvestChoices(): void {
 }
 
 // --- selection: click to trace; clicking more coins traces them together ---
-// Joint traces follow the corrected semantics: the intersection of the
-// ancestries fully lit, their union partly lit, the rest dimmed (or
-// hidden). Under the observer lens the intersection is cluster-wise —
-// candidate origins are clusters, not coins.
+// Joint traces are per-lens (analysis/trace.ts): the union of the traced
+// coins' light cones is partly lit, and what the lens's knowledge singles
+// out is fully lit — the true flow of funds under the all-seeing lens,
+// the cluster-wise Goldfeder intersection under the observer, the
+// coin-wise intersection otherwise. The rest is dimmed (or hidden).
 function clearSelection(): void {
   selection = null;
   highlight = null;
@@ -916,12 +917,12 @@ function recomputeTrace(): void {
     return;
   }
   const s = active();
-  const cl = lens === 1 ? clustering() : undefined;
+  const opts = lens === 0 ? { truth: true } : lens === 1 ? { cl: clustering() } : {};
   if (selection.kind === "coins") {
     const live = selection.ids.filter((id) => s.chain.coins.has(id));
-    highlight = live.length > 0 ? traceCoins(s.chain, live, cl) : null;
+    highlight = live.length > 0 ? traceCoins(s.chain, live, opts) : null;
   } else if (selection.kind === "tx") {
-    highlight = s.chain.txs.has(selection.id) ? traceTx(s.chain, selection.id, cl) : null;
+    highlight = s.chain.txs.has(selection.id) ? traceTx(s.chain, selection.id, opts) : null;
   } else {
     // cluster: its member coins and the transactions that spend them
     const members = new Set(lensClustering().members.get(selection.id) ?? []);

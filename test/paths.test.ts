@@ -110,8 +110,54 @@ test("a transaction traces all its inputs together", () => {
   const t = traceTx(c, "t4");
   assert.ok(t.full.txs.has("t4"));
   assert.ok(t.full.coins.has("r"), "the shared origin is in the intersection");
+  // one traced coin has only one apparent set: nothing to intersect, so
+  // full degenerates to the seed while partial is the whole light cone
   const single = traceCoins(c, ["t2o1"]);
-  assert.deepEqual([...single.full.coins].sort(), [...single.partial.coins].sort());
+  assert.deepEqual([...single.full.coins], ["t2o1"]);
+  assert.equal(single.full.txs.size, 0);
+  assert.ok(single.partial.coins.has("r"));
+});
+
+test("ground truth traces the flow of funds within the light cone", () => {
+  // a payjoin-shaped merge: payer 0 and payee 1 both fund the payment
+  // output; the change carries only the payer's funds
+  const c = new Chain();
+  c.addRoot("pa", 800_000, 0);
+  c.addRoot("pb", 300_000, 1);
+  const fee = f(2, 2);
+  c.addTx("pj", 1, ["pa", "pb"], [
+    { owner: 1, value: 500_000, funders: [0, 1] },
+    { owner: 0, value: 600_000 - fee, funders: [0] },
+  ], 1);
+  c.addTx("s1", 2, ["pjo1"], [{ owner: 1, value: 500_000 - f(1, 1) }], 1);
+  c.addTx("s2", 2, ["pjo2"], [{ owner: 0, value: 600_000 - fee - f(1, 1) }], 1);
+
+  // the payment output descends from both parties' funds
+  const paid = traceCoins(c, ["s1o1"], { truth: true });
+  assert.ok(paid.full.coins.has("pa") && paid.full.coins.has("pb"));
+  // the change does NOT descend from the payee's coin, though the
+  // apparent cone implicates it
+  const change = traceCoins(c, ["s2o1"], { truth: true });
+  assert.ok(change.full.coins.has("pa"));
+  assert.ok(!change.full.coins.has("pb"), "payee's coin leaked into the true flow");
+  assert.ok(change.partial.coins.has("pb"), "apparent cone must still implicate it");
+  // the truth is one path structure within the cloud
+  for (const x of change.full.coins) assert.ok(change.partial.coins.has(x));
+  for (const x of change.full.txs) assert.ok(change.partial.txs.has(x));
+});
+
+test("funders default to the input owners and must own an input", () => {
+  const c = new Chain();
+  c.addRoot("a", 500_000, 0);
+  c.addTx("t1", 1, ["a"], [{ owner: 1, value: 500_000 - f(1, 1) }], 1);
+  assert.deepEqual(c.coins.get("t1o1")!.funders, [0]);
+  assert.deepEqual(c.coins.get("a")!.funders, []);
+  c.addRoot("b", 500_000, 2);
+  assert.throws(
+    () => c.addTx("t2", 2, ["b"], [{ owner: 2, value: 500_000 - f(1, 1), funders: [7] }], 1),
+    /funder 7 owns no input/,
+  );
+  assert.ok(!c.txs.has("t2"), "rejected tx must not land");
 });
 
 test("under a clustering, the intersection is cluster-wise", () => {
@@ -145,7 +191,7 @@ test("under a clustering, the intersection is cluster-wise", () => {
   // alice links one output of each
   c.addTx("sp", 3, ["cj1o1", "cj2o1"], [{ owner: 0, value: 1_000_000 - f(2, 1) }], 1);
   const cl = clusterObserver(c);
-  const t = traceTx(c, "sp", cl);
+  const t = traceTx(c, "sp", { cl });
   // alice's pre-coinjoin root is the only cluster both pasts touch
   assert.ok(t.full.coins.has("alice"));
   assert.ok(t.full.txs.has("aw"));

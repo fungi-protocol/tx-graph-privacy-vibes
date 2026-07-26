@@ -56,8 +56,8 @@ export function intersectionSteps(
       html: `<p>Think of the observer as playing <b>Guess&nbsp;Who?</b> — it
         holds a coin and tries to guess, among all the clusters on its
         board, whose money this was. This coin came through a coinjoin, so
-        its trace runs back to <b>several</b> clusters, all lit up: its
-        <b>candidate origins</b>, an anonymity set. (Researchers measure
+        its trace lights up <b>several</b> clusters while everything
+        irrelevant fades: its <b>candidate origins</b>, an anonymity set. (Researchers measure
         exactly this — the entropy of a coin's candidate set, read off
         the graph structure: Kelen &amp; Seres. It grows by coinjoining,
         especially with widely chosen peers — and it can decay much
