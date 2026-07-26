@@ -16,7 +16,7 @@ import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons,
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
-import { layoutClusterGraph, layoutClusterColumns, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
+import { layoutClusterGraph, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
@@ -480,13 +480,17 @@ function lensClustering(): Clustering {
     // ns-social partition the circle opens into columns — one vertical
     // segment per epoch, matched vertices spanning the lanes they fused
     const mode = forceLayout ? "force" as const : "time" as const;
-    const clay = nsActive()
+    const clay0 = nsActive()
       ? layoutClusterColumns(cl, active().chain, nsLanes(base, cl), nsParts, mode)
       : layoutClusterGraph(cl, active().chain, mode);
+    // the circle forms where the camera was looking when the collapse
+    // began — the coins travel, the viewport doesn't
+    const clay = clusterFit ? fitClusterLayout(clay0, clusterFit) : clay0;
     // the singleton ring is the collapse morph's waypoint: coins land on
     // it before stacking into discs, and unstack onto it on the way out
-    const ring = unclustered ? clay
+    const ring0 = unclustered ? clay
       : layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode);
+    const ring = unclustered || !clusterFit ? ring0 : fitClusterLayout(ring0, clusterFit);
     collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, ns: matchSig(), cl, clay, ring };
   }
   return collapseCache.cl;
@@ -698,6 +702,13 @@ let targetView: 0 | 1 = 0;
 // one (a helix collapsing into a circle): toggled orthogonally
 let collapsed = false;
 let collapseT = 0;
+// where the circle forms: the world rect the camera showed when the
+// collapse began. The coins glide into a circular arrangement without
+// the viewport moving, so the circle must come to the camera rather
+// than the camera flying to the circle. Rides the fragment (`cf`) so a
+// shared link reproduces the same geometry; null = the layout's own
+// origin-centered coordinates (old links, pre-fit behavior).
+let clusterFit: Rect | null = null;
 // a live repartition tween (heuristic toggle while contracted); null
 // when the discs are settled
 let clusterTrans: ClusterTransition | null = null;
@@ -950,11 +961,30 @@ function setUnclustered(on: boolean, animate = true): void {
   void syncFragment();
 }
 unclusterBtn.addEventListener("click", () => setUnclustered(!unclustered));
-let preCollapseCam: Camera | null = null;
+/** the world rect the camera currently shows, minus whatever the
+ *  tutorial panel covers — where a collapse forms its circle */
+function visibleWorldRect(): Rect {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const vp = visibleViewport();
+  return {
+    x: cam.x + (vp.x - w / 2) / cam.scale,
+    y: cam.y + (vp.y - h / 2) / cam.scale,
+    w: vp.w / cam.scale,
+    h: vp.h / cam.scale,
+  };
+}
 function setCollapsed(on: boolean, animate = true): void {
   collapsed = on;
   clusterBtn.textContent = on ? "expand" : "clusters";
   unclusterBtn.style.display = on ? "block" : "none";
+  // the viewport stays put: the coins take the time to travel into the
+  // circular arrangement (a timeline wrapping around a circle), formed
+  // inside the rect the camera is already showing. A restore (animate
+  // = false) keeps whatever fit the fragment carried instead.
+  if (on && animate && canvas.clientWidth > 0) {
+    clusterFit = visibleWorldRect();
+    collapseCache = null; // the cached layouts were fit to the old rect
+  }
   if (!animate) {
     collapseT = on ? 1 : 0;
     draw();
@@ -963,24 +993,8 @@ function setCollapsed(on: boolean, animate = true): void {
   }
   const from = collapseT;
   const to = on ? 1 : 0;
-  anim.add(80 + 1050 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
+  anim.add(80 + 1500 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
     { done: () => void syncFragment() });
-  // frame the flattened graph going in; come back out to where you were
-  if (on) {
-    preCollapseCam = { ...cam };
-    flyTo(clusterLayout().bounds);
-  } else if (preCollapseCam) {
-    const back = preCollapseCam;
-    preCollapseCam = null;
-    const fromCam = { ...cam };
-    anim.add(700, (t) => {
-      cam = {
-        x: fromCam.x + (back.x - fromCam.x) * t,
-        y: fromCam.y + (back.y - fromCam.y) * t,
-        scale: Math.exp(Math.log(fromCam.scale) + (Math.log(back.scale) - Math.log(fromCam.scale)) * t),
-      };
-    });
-  }
   kick();
 }
 clusterBtn.addEventListener("click", () => setCollapsed(!collapsed));
@@ -2696,6 +2710,12 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (collapsed) state.v = 2; // encoded like the old third view, for old links
   else if (targetView !== 0) state.v = targetView;
   if (collapsed && unclustered) state.uc = 1;
+  // the circle's world placement, so a shared link reproduces the same
+  // geometry the sharer saw (absent = the layout's own origin coords)
+  if (collapsed && clusterFit) {
+    state.cf = [Math.round(clusterFit.x), Math.round(clusterFit.y),
+      Math.round(clusterFit.w), Math.round(clusterFit.h)];
+  }
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
@@ -2859,6 +2879,11 @@ async function init(): Promise<void> {
     session.interventions = state.i.map(([day, id, plan]) => ({ day, id, plan: plan as ManualPlan }));
   }
   setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
+  // the circle's placement precedes the collapse so the rebuilt layout
+  // fits the same rect the sharer's did
+  if (state?.cf) {
+    clusterFit = { x: state.cf[0], y: state.cf[1], w: state.cf[2], h: state.cf[3] };
+  }
   if (state?.v === 2) setCollapsed(true, false);
   if (state?.v === 2 && state.uc === 1) setUnclustered(true, false);
   if (state?.sc === 1) {

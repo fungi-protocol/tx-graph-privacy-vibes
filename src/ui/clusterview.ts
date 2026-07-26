@@ -23,6 +23,26 @@ export interface ClusterLayout {
   bounds: Rect;
 }
 
+/** Similarity-map a cluster layout into a target world rect: scaled to
+ *  fit, centered on the target's center. The contraction forms its
+ *  circle where the camera already looks — the coins travel, the
+ *  viewport doesn't. */
+export function fitClusterLayout(lay: ClusterLayout, target: Rect): ClusterLayout {
+  const b = lay.bounds;
+  if (b.w <= 0 || b.h <= 0 || target.w <= 0 || target.h <= 0) return lay;
+  const k = Math.min(target.w / b.w, target.h / b.h);
+  const bx = b.x + b.w / 2, by = b.y + b.h / 2;
+  const tx = target.x + target.w / 2, ty = target.y + target.h / 2;
+  const nodes = new Map<CoinId, ClusterNode>();
+  for (const [rep, n] of lay.nodes) {
+    nodes.set(rep, { ...n, x: tx + (n.x - bx) * k, y: ty + (n.y - by) * k, r: n.r * k });
+  }
+  return {
+    nodes,
+    bounds: { x: tx - (b.w / 2) * k, y: ty - (b.h / 2) * k, w: b.w * k, h: b.h * k },
+  };
+}
+
 /** how the active lens NAMES the contracted vertices — truth (owner
  *  names), inference ("cluster 3"), or one participant's ledger
  *  ("Heidi · known"). The topology carries the lens's information;

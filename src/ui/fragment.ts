@@ -42,6 +42,11 @@ export interface FragmentState {
   v?: number;
   /** cluster view only: 1 = the lattice bottom (every coin a singleton) */
   uc?: number;
+  /** cluster view only: the world rect [x, y, w, h] the contraction's
+   *  circle was fit into — the rect the camera showed when the collapse
+   *  began, so shared links reproduce the same geometry. Absent = the
+   *  layout's own origin-centered coordinates. */
+  cf?: [number, number, number, number];
   /** scene: 0 = intro story (default), 1 = the economy */
   sc?: number;
   /** lens: 0 = all-seeing (default), 1 = third-party observer, 2 = one agent's view */
@@ -215,6 +220,13 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (v !== undefined) out.v = v;
   const uc = num(r.uc, 0, 1, true);
   if (uc !== undefined) out.uc = uc;
+  if (Array.isArray(r.cf)) {
+    const cx = num(r.cf[0], -1e7, 1e7), cy = num(r.cf[1], -1e7, 1e7);
+    const cw = num(r.cf[2], 1, 1e7), ch = num(r.cf[3], 1, 1e7);
+    if (cx !== undefined && cy !== undefined && cw !== undefined && ch !== undefined) {
+      out.cf = [cx, cy, cw, ch];
+    }
+  }
   const sc = num(r.sc, 0, 1, true);
   if (sc !== undefined) out.sc = sc;
   const l = num(r.l, 0, 2, true);

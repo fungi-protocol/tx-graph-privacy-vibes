@@ -7,7 +7,7 @@
 // the whole cluster, and every fragment must come from a real old disc.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { truthSlices, transitionFragments, layoutClusterGraph } from "../src/ui/clusterview";
+import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout } from "../src/ui/clusterview";
 import { type Clustering } from "../src/analysis/clusters";
 import { clusterObserver } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
@@ -37,6 +37,28 @@ test("truthSlices: a pure cluster is one slice, a mixed one lists every owner la
   const pure = truthSlices(cl, "c1", colorOf);
   assert.equal(pure.length, 1);
   assert.deepEqual(pure[0], { color: "#ccc", frac: 1 });
+});
+
+test("fitClusterLayout: a similarity map into the target rect — centered, aspect kept, radii scaled", () => {
+  const cl = partition([["a1", "a2"], ["b1", "b2"], ["c1"]]);
+  const lay = layoutClusterGraph(cl);
+  const target = { x: 1000, y: 2000, w: 500, h: 300 };
+  const fit = fitClusterLayout(lay, target);
+  const k = Math.min(target.w / lay.bounds.w, target.h / lay.bounds.h);
+  // bounds scale uniformly and center on the target's center
+  assert.ok(Math.abs(fit.bounds.w - lay.bounds.w * k) < 1e-9);
+  assert.ok(Math.abs(fit.bounds.h - lay.bounds.h * k) < 1e-9);
+  assert.ok(Math.abs(fit.bounds.x + fit.bounds.w / 2 - (target.x + target.w / 2)) < 1e-9);
+  assert.ok(Math.abs(fit.bounds.y + fit.bounds.h / 2 - (target.y + target.h / 2)) < 1e-9);
+  // every node keeps its relative position and scales its radius
+  for (const [rep, n0] of lay.nodes) {
+    const n = fit.nodes.get(rep)!;
+    assert.ok(Math.abs(n.r - n0.r * k) < 1e-9);
+    const relX = (n0.x - (lay.bounds.x + lay.bounds.w / 2)) * k;
+    assert.ok(Math.abs(n.x - (target.x + target.w / 2) - relX) < 1e-9);
+  }
+  // a degenerate target is refused rather than collapsing the layout
+  assert.equal(fitClusterLayout(lay, { x: 0, y: 0, w: 0, h: 5 }), lay);
 });
 
 test("transitionFragments: a merge starts as both old discs, a split starts as one disc twice", () => {

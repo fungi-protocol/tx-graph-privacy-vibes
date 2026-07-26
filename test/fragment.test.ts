@@ -57,6 +57,18 @@ test("change evidence bar round-trips and is clamped", async () => {
   assert.equal(junk.ce, undefined);
 });
 
+test("cluster fit rect round-trips and rejects degenerate sizes", async () => {
+  const full = { seed: "welcome", v: 2, cf: [120, -340, 900, 600] as [number, number, number, number] };
+  assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+  const craft = (state: unknown): Promise<unknown> =>
+    encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
+  // sizes clamp into range (the codec's house style), never reach zero
+  const flat = await craft({ seed: "ok", v: 2, cf: [0, 0, 0, 500] }) as Record<string, unknown>;
+  assert.deepEqual(flat.cf, [0, 0, 1, 500]);
+  const junk = await craft({ seed: "ok", v: 2, cf: [1, 2, "wide", 4] }) as Record<string, unknown>;
+  assert.equal(junk.cf, undefined);
+});
+
 test("change tell mask round-trips and is clamped", async () => {
   const full = { seed: "welcome", l: 1, ct: 5 };
   assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
