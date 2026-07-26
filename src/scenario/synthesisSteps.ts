@@ -418,12 +418,12 @@ export function synthesisSteps(
       html: `<p>The sweep you watched was seeded with a few identities.
         The <b>auxiliary information</b> dial on the heuristics panel
         lets you deal the observer a bigger hand and rerun the whole
-        machine yourself: every revealed coin names its cluster, clusters
+        machine yourself: every leaked coin names its cluster, clusters
         named alike fuse into one vertex — the map you see now carries a
         modest grant — and the propagation heuristics run <b>on the fused
         map</b>, so every name is a seed.</p>
         <p>Try it: check <i>social-network analysis</i>, then drag
-        <i>revealed</i> and watch the match counter. Narayanan and
+        <i>random leaks</i> and watch the match counter. Narayanan and
         Shmatikov observed a <b>phase transition</b> in exactly this
         machine: below a critical seed density the propagation stalls —
         matches trickle and die out — while past it each match creates

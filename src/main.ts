@@ -1174,11 +1174,12 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     <div class="nshint">each wallet product here keeps one script family, one nLockTime default and one signing habit — the same knobs real wallet software leaves set on the record</div>
   </div>
   <h3>auxiliary information</h3>
-  <label title="the exchange's private books: a coin withdrawn by an identified customer, or spent into an identified deposit, carries a true name. Nothing on the graph marks these — this observer simply holds the records, and the named coins become a floor of certain knowledge under whatever the slider grants"><input type="checkbox" id="kycobs"> exchange records (KYC)</label>
-  <div class="ovslider" title="suppose some fraction of all coins were revealed with their true owners — subpoenas, trackers, counterparties, leaks. The slider's minimum is the plain observer; its maximum is omniscience — the all-seeing lens is just this slider pushed to the top. Each notch adds reveals without retracting any, and every reveal seeds the map: clusters holding a named coin take the name, and same-named clusters fuse"><span>revealed</span>
+  <label title="the exchange's private books: a coin withdrawn by an identified customer, or spent into an identified deposit, carries a true name. Nothing on the graph marks these — this observer simply holds the records, and the named coins become a floor of certain knowledge under whatever the slider leaks"><input type="checkbox" id="kycobs"> exchange records (KYC)</label>
+  <div class="ovslider" title="a second, separate source: suppose some fraction of ALL coins leaked their true owners at random — subpoenas, trackers, counterparties, careless payees. This is not the exchange's records and does not adjust them; the two grants combine, and every named coin from either source seeds the map the same way: clusters holding a named coin take the name, and same-named clusters fuse. The slider's minimum is the plain observer; its maximum is omniscience — the all-seeing lens is just this slider pushed to the top. Each notch adds leaks without retracting any"><span>random leaks</span>
     <input type="range" id="auxfrac" min="0" max="100" step="1" value="0">
     <output id="auxfracv">none</output>
   </div>
+  <div class="nshint" id="auxhint">two independent sources that combine: the records name the exchange's own coins; the slider leaks a random sample of everyone's</div>
   <h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 // the panel grows with the story: a row stays off the panel until the
@@ -1218,7 +1219,7 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     case "subsum": return [byBit(OV_SUBSUM)];
     case "nssoc": return [byId("nssoc")];
     case "nsnf": return [byId("nsnf")];
-    case "aux": return [h3[1] ?? null, byId("kycobs"), document.getElementById("auxfrac")?.closest(".ovslider") ?? null];
+    case "aux": return [h3[1] ?? null, byId("kycobs"), document.getElementById("auxfrac")?.closest(".ovslider") ?? null, document.getElementById("auxhint")];
     case "grading": return [h3[2] ?? null, byId("mistakes")];
   }
 }

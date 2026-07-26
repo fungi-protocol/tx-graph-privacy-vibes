@@ -168,15 +168,16 @@ export function intersectionSteps(
         the name, unless its grants disagree — then the observer knows
         one of its own welds is a lie, and the cluster earns no name at
         all.</p>
-        <p>The <i>revealed</i> slider generalizes the supposition: it
-        grants the observer a random fraction of all coins, truly
-        labeled — subpoenas, trackers, leaks, whatever the story of the
-        reveal. At its minimum this is the plain observer you have
-        watched all along; at its maximum it is the all-seeing lens —
+        <p>The <i>random leaks</i> slider is a <b>separate</b> source —
+        it does not adjust the exchange's records. It leaks the observer
+        a random fraction of <b>all</b> coins, truly labeled — subpoenas,
+        trackers, careless payees, whatever the story of each leak. At
+        its minimum this is the plain observer you have watched all
+        along; at its maximum it is the all-seeing lens —
         <b>omniscience is not a different observer, just this dial
-        turned to the top</b>. With the KYC box checked, the exchange's
-        coins stay a floor of certain knowledge under whatever the
-        slider adds.</p>`,
+        turned to the top</b>. The two sources <b>combine</b>: with the
+        KYC box checked, the exchange's coins stay a floor of certain
+        knowledge under whatever the slider leaks on top.</p>`,
       focus: at(tracedCoin),
       select: sel("coin", tracedCoin),
       view: 1,
