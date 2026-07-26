@@ -284,5 +284,5 @@ export function nsApply(cl: Clustering, events: NsEvent[]): Clustering {
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess: cl.changeGuess, welds: cl.welds };
+  return { rep, members, rank, changeGuess: cl.changeGuess, payGuess: cl.payGuess, welds: cl.welds };
 }

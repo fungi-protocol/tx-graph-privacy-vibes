@@ -53,6 +53,10 @@ export interface FragmentState {
   ov?: number;
   /** lens 1 only: CIOH max-inputs cap (absent = no cap) */
   cm?: number;
+  /** lens 1 only: the change link's evidentiary bar — total payment
+   *  tells required before the sole unidentified output welds (absent
+   *  = 1, a single tell decides) */
+  ce?: number;
   /** lens 1 only: the observer's knowledge grant [1 = holds the
    *  exchange's KYC records, auxiliary-information reveals as a % of
    *  all coins (0 = the plain observer, 100 = omniscience)] */
@@ -217,6 +221,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (ov !== undefined) out.ov = ov;
   const cm = num(r.cm, 2, 64, true);
   if (cm !== undefined) out.cm = cm;
+  const ce = num(r.ce, 1, 8, true);
+  if (ce !== undefined) out.ce = ce;
   if (Array.isArray(r.ai)) {
     const kx = num(r.ai[0], 0, 1, true), ax = num(r.ai[1], 0, 100, true);
     if (kx !== undefined && ax !== undefined) out.ai = [kx, ax];

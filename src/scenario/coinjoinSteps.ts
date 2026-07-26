@@ -111,6 +111,35 @@ export function coinjoinSteps(
       minDay: 100,
     },
     {
+      id: "the-null-hypothesis-flips",
+      title: "The null hypothesis flips",
+      html: `<p>Look at what the menu does to <b>change identification</b>.
+        In an ordinary spend, a round amount reads as a payment. But
+        repeated denominations are exactly what <i>taking your own
+        balance back</i> looks like — so where a transaction's outputs
+        carry that structure (menu values, some of them repeated), the
+        presumption inverts: a denominated output's null hypothesis is a
+        <b>self-spend</b>, treated like change — belonging with the
+        inputs that funded it — unless there is evidence it is a
+        payment. The round-amount tell that would have called every
+        denomination a payment goes quiet.</p>
+        <p>That inversion is why the inline payment rides along <b>in the
+        same denominations</b>: cut into menu values, it looks like
+        someone's balance coming back, and the self-spend presumption
+        covers it. Note what the inversion does <i>not</i> hand over
+        here: linking a self-spend to "its" inputs needs the inputs to
+        read as one cluster first, and in this underdetermined session
+        they never merged — the presumption stands ready with nothing to
+        link. Where a session's amounts betray it, as Frank and Ivan's
+        did, each part already reads as a single spender, and the
+        presumption plays out inside the part.</p>`,
+      focus: () => pad(denseFocus()),
+      view: 1,
+      lens: 1,
+      scene: 1,
+      minDay: 100,
+    },
+    {
       id: "even-insiders-are-blinded",
       title: "Even insiders are blinded",
       html: `<p>Here is what the earlier forms could not offer. A payjoin

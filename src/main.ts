@@ -212,7 +212,8 @@ function setViewDay(d: number | null, tx: number | null = null): void {
 let lens: 0 | 1 | 2 = 0;
 let lensAgent: number | null = null;
 // which heuristics the observer lens runs, as a bitmask:
-// 1 = CIOH, 2 = round-USD change, 4 = subset-sum, 8 = address reuse;
+// 1 = CIOH, 2 = change identification, 4 = sub-transaction analysis,
+// 8 = address reuse;
 // default all of them.
 // With all off the union-find never fires, every coin is a singleton, and
 // the observer's map degrades honestly into the bare public structure.
@@ -222,21 +223,32 @@ let overlays = OV_ALL;
 // not welded by CIOH. The slider's top position means "no cap".
 const CIOH_MAX_OFF = 12;
 let ciohMax = CIOH_MAX_OFF;
+// the change link's evidentiary bar (#66): how many payment tells the
+// sub-transaction's identified payments must total before the sole
+// remaining unknown output is welded as change. 1 = a single round
+// amount decides; higher bars trade coverage for fewer wrong welds.
+const CHANGE_EV_MAX = 3;
+let changeEvidence = 1;
 // grading toggle: mark transactions where a heuristic's local inference
 // is wrong against the hidden truth (storyteller's grading — latent
 // truth flows only toward the learner's display, never into analysis)
 let showMistakes = false;
-let mistakeCache: { rev: number; m: Map<string, Mistake[]> } | null = null;
+let mistakeCache: { rev: number; sig: string; m: Map<string, Mistake[]> } | null = null;
 function mistakes(): Map<string, Mistake[]> {
-  if (!mistakeCache || mistakeCache.rev !== simRev) {
-    mistakeCache = { rev: simRev, m: gradeWelds(active().chain, clustering().welds) };
+  const sig = grantSig();
+  if (!mistakeCache || mistakeCache.rev !== simRev || mistakeCache.sig !== sig) {
+    mistakeCache = { rev: simRev, sig, m: gradeWelds(active().chain, clustering().welds) };
   }
   return mistakeCache.m;
 }
-let clCache: { rev: number; cl: Clustering } | null = null;
+// the base clustering reads the grant too (#66): an auxiliary
+// attribution is one of the change heuristic's payment identifiers, so
+// the observer's map varies with the dial — the cache keys on it
+let clCache: { rev: number; sig: string; cl: Clustering } | null = null;
 function clustering(): Clustering {
   const s = active();
-  if (!clCache || clCache.rev !== simRev) {
+  const sig = grantSig();
+  if (!clCache || clCache.rev !== simRev || clCache.sig !== sig) {
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
     const cl = clusterObserver(s.chain, priceAt, {
       reuse: (overlays & OV_REUSE) !== 0,
@@ -244,8 +256,10 @@ function clustering(): Clustering {
       change: (overlays & OV_CHANGE) !== 0,
       subsum: (overlays & OV_SUBSUM) !== 0,
       ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
+      ...(changeEvidence > 1 ? { changeEvidence } : {}),
+      ...(grantsOn() ? { grants: currentGrants() } : {}),
     });
-    clCache = { rev: simRev, cl };
+    clCache = { rev: simRev, sig, cl };
   }
   return clCache.cl;
 }
@@ -263,6 +277,21 @@ let auxFrac = 0;
 function grantsOn(): boolean {
   return kycObs || auxFrac > 0;
 }
+// the granted set itself, cached apart from the attribution state: the
+// base clustering consumes it too (as the change heuristic's auxiliary
+// payment identifier), and must not have to build attributions first
+let grantMapCache: { rev: number; kx: boolean; ax: number; g: Map<string, number | null> } | null = null;
+function currentGrants(): Map<string, number | null> | undefined {
+  if (!grantsOn()) return undefined;
+  if (!grantMapCache || grantMapCache.rev !== simRev ||
+      grantMapCache.kx !== kycObs || grantMapCache.ax !== auxFrac) {
+    grantMapCache = {
+      rev: simRev, kx: kycObs, ax: auxFrac,
+      g: observerGrants(active().chain, session.seed, auxFrac, kycObs),
+    };
+  }
+  return grantMapCache.g;
+}
 let grantCache: {
   rev: number; kx: boolean; ax: number;
   attr: Map<string, Attribution>;
@@ -275,7 +304,7 @@ let grantCache: {
 function grantState(): NonNullable<typeof grantCache> {
   if (!grantCache || grantCache.rev !== simRev ||
       grantCache.kx !== kycObs || grantCache.ax !== auxFrac) {
-    const g = observerGrants(active().chain, session.seed, auxFrac, kycObs);
+    const g = currentGrants() ?? new Map<string, number | null>();
     const base = clustering();
     grantCache = {
       rev: simRev, kx: kycObs, ax: auxFrac,
@@ -1044,7 +1073,7 @@ const overlaysPanel = document.getElementById("overlays")!;
 const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_REUSE, label: "address reuse", title: "coins paid to the same address — one key controls both, on the face of the record; no inference involved" },
   { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
-  { bit: OV_CHANGE, label: "round-USD change", title: "the round-dollar output is probably the payment; the other is change" },
+  { bit: OV_CHANGE, label: "change identification", title: "two steps: identify the payment outputs first (a round dollar or BTC amount, or a disclosed owner), then read what remains — exactly one unidentified output is suspected change and welded to the spender; several read as a batch payment and the observer abstains; repeated menu denominations invert the presumption, reading as self-spends" },
   { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition welds its sub-transactions together" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
@@ -1054,6 +1083,12 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
         <span>max inputs</span>
         <input type="range" id="ciohmax" min="2" max="${CIOH_MAX_OFF}" step="1" value="${CIOH_MAX_OFF}">
         <output id="ciohmaxv">off</output>
+      </div>`
+    : d.bit === OV_CHANGE
+    ? `<div class="ovslider" title="how much payment evidence the change weld needs: the tells (round amounts, disclosed owners) across the sub-transaction's identified payments must total this many before the leftover output is linked. At 1 a single round amount decides; higher bars trade coverage for fewer wrong welds">
+        <span>evidence bar</span>
+        <input type="range" id="chev" min="1" max="${CHANGE_EV_MAX}" step="1" value="1">
+        <output id="chevv">1 tell</output>
       </div>`
     : "")).join("") +
   `<label title="Narayanan–Shmatikov social-network analysis: split the cluster graph into columns (epochs of the timeline) and match vertices across them by the shape of their neighborhoods — a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nssoc"> social-network analysis</label>
@@ -1121,6 +1156,11 @@ function reflectOverlays(): void {
   slider.disabled = (overlays & OV_CIOH) === 0;
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
     ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
+  const chev = document.getElementById("chev") as HTMLInputElement;
+  chev.value = String(changeEvidence);
+  chev.disabled = (overlays & OV_CHANGE) === 0;
+  (document.getElementById("chevv") as HTMLOutputElement).textContent =
+    changeEvidence === 1 ? "1 tell" : `${changeEvidence} tells`;
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
   (document.getElementById("kycobs") as HTMLInputElement).checked = kycObs;
   (document.getElementById("auxfrac") as HTMLInputElement).value = String(Math.round(auxFrac * 100));
@@ -1247,6 +1287,16 @@ function setOverlays(mask: number): void {
 // notch so dragging shows clusters splitting and re-welding as it moves
 document.getElementById("ciohmax")!.addEventListener("input", (e) => {
   ciohMax = Number((e.target as HTMLInputElement).value);
+  simRev += 1; // the observer's map changes
+  reflectOverlays();
+  recomputeTrace();
+  draw();
+  syncFragmentSoon();
+});
+// the evidence bar re-runs the observer's map live per notch: raising
+// it shows change welds letting go, coverage traded for caution
+document.getElementById("chev")!.addEventListener("input", (e) => {
+  changeEvidence = Number((e.target as HTMLInputElement).value);
   simRev += 1; // the observer's map changes
   reflectOverlays();
   recomputeTrace();
@@ -1469,7 +1519,7 @@ document.getElementById("nsnfskip")!.addEventListener("click", () => {
 overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
   // their own handlers
-  if (id === "mistakes" || id === "ciohmax" || id.startsWith("ns")) return;
+  if (id === "mistakes" || id === "ciohmax" || id === "chev" || id.startsWith("ns")) return;
   // a hand on the panel keeps the sub-transaction row: unchecking a
   // visible heuristic must not make it vanish from under the pointer
   if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
@@ -2490,6 +2540,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
   if (lens === 1 && ciohMax < CIOH_MAX_OFF) state.cm = ciohMax;
+  if (lens === 1 && changeEvidence !== 1) state.ce = changeEvidence;
   if (lens === 1 && grantsOn()) state.ai = [kycObs ? 1 : 0, Math.round(auxFrac * 100)];
   if (lens === 1 && showMistakes) state.mi = 1;
   if (lens === 1 && nsSocial) {
@@ -2663,6 +2714,11 @@ async function init(): Promise<void> {
   }
   if (state?.cm !== undefined) {
     ciohMax = Math.min(state.cm, CIOH_MAX_OFF);
+    simRev += 1;
+    reflectOverlays();
+  }
+  if (state?.ce !== undefined) {
+    changeEvidence = Math.min(state.ce, CHANGE_EV_MAX);
     simRev += 1;
     reflectOverlays();
   }

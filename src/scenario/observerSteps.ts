@@ -2,10 +2,13 @@
 // then each linkage switched on in turn: address reuse (the most basic
 // clustering, inference-free, live in this town because Carol reuses;
 // everyone else's fresh addresses keep the floor framing honest), CIOH,
-// change identification and its real-world family of tells, cluster
-// contraction, and the pseudonym graph. The Scroll #2/#3 arc: familiar
-// heuristics first, then the honest caveat that attacks always get
-// better, then the observer's real product — a social graph.
+// two-step change identification (identify the payment outputs first,
+// then suspect the sole remainder; several remainders read as a batch
+// payment and the observer abstains) with its real-world family of
+// tells and the configurable evidence bar, cluster contraction, and
+// the pseudonym graph. The Scroll #2/#3 arc: familiar heuristics
+// first, then the honest caveat that attacks always get better, then
+// the observer's real product — a social graph.
 //
 // The change-tell family step follows accuracy/030's constraints: the
 // ordering tell is position-leaks-when-ordering-is-deterministic (with
@@ -101,19 +104,23 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       id: "guessing-the-change",
       title: "Guessing the change",
       html: `<p>Every payment here has two outputs — the payment and the
-        change — and no label says which is which. But the observer can
-        <i>guess</i>: prices in this neighborhood are set in dollars, so an
-        output that lands on a <b>round dollar amount</b> at that day's
-        exchange rate is probably the payment ($40, not $37.63). The other
-        output is probably the change — and change belongs to whoever
-        paid. The bet presumes <b>one</b> spender: when a transaction's
-        inputs sit in different clusters on the observer's map, there is
-        no single "whoever paid" to hand the change to, and the careful
-        analyst abstains.</p>
-        <p>Each correct guess extends a cluster by one hop. Chained day
-        after day, that is most of the map you now see. The round-dollar
-        bet is the one tell this lens actually runs — but it is one member
-        of a <b>family</b>, and the family is the next step's subject.</p>`,
+        change — and no label says which is which. The observer works in
+        <b>two steps</b>. First it tries to identify the <b>payment</b>,
+        output by output: prices in this neighborhood are set in dollars,
+        so an amount that lands on a <b>round dollar figure</b> at that
+        day's exchange rate reads as a payment ($40, not $37.63) — and a
+        round BTC figure reads the same way. Then it looks at <b>what
+        remains</b>: if exactly <b>one</b> output was not identified as a
+        payment, that one is suspected to be the change — and change
+        belongs to whoever paid.</p>
+        <p>The linking step presumes <b>one</b> spender: when a
+        transaction's inputs sit in different clusters on the observer's
+        map, there is no single "whoever paid" to hand the change to, and
+        the careful analyst abstains. Each correct guess extends a
+        cluster by one hop; chained day after day, that is most of the
+        map you now see. The round-amount read is the one payment tell
+        this lens runs so far — but it is one member of a
+        <b>family</b>.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
@@ -159,9 +166,17 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         amount while an odd grocery total doesn't — and the stranger's
         coin, the actual payment, gets welded into the payer's cluster.
         Careful observers accept some misses to avoid <b>cluster
-        collapse</b> — merging different people into one blob. This lens is
-        not careful: it takes every bet. And the family you just met keeps
-        growing — real observers add tells this lens doesn't model.</p>
+        collapse</b> — merging different people into one blob — and this
+        observer already abstains in one such case: when <b>several</b>
+        outputs stay unidentified, a payment may simply have been missed,
+        so the null hypothesis is a batch of payments, not one payment
+        plus change, and nothing is linked.</p>
+        <p>The rest of its caution is yours to set. The <b>evidence
+        bar</b> under the change checkbox is how much payment evidence
+        the weld demands: at one tell, a single round amount decides —
+        every bet taken; raise it and watch welds let go, coverage traded
+        for caution. And the family you just met keeps growing — real
+        observers add tells this lens doesn't model.</p>
         <p class="tut-aside">The rule of thumb from cryptography applies:
         attacks always get better; they never get worse.</p>`,
       focus: () => pad(bipBounds()),

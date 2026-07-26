@@ -11,12 +11,35 @@
 //     caveat ("multi-input transactions... necessarily reveal that their
 //     inputs were owned by the same owner"); Meiklejohn et al. named it
 //     Heuristic 1 and ran it at chain scale.
-//   - round-USD change identification (the wiki's "round numbers"
-//     fingerprint; change heuristics generally: Androulaki et al.,
-//     Meiklejohn et al.): if exactly one
-//     output of a 2-output payment lands on a round $10 amount at that
-//     day's exchange rate, it is probably the payment — so the other
-//     output is probably the change, and belongs with the inputs.
+//   - change identification (the wiki's "round numbers" fingerprint;
+//     change heuristics generally: Androulaki et al., Meiklejohn et
+//     al.), specified in two steps. Step one identifies PAYMENT
+//     outputs, per coin, within a sub-transaction (the whole
+//     transaction when no partition applies): an amount that is
+//     plausibly a payment — low decimal hamming weight in dollars at
+//     that day's rate or in BTC ($40, 0.05 BTC; not $37.63) — or an
+//     output reliably attributed to a different owner than a granted
+//     input by auxiliary information. (A third real-world tell, a
+//     script type differing from the inputs', has no purchase here:
+//     this town's script types are uniform by construction.) Step two
+//     is generic linkage over what remains: payment outputs are
+//     assumed NOT to be linked to the inputs; if exactly ONE
+//     non-payment output remains it is suspected as change and linked,
+//     provided the payment identifications clear the configured
+//     evidentiary bar; if several remain, some payments may have been
+//     missed, so the null hypothesis is a batch payment and the
+//     observer abstains. Two further real-world identifiers are named
+//     but not modeled: a script type differing from the input
+//     cluster's (contingent on the inputs having been clustered), and
+//     — for an output that has itself been spent — cluster feature
+//     vectors (nLockTime conventions, signature grinding, temporal
+//     habits) differing from the input cluster's.
+//     One inversion: where the outputs show a radix
+//     coinjoin structure — menu denominations with repeated values —
+//     a repeated denomination's null hypothesis flips to SELF-SPEND
+//     (that is the point of taking one's balance back in standard
+//     denominations), so it is treated like change and linked to the
+//     input cluster unless there is evidence it is a payment.
 //   - sub-transaction analysis (the sub-transaction model, Maurer et
 //     al.): a transaction
 //     with several outputs is checked for partitions into balancing
@@ -27,7 +50,9 @@
 // Heuristics, not proofs: the change guess can be wrong, and when it is
 // wrong it welds a stranger's coin into the cluster. That failure mode is
 // left in on purpose.
-import { type Chain, type CoinId, type TxId, addrKey, addrText } from "../model/chain";
+import { type Chain, type CoinId, type TxId, type Owner, addrKey, addrText } from "../model/chain";
+import { type Sats } from "../core/sats";
+import { isDenomination } from "../denom/denominations";
 import { subTransactionMapping } from "./subsetsum";
 
 /** one observation the observer's map rests on: a method applied to a
@@ -58,6 +83,10 @@ export interface Weld {
    *  establishes; present on subtx welds, whose verdict alone proves
    *  flow, not ownership */
   assumption?: "one-owner-per-part";
+  /** what a change weld rests on: "residue" = the sole non-payment
+   *  output left after payment identification; "radix" = a repeated
+   *  denomination whose null hypothesis is a self-spend */
+  basis?: "residue" | "radix";
 }
 
 export interface Clustering {
@@ -72,6 +101,11 @@ export interface Clustering {
    *  transaction gets the same rule per sub-transaction, so one tx can
    *  carry several guesses */
   changeGuess: Map<TxId, CoinId[]>;
+  /** tx -> the outputs step one read as PAYMENTS (plausible amount, or
+   *  an auxiliary attribution naming a different owner than a granted
+   *  input). Recorded whether or not step two got to link anything —
+   *  identification is per coin and does not presume clustered inputs. */
+  payGuess: Map<TxId, CoinId[]>;
   /** the ownership-weld ledger — deliberately narrow, NOT a general
    *  evidence ledger (it cannot hold rejected candidates, seeds,
    *  relationship features, or propagation decisions; those get their
@@ -91,6 +125,22 @@ export interface Heuristics {
   cioh?: boolean;
   change?: boolean;
   subsum?: boolean;
+  /** the evidentiary bar for linking the sole non-payment output as
+   *  change: the total count of payment tells (amount reads, auxiliary
+   *  attributions) across the sub-transaction's identified payment
+   *  outputs must reach this before the weld is made. 1 (the default)
+   *  lets a single round amount decide; higher bars trade coverage for
+   *  fewer wrong welds. The radix self-spend link is a null
+   *  hypothesis, not an inference from payment tells, so the bar does
+   *  not gate it. */
+  changeEvidence?: number;
+  /** auxiliary attributions the observer holds (the #67 grant): coin →
+   *  true owner. Read here ONLY as a payment identifier — an output
+   *  attributed to a different owner than a granted input is a payment
+   *  (and never linked); one attributed to the same owner is a
+   *  resolved self-spend, settled by the grant layer rather than a
+   *  change weld. */
+  grants?: ReadonlyMap<CoinId, Owner>;
   /** CIOH abstains on transactions with more inputs than this: a cheap
    *  guard against the heuristic's worst failure mode, since honest
    *  wallets rarely co-spend that many coins while collaborative
@@ -103,10 +153,39 @@ export interface Heuristics {
   except?: Set<TxId>;
 }
 
+/** decimal hamming weight: how many nonzero digits the integer has */
+function decHW(n: number): number {
+  let w = 0;
+  for (let x = Math.round(n); x > 0; x = Math.floor(x / 10)) {
+    if (x % 10 !== 0) w += 1;
+  }
+  return w;
+}
+
+/**
+ * The plausible-payment-amount tell, applied per coin: prices are set
+ * by people, so a value that lands on a round multiple of $10 at that
+ * day's rate reads as a payment ($40, not $37.63) — and so does a
+ * value round in BTC terms (decimal hamming weight 1: 0.05 BTC, not
+ * 0.0473). Real analysts extend the family to related figures like
+ * $19.99 plus sales tax; this town's prices are round enough not to
+ * need them. A guess about the AMOUNT only — what it means for the
+ * coin depends on context (the same round BTC figure that reads as a
+ * payment alone reads as a self-spend among repeated denominations).
+ */
+export function plausiblePayment(value: Sats, price?: number): boolean {
+  if (decHW(value) <= 1) return true;
+  if (price === undefined) return false;
+  const usd = (value * price) / 1e8;
+  return Math.abs(usd - Math.round(usd / 10) * 10) < 0.05;
+}
+
 /**
  * Cluster the chain as a third-party observer would.
  * `usdPrice(day)` is the public exchange rate; omit it (or return
- * undefined) to disable the round-USD change heuristic.
+ * undefined) to withhold the change heuristic's round-USD amount tell
+ * (its other tells — round-BTC amounts, auxiliary attributions, the
+ * radix structure — do not need a rate).
  * `heuristics` switches individual heuristics off — with all of them off
  * every coin stays a singleton and only the public structure remains.
  */
@@ -116,6 +195,8 @@ export function clusterObserver(
   heuristics: Heuristics = {},
 ): Clustering {
   const { reuse = true, cioh = true, change = true, subsum = true } = heuristics;
+  const bar = heuristics.changeEvidence ?? 1;
+  const grants = heuristics.grants;
   const parent = new Map<CoinId, CoinId>();
   for (const id of chain.coins.keys()) parent.set(id, id);
   const find = (x: CoinId): CoinId => {
@@ -133,6 +214,7 @@ export function clusterObserver(
   };
 
   const changeGuess = new Map<TxId, CoinId[]>();
+  const payGuess = new Map<TxId, CoinId[]>();
   const welds: Weld[] = [];
   // address reuse first: the observer's address index is complete before a
   // single transaction is read. Coins paid to the same address are
@@ -163,26 +245,95 @@ export function clusterObserver(
     if (heuristics.except?.has(tid)) continue;
     const tx = chain.txs.get(tid)!;
     const price = change ? usdPrice?.(tx.timestep) : undefined;
-    // the round-USD rule, shared between the plain 2-output payment and
-    // each 2-output sub-transaction of a unique partition: if exactly
-    // one of the two outputs lands on a round $10 amount it is probably
-    // the payment, so the other is probably the change and belongs with
-    // the inputs (`anchor` stands in for them — co-welded by the caller)
-    const guessRoundChange = (outs: [CoinId, CoinId], anchor: CoinId): void => {
-      if (price === undefined) return;
-      const looksRound = outs.map((o) => {
-        const usd = (chain.coins.get(o)!.value * price) / 1e8;
-        return Math.abs(usd - Math.round(usd / 10) * 10) < 0.05;
-      });
-      const guess = looksRound[0] && !looksRound[1] ? outs[1]
-        : looksRound[1] && !looksRound[0] ? outs[0]
-        : null;
-      if (!guess) return;
-      const g = changeGuess.get(tid);
-      if (g) g.push(guess);
-      else changeGuess.set(tid, [guess]);
-      union(guess, anchor);
-      welds.push({ method: "change", tx: tid, coins: [guess, anchor] });
+    // the radix structure is read off the WHOLE transaction's outputs:
+    // menu denominations appearing more than once. Within such a
+    // structure a repeated denomination's null hypothesis is a
+    // self-spend — someone taking their balance back in standard
+    // values — so the amount tell that would otherwise read it as a
+    // payment is inverted.
+    const denomCount = new Map<Sats, number>();
+    if (change) {
+      for (const o of tx.outputs) {
+        const v = chain.coins.get(o)!.value;
+        if (isDenomination(v)) denomCount.set(v, (denomCount.get(v) ?? 0) + 1);
+      }
+    }
+    // the two-step change identification, shared between the plain
+    // transaction and each sub-transaction of a unique partition.
+    // Step one classifies every output of the sub-transaction:
+    // payments (a plausible payment amount, or an auxiliary
+    // attribution naming a different owner than a granted input),
+    // self-spends resolved by an attribution matching a granted
+    // input's owner (settled by the grant layer, no weld here), and
+    // unknowns. Step two links: payments are assumed NOT to belong
+    // with the inputs; a sole unknown is suspected change and links if
+    // the payment tells clear the evidentiary bar; several unknowns
+    // read as a batch payment — some payments may have been missed —
+    // and the observer abstains. Where the transaction's outputs show
+    // a RADIX COINJOIN STRUCTURE (repeated menu denominations) the
+    // null hypothesis inverts: a menu value's amount tell is void —
+    // taking one's balance back in standard denominations is exactly
+    // what produces those values — and every output without payment
+    // evidence defaults to self-spend, treated like change and linked
+    // to the input cluster. `linked` says whether the inputs already
+    // read as one cluster (`anchor` stands in for them): step two's
+    // welds are contingent on it, step one's identifications are not.
+    const radixStructure = [...denomCount.values()].some((n) => n >= 2);
+    const identifyAndLink = (outs: CoinId[], ins: CoinId[], anchor: CoinId, linked: boolean): void => {
+      const inOwners = new Set<Owner>();
+      for (const i of ins) {
+        const g = grants?.get(i);
+        if (g !== undefined) inOwners.add(g);
+      }
+      const payments: { id: CoinId; tells: number }[] = [];
+      const selfs: CoinId[] = [];
+      const unknowns: CoinId[] = [];
+      for (const o of outs) {
+        const v = chain.coins.get(o)!.value;
+        const g = grants?.get(o);
+        // inside a radix structure a menu denomination is what a
+        // self-spend looks like, so its amount says nothing
+        const amount = plausiblePayment(v, price) && !(radixStructure && isDenomination(v));
+        if (g !== undefined && inOwners.size > 0) {
+          // an auxiliary attribution outranks the amount guess in both
+          // directions: a different owner is a payment however the
+          // amount reads; the same owner is a self-spend already
+          // settled by the grant layer, so no change weld is needed
+          if (!inOwners.has(g)) payments.push({ id: o, tells: 1 + (amount ? 1 : 0) });
+        } else if (amount) {
+          payments.push({ id: o, tells: 1 });
+        } else if (radixStructure) {
+          selfs.push(o); // the inverted null hypothesis: self-spend
+        } else {
+          unknowns.push(o);
+        }
+      }
+      if (payments.length > 0) {
+        const p = payGuess.get(tid);
+        if (p) p.push(...payments.map((x) => x.id));
+        else payGuess.set(tid, payments.map((x) => x.id));
+      }
+      if (!linked) return; // no single "whoever paid" to hand anything to
+      // the radix null hypothesis links self-spends like change — but
+      // they are default readings, not change guesses, so they join
+      // the weld ledger without entering changeGuess; and a weld is
+      // recorded only where it links something new (inside a unique
+      // part the part weld already claims these coins)
+      for (const s of selfs) {
+        if (find(s) !== find(anchor)) {
+          union(s, anchor);
+          welds.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
+        }
+      }
+      const evidence = payments.reduce((s, p) => s + p.tells, 0);
+      if (unknowns.length === 1 && evidence >= bar) {
+        const guess = unknowns[0]!;
+        const g = changeGuess.get(tid);
+        if (g) g.push(guess);
+        else changeGuess.set(tid, [guess]);
+        union(guess, anchor);
+        welds.push({ method: "change", tx: tid, coins: [guess, anchor], basis: "residue" });
+      }
     };
     // multi-output spends get the sub-transaction treatment first: a unique
     // sub-transaction partition beats CIOH (and identifies outputs too);
@@ -210,19 +361,27 @@ export function clusterObserver(
           // never attributes the ownership conclusion to the model itself
           welds.push({ method: "subtx", tx: tid, coins, assumption: "one-owner-per-part" });
           // change identification applies to each sub-transaction
-          // separately, with the same rule as the plain payment: the
-          // part already reads as one spender (the weld above), so a
-          // 2-output part with exactly one round-USD output marks the
-          // other as its change
-          if (part.outs.length === 2) {
-            guessRoundChange([tx.outputs[part.outs[0]!]!, tx.outputs[part.outs[1]!]!], anchor);
+          // separately, with the same two steps as the plain payment:
+          // the part already reads as one spender (the weld above), so
+          // its payment outputs are identified and the sole remaining
+          // unknown, if any, is suspected as its change
+          if (change) {
+            identifyAndLink(part.outs.map((o) => tx.outputs[o]!),
+              part.ins.map((i) => tx.inputs[i]!), anchor, true);
           }
         }
         continue;
       }
       // proven ambiguous or merely inconclusive: either way the observer
-      // has no partition to justify a link, so it abstains
-      if (map.kind === "ambiguous" || map.kind === "inconclusive") continue;
+      // has no partition to justify a link, so it abstains from welding
+      // anything — but step one's payment identifications are per coin
+      // and presume nothing about the split, so they are still recorded
+      // (an auxiliary attribution can name a payment inside a session
+      // whose mapping the amounts leave open)
+      if (map.kind === "ambiguous" || map.kind === "inconclusive") {
+        if (change) identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, false);
+        continue;
+      }
       // atomic: no way to split it — fall through to plain CIOH
     }
     // CIOH: all inputs of one transaction, one owner — unless the input
@@ -232,15 +391,17 @@ export function clusterObserver(
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
       welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }
-    // round-USD change identification — only meaningful on a transaction
-    // that already reads unilateral: predicting an output to be change
-    // (by not being the payment) presumes one spender, so unless every
-    // input sits in the same apparent cluster by this point in the scan,
-    // the weld would arbitrarily link the guess to one input among
-    // several candidate owners, and the observer abstains
-    const oneSpender = tx.inputs.every((i) => find(i) === find(tx.inputs[0]!));
-    if (oneSpender && tx.outputs.length === 2) {
-      guessRoundChange([tx.outputs[0]!, tx.outputs[1]!], tx.inputs[0]!);
+    // change identification over the whole transaction (the trivial
+    // sub-transaction). Step two's welds are only meaningful on a
+    // transaction that already reads unilateral: linking an output to
+    // "whoever paid" presumes one spender, so unless every input sits
+    // in the same apparent cluster by this point in the scan, the weld
+    // would arbitrarily pick one input among several candidate owners,
+    // and the observer abstains (step one's payment identifications
+    // are per coin and recorded regardless).
+    if (change) {
+      const oneSpender = tx.inputs.every((i) => find(i) === find(tx.inputs[0]!));
+      identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, oneSpender);
     }
   }
 
@@ -258,7 +419,7 @@ export function clusterObserver(
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess, welds };
+  return { rep, members, rank, changeGuess, payGuess, welds };
 }
 
 /** one graded error in the observer's map: a weld whose coins do NOT in
@@ -292,10 +453,12 @@ export function gradeWelds(chain: Chain, welds: Weld[]): Map<TxId, Mistake[]> {
     if (owners.size < 2) continue;
     const note =
       w.method === "change"
-        ? "the change guess picked another user's payment"
+        ? (w.basis === "radix"
+          ? "a repeated denomination read as a self-spend was another user's coin"
+          : "the change guess picked another user's payment")
         : w.method === "cioh"
           ? `CIOH read ${owners.size} users' inputs as one owner`
-          : "a balanced part mixes different users' coins";
+          : "a balanced part combines different users' coins";
     const l = out.get(w.tx);
     if (l) l.push({ tx: w.tx, method: w.method, note });
     else out.set(w.tx, [{ tx: w.tx, method: w.method, note }]);
@@ -329,7 +492,7 @@ function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Cluste
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess: new Map(), welds: [] };
+  return { rep, members, rank, changeGuess: new Map(), payGuess: new Map(), welds: [] };
 }
 
 /**

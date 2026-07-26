@@ -54,16 +54,27 @@ test("two round outputs yield no change guess", () => {
   assert.notEqual(cl.rep.get("a"), cl.rep.get("t1o2"));
 });
 
-test("no price series disables the change heuristic", () => {
+test("no price series withholds the round-USD tell; round-BTC amounts still read", () => {
   const c = new Chain();
   const fee = txfee(1, 2, 2);
   c.addRoot("a", 1_000_000, 0);
+  // $150 = 150,000 sats: round in dollars, NOT round in BTC (0.0015)
   c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 150_000 },
+    { owner: 0, value: 850_000 - fee },
+  ], 2);
+  // without a rate the dollar tell has nothing to read
+  assert.equal(clusterObserver(c).changeGuess.size, 0);
+  assert.deepEqual(clusterObserver(c, at).changeGuess.get("t1"), ["t1o2"]);
+  // a round-BTC amount (0.001, decimal hamming weight 1) needs no rate
+  const b = new Chain();
+  b.addRoot("a", 1_000_000, 0);
+  b.addTx("t1", 1, ["a"], [
     { owner: 1, value: 100_000 },
     { owner: 0, value: 900_000 - fee },
   ], 2);
-  const cl = clusterObserver(c);
-  assert.equal(cl.changeGuess.size, 0);
+  assert.deepEqual(clusterObserver(b).changeGuess.get("t1"), ["t1o2"]);
+  assert.deepEqual(clusterObserver(b).payGuess.get("t1"), ["t1o1"]);
 });
 
 test("clusters are ranked by size, largest first", () => {
@@ -73,9 +84,11 @@ test("clusters are ranked by size, largest first", () => {
   c.addRoot("d", 400_000, 0);
   c.addRoot("z", 500_000, 1);
   const fee = txfee(3, 2, 2);
+  // neither output is round in BTC or (rateless) dollars: two unknowns,
+  // the batch-payment null hypothesis, no change weld to muddy the count
   c.addTx("t1", 1, ["a", "b", "d"], [
-    { owner: 1, value: 500_000 },
-    { owner: 0, value: 400_000 - fee },
+    { owner: 1, value: 550_000 },
+    { owner: 0, value: 350_000 - fee },
   ], 2);
   const cl = clusterObserver(c);
   const big = cl.rep.get("a")!;
@@ -264,6 +277,136 @@ test("change identification applies per sub-transaction of a unique partition", 
   // with the change toggle off, the part welds stay but no guess is made
   const noChange = clusterObserver(c, at, { change: false });
   assert.equal(noChange.changeGuess.size, 0);
+});
+
+test("several unidentified outputs read as a batch payment: the observer abstains", () => {
+  const c = new Chain();
+  const fee = txfee(1, 3, 2);
+  c.addRoot("a", 1_000_000 + fee, 0);
+  // one round payment ($100), two odd outputs: a payment may have been
+  // missed, so neither odd output is linked as change
+  c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 150_000 },
+    { owner: 2, value: 371_300 },
+    { owner: 0, value: 478_700 },
+  ], 2);
+  const cl = clusterObserver(c, at);
+  assert.deepEqual(cl.payGuess.get("t1"), ["t1o1"]);
+  assert.equal(cl.changeGuess.get("t1"), undefined);
+  assert.equal(cl.welds.filter((w) => w.method === "change").length, 0);
+  // identify the second payment too (both round) and the sole remaining
+  // unknown becomes the suspected change
+  const d = new Chain();
+  d.addRoot("a", 1_001_337 + fee, 0);
+  d.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 150_000 },
+    { owner: 2, value: 370_000 },
+    { owner: 0, value: 481_337 }, // odd: $481.34
+  ], 2);
+  const dl = clusterObserver(d, at);
+  assert.deepEqual(dl.payGuess.get("t1"), ["t1o1", "t1o2"]);
+  assert.deepEqual(dl.changeGuess.get("t1"), ["t1o3"]);
+  assert.equal(dl.rep.get("a"), dl.rep.get("t1o3"));
+});
+
+test("the evidentiary bar gates the change link, not the identifications", () => {
+  const c = new Chain();
+  const fee = txfee(1, 2, 2);
+  c.addRoot("a", 1_000_000, 0);
+  c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 150_000 },
+    { owner: 0, value: 850_000 - fee },
+  ], 2);
+  // a single round amount is one tell: enough at bar 1, not at bar 2
+  const lenient = clusterObserver(c, at, { changeEvidence: 1 });
+  assert.deepEqual(lenient.changeGuess.get("t1"), ["t1o2"]);
+  const strict = clusterObserver(c, at, { changeEvidence: 2 });
+  assert.equal(strict.changeGuess.get("t1"), undefined);
+  assert.deepEqual(strict.payGuess.get("t1"), ["t1o1"]); // still identified
+  assert.notEqual(strict.rep.get("a"), strict.rep.get("t1o2"));
+  // an auxiliary attribution corroborates the amount: two tells clear bar 2
+  const grants = new Map([["a", 0], ["t1o1", 1]] as [string, number][]);
+  const aux = clusterObserver(c, at, { changeEvidence: 2, grants });
+  assert.deepEqual(aux.changeGuess.get("t1"), ["t1o2"]);
+  assert.equal(aux.rep.get("a"), aux.rep.get("t1o2"));
+});
+
+test("auxiliary attribution identifies a payment no amount tell would", () => {
+  const c = new Chain();
+  const fee = txfee(1, 2, 2);
+  c.addRoot("a", 1_000_000, 0);
+  // both outputs odd: without a grant, two unknowns, no link
+  c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 371_300 },
+    { owner: 0, value: 628_700 - fee },
+  ], 2);
+  assert.equal(clusterObserver(c, at).changeGuess.get("t1"), undefined);
+  // the observer holds attributions: the input is owner 0's, the first
+  // output someone else's — a payment, so the sole unknown is change
+  const grants = new Map([["a", 0], ["t1o1", 1]] as [string, number][]);
+  const cl = clusterObserver(c, at, { grants });
+  assert.deepEqual(cl.payGuess.get("t1"), ["t1o1"]);
+  assert.deepEqual(cl.changeGuess.get("t1"), ["t1o2"]);
+  // an attribution matching the inputs' owner is a resolved self-spend,
+  // not a payment — and not a change weld either (the grant layer owns it)
+  const selfg = new Map([["a", 0], ["t1o1", 0]] as [string, number][]);
+  const sl = clusterObserver(c, at, { grants: selfg });
+  assert.equal(sl.payGuess.get("t1"), undefined);
+  assert.equal(sl.changeGuess.get("t1"), undefined);
+});
+
+test("an underdetermined partition still gets step one: payments identified, nothing linked", () => {
+  const c = new Chain();
+  // three equal NON-menu outputs ($150 each) make the split proven
+  // ambiguous; the observer welds nothing, but the round amounts are
+  // per-coin reads and land in payGuess anyway
+  const fee = txfee(2, 3, 2);
+  c.addRoot("a", 150_000, 0);
+  c.addRoot("b", 300_000 + fee, 1);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 2, value: 150_000 },
+    { owner: 3, value: 150_000 },
+    { owner: 4, value: 150_000 },
+  ], 2);
+  const cl = clusterObserver(c, at);
+  assert.notEqual(cl.rep.get("a"), cl.rep.get("b"));
+  assert.equal(cl.welds.length, 0);
+  assert.deepEqual(cl.payGuess.get("t1"), ["t1o1", "t1o2", "t1o3"]);
+  assert.equal(cl.changeGuess.get("t1"), undefined);
+});
+
+test("radix structure inverts the null hypothesis: repeated denominations and the residue read as self-spends", () => {
+  const c = new Chain();
+  const fee = txfee(1, 3, 2);
+  // a self-decomposition: 2 × 2,000,000 (a menu denomination, repeated)
+  // plus an odd residue — no payment evidence anywhere
+  c.addRoot("a", 4_371_337 + fee, 0);
+  c.addTx("t1", 1, ["a"], [
+    { owner: 0, value: 2_000_000 },
+    { owner: 0, value: 2_000_000 },
+    { owner: 0, value: 371_337 },
+  ], 2);
+  const cl = clusterObserver(c, at);
+  // every output links to the input cluster — the denominations by the
+  // radix null hypothesis, welded but not guessed as change
+  assert.equal(cl.rep.get("a"), cl.rep.get("t1o1"));
+  assert.equal(cl.rep.get("a"), cl.rep.get("t1o2"));
+  assert.equal(cl.rep.get("a"), cl.rep.get("t1o3"));
+  assert.equal(cl.changeGuess.get("t1"), undefined);
+  const radixWelds = cl.welds.filter((w) => w.method === "change" && w.basis === "radix");
+  assert.equal(radixWelds.length, 3);
+  // amount evidence still identifies a payment inside the structure: a
+  // round-dollar output that is NOT a menu value keeps its tell
+  const d = new Chain();
+  d.addRoot("a", 4_150_000 + fee, 0);
+  d.addTx("t1", 1, ["a"], [
+    { owner: 0, value: 2_000_000 },
+    { owner: 0, value: 2_000_000 },
+    { owner: 1, value: 150_000 }, // $150: round USD, not a denomination
+  ], 2);
+  const dl = clusterObserver(d, at);
+  assert.deepEqual(dl.payGuess.get("t1"), ["t1o3"]);
+  assert.notEqual(dl.rep.get("a"), dl.rep.get("t1o3"));
 });
 
 test("the lattice bottom: every coin its own vertex", async () => {
