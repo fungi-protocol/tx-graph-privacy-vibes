@@ -29,7 +29,11 @@ test("the tidying-up slip lands on INTERSECT_DAY: one owner, two sessions", () =
 });
 
 test("the slip's two pasts pass through different sessions", () => {
-  const eco = eco115();
+  // pinned to the default seed the tutorial rides: the staging hunts a
+  // fully divergent pair (tier 2) first, and welcome's record has one;
+  // golden's post-wallet history offers only one-sided divergence
+  const eco = new Economy("welcome");
+  eco.runTo(115);
   const ev = eco.events.find((e) => e.memo === "tidying up the wallet")!;
   const tx = eco.chain.txs.get(ev.tid)!;
   const per = tx.inputs.map((c) => {

@@ -109,13 +109,16 @@ test("detection verdicts across the tutorial seeds match the calibrated record",
     const tid = selectPayjoinExhibit(eco.events, eco.chain, price)!;
     return detectionFires(payjoinDetection(eco.chain, price, tid));
   };
-  assert.equal(verdictAt("golden", 35), true, "golden: detection fires at the chapter's day");
   assert.equal(verdictAt("alpha", 35), true, "alpha: detection fires at the chapter's day");
-  assert.equal(verdictAt("welcome", 115), false, "welcome: priors stay thin — the quiet branch");
+  assert.equal(verdictAt("golden", 35), false, "golden: priors stay thin — the quiet branch");
+  assert.equal(verdictAt("welcome", 35), false, "welcome: the default run takes the quiet branch");
+  // with eighty more days of priors the map thickens and the doubt resolves
+  assert.equal(verdictAt("welcome", 115), true, "welcome: the contradiction lands late");
 });
 
 test("the exhibit prefers a detected 2-input payjoin when one exists", () => {
-  const eco = new Economy("golden");
+  // calibrated: alpha is the seed whose day-45 record catches one
+  const eco = new Economy("alpha");
   eco.runTo(45);
   const price = (d: number): number | undefined => eco.prices[d];
   const tid = selectPayjoinExhibit(eco.events, eco.chain, price)!;

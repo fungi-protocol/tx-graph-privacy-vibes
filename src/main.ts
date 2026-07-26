@@ -7,7 +7,7 @@ import { type Camera, worldToScreen, screenToWorld, zoomAt } from "./ui/camera";
 import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
 import { economySteps } from "./scenario/economySteps";
-import { PERSONAS, CARELESS, MAX_POP, ownerColor, type Persona } from "./scenario/cast";
+import { PERSONAS, CARELESS, MAX_POP, ownerColor, walletOf, type Persona } from "./scenario/cast";
 import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams, type ParamPatch, type Intervention, type ManualPlan } from "./engine/economy";
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
@@ -1922,6 +1922,8 @@ function openInspector(u: number): void {
       <span class="swatch" style="background:${ownerColor(u)}"></span> ${p.name}</span>
       <span class="tut-progress">${p.role}${u === CARELESS ? " ⚠" : ""}</span></div>
     <p>${p.concern}</p>
+    <p class="role" title="${walletOf(p).pitch} — fingerprint: ${walletOf(p).tell}">runs
+      <b>${walletOf(p).name}</b>${p.walletWhy ? ` — ${p.walletWhy}` : ""}</p>
     <p class="role">wallet: ${utxos.length} coin${utxos.length === 1 ? "" : "s"}, ${fmtSats(total)} sats
       <button id="traceall" class="chip-btn">trace all coins</button></p>
     <div class="coinlist">${coins.map((c) => {

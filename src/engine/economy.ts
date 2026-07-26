@@ -9,7 +9,7 @@
 import { Chain, type CoinId, type TxId } from "../model/chain";
 import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
-import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, type Persona, type Edge } from "../scenario/cast";
+import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, walletFee, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
 import { bruteDecomps, DUST } from "../denom/denominations";
 import { sumsetUpTo, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
@@ -973,7 +973,9 @@ export class Economy {
 
   private settle(obl: Obligation): boolean {
     const value = this.sats(obl.usd);
-    const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
+    // one draw as before; the payer's wallet turns it into a bid (its fee
+    // policy is a fingerprint — see WALLETS in scenario/cast.ts)
+    const feerate = walletFee(this.cast[obl.payer]!, this.feebase, this.rng.next());
     if (obl.payer === this.manual && this.day >= this.manualFrom) {
       // the played agent rolls no dice: wait unless the player chose
       // otherwise, and pay up when the deadline arrives
@@ -1070,7 +1072,7 @@ export class Economy {
       if (!this.pending.some((o) => o.payer === u && o.due <= this.day)) continue;
       const queued = this.pending.filter((o) => o.payer === u);
       if (queued.length < 2) continue; // a lone due bill goes through the ordinary menu
-      const feerate = Number((this.feebase * (0.8 + this.rng.next() * 0.6)).toFixed(2));
+      const feerate = walletFee(this.cast[u]!, this.feebase, this.rng.next());
       if (this.batchPay(u, queued, feerate)) {
         this.pending = this.pending.filter((o) => !queued.includes(o));
       }
@@ -1089,7 +1091,11 @@ export class Economy {
     // (the occasional fee-spike impulse) is behavior
     for (const buy of sched.purchases) {
       const impatient = this.rng.next() < 0.15;
-      const feerate = Number((this.feebase * (impatient ? 3 + this.rng.next() * 6 : 0.8 + this.rng.next() * 0.6)).toFixed(2));
+      const draw = this.rng.next();
+      // an impulse overrides any wallet: pay whatever it takes, right now
+      const feerate = impatient
+        ? Number((this.feebase * (3 + draw * 6)).toFixed(2))
+        : walletFee(this.cast[buy.payer]!, this.feebase, draw);
       this.unilateral(buy.payer, null, this.sats(buy.usd), buy.memo, feerate, buy.id);
     }
     return this.events.slice(before);

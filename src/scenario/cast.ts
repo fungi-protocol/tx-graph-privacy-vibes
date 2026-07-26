@@ -12,6 +12,10 @@ export interface Persona {
   role: string;
   /** what this person needs kept private, and what leaks meanwhile */
   concern: string;
+  /** wallet product key (WALLETS); absent = "hearth", the town default */
+  wallet?: string;
+  /** why this person picked that wallet — shown on the character sheet */
+  walletWhy?: string;
   /** root coin values: savings acquired before the story begins */
   roots: number[];
   community: number;
@@ -46,6 +50,71 @@ export interface Edge {
   rate?: number;
 }
 
+/**
+ * The town's wallet software — invented products, not real ones. Each ships
+ * a fee policy, and the policy is a fingerprint: every transaction publishes
+ * its feerate, so a wallet that always bids the same way signs its user's
+ * cluster. The simulation fingerprints feerate policy only; real wallets
+ * also differ in script types, nLockTime defaults, and signature grinding,
+ * which exist here only as a footnote — the chain records them, this model
+ * does not.
+ *
+ * The policy maps the day's prevailing rate and one behavior draw in [0,1)
+ * to a bid, so swapping policies never changes how many dice a day rolls.
+ */
+export interface WalletProduct {
+  /** product name, as its marketing would have it */
+  name: string;
+  /** the sales pitch — why its users chose it */
+  pitch: string;
+  /** how the fingerprint reads to an observer */
+  tell: string;
+  fee: (base: number, draw: number) => number;
+}
+
+export const WALLETS: Record<string, WalletProduct> = {
+  hearth: {
+    name: "Hearth",
+    pitch: "the wallet everyone's cousin recommends — sensible defaults, no questions asked",
+    tell: "bids near the market rate with a modest scatter",
+    fee: (base, draw) => Number((base * (0.8 + draw * 0.6)).toFixed(2)),
+  },
+  pelican: {
+    name: "Pelican",
+    pitch: "“why pay the mempool's asking price?” — for people who count fees",
+    tell: "always under the market, always a whole sat per vbyte (never below one, the relay floor)",
+    fee: (base, draw) => Math.max(1, Math.floor(base * (0.72 + draw * 0.12))),
+  },
+  ledgerline: {
+    name: "Ledgerline",
+    pitch: "till and desk software — payouts confirm on schedule, the register does the rest",
+    tell: "a steady 1.3× premium to one decimal, day in, day out",
+    fee: (base) => Number((base * 1.3).toFixed(1)),
+  },
+  foxglove: {
+    name: "Foxglove",
+    pitch: "privacy-branded: randomizes its fee bids so the wallet itself keeps no rhythm",
+    tell: "a scatter twice as wide as anyone's — the width is its own signature",
+    fee: (base, draw) => Number((base * (0.6 + draw * 1.1)).toFixed(2)),
+  },
+  brightpay: {
+    name: "Brightpay",
+    pitch: "one big friendly button marked “instant”",
+    tell: "well over the market and rounded to a whole sat — convenience, paid for",
+    fee: (base, draw) => Math.max(1, Math.round(base * (1.45 + draw * 0.25))),
+  },
+};
+
+/** the persona's wallet product (default: Hearth, the town standard) */
+export function walletOf(p: Persona): WalletProduct {
+  return WALLETS[p.wallet ?? "hearth"] ?? WALLETS["hearth"]!;
+}
+
+/** feerate this persona's wallet bids, given the day's rate and one draw */
+export function walletFee(p: Persona, base: number, draw: number): number {
+  return walletOf(p).fee(base, draw);
+}
+
 // tableau10, as in the diagram-E visual language
 export const OWNER_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b4", "#59a14f",
   "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"];
@@ -63,6 +132,8 @@ export const PERSONAS: Persona[] = [
       "Paying unilaterally, each purchase hands its recipient a thread " +
       "into the rest of her wallet.",
     roots: [1_500_000, 800_000, 500_000, 250_000],
+    wallet: "hearth",
+    walletWhy: "came with her first coins, and it has never given her a reason to switch",
     stats: { privacy: 3, thrift: 2, hassle: 2 },
   },
   {
@@ -72,6 +143,8 @@ export const PERSONAS: Persona[] = [
       "saved. Every unilateral receipt is a thread anyone he ever worked " +
       "for can pull.",
     roots: [1_000_000, 700_000, 450_000],
+    wallet: "pelican",
+    walletWhy: "a fee is an hour's work somewhere; Pelican never bids over the market",
     stats: { privacy: 3, thrift: 3, hassle: 2 },
   },
   {
@@ -81,6 +154,8 @@ export const PERSONAS: Persona[] = [
       "back to her identified withdrawal — she is the baseline the others " +
       "are measured against.",
     roots: [1_400_000, 380_000],
+    wallet: "brightpay",
+    walletWhy: "the button says instant and the payment is instant; what else is there",
     stats: { privacy: 0, thrift: 2, hassle: 4 },
   },
   {
@@ -90,6 +165,8 @@ export const PERSONAS: Persona[] = [
       "reading his margin. Unilaterally, money received from Y touches Z " +
       "with the link in plain sight.",
     roots: [1_200_000, 900_000, 350_000, 250_000, 150_000],
+    wallet: "foxglove",
+    walletWhy: "read the fingerprinting papers; picked the wallet that promises to leave none",
     stats: { privacy: 4, thrift: 2, hassle: 2 },
   },
   {
@@ -99,6 +176,8 @@ export const PERSONAS: Persona[] = [
       "from the shop and her spending share one wallet, and the chain " +
       "shows the join.",
     roots: [1_250_000, 650_000, 420_000, 300_000],
+    wallet: "hearth",
+    walletWhy: "asked around; everyone said Hearth, so Hearth it is",
     stats: { privacy: 3, thrift: 2, hassle: 3 },
   },
   {
@@ -108,6 +187,8 @@ export const PERSONAS: Persona[] = [
       "unilaterally publishes his cash flow to anyone who transacts " +
       "with him twice.",
     roots: [1_100_000, 750_000, 300_000],
+    wallet: "pelican",
+    walletWhy: "thin months taught him to shave every cost that shaves",
     stats: { privacy: 2, thrift: 4, hassle: 3 },
   },
   {
@@ -117,6 +198,8 @@ export const PERSONAS: Persona[] = [
       "supplier payments; suppliers can size her revenue. One identified " +
       "sale exposes the run of the till.",
     roots: [1_600_000],
+    wallet: "ledgerline",
+    walletWhy: "the register, the inventory and the payouts in one product; the shop runs on it",
     stats: { privacy: 3, thrift: 3, hassle: 1 },
   },
   {
@@ -126,6 +209,8 @@ export const PERSONAS: Persona[] = [
       "her finances, nor the people she hires seeing her rental income. " +
       "One wallet, one history, both audiences.",
     roots: [1_300_000, 550_000, 480_000, 200_000],
+    wallet: "hearth",
+    walletWhy: "the studio's accountant set it up years ago and it just works",
     stats: { privacy: 3, thrift: 2, hassle: 2 },
   },
   {
@@ -134,6 +219,8 @@ export const PERSONAS: Persona[] = [
       "do not let a client estimate his markup. The lumber yard receipt " +
       "sits one hop from the invoice it was bought for.",
     roots: [950_000, 700_000, 400_000, 275_000],
+    wallet: "pelican",
+    walletWhy: "prices his jobs to the board-foot; a wallet that overbids fees would gall him",
     stats: { privacy: 2, thrift: 3, hassle: 3 },
   },
   {
@@ -145,6 +232,8 @@ export const PERSONAS: Persona[] = [
     // the steepest recurring burn in the cast (rent, ~850$ a pop), so
     // her savings run deeper — insolvent tenants can't join settlements
     roots: [2_600_000, 1_400_000, 600_000, 330_000, 210_000],
+    wallet: "foxglove",
+    walletWhy: "if the landlord reads chains, the wallet had better not initial its work",
     stats: { privacy: 5, thrift: 2, hassle: 2 },
   },
 ];
@@ -192,6 +281,8 @@ const ARCHETYPES: Archetype[] = [
         "prefers not to start many.",
       roots: [6_250_000, 6_250_000, 3_125_000],
       rootLabel: "coinbase reward",
+      wallet: "pelican",
+      walletWhy: "mines the blocks himself; paying the mempool's asking price feels like tipping his own till",
       stats: { privacy: 2, thrift: 5, hassle: 4 },
     },
     community: 0,
@@ -207,6 +298,8 @@ const ARCHETYPES: Archetype[] = [
         "customer who identifies one sale can read the whole till — volume, " +
         "regulars, the supplier she underpays.",
       roots: [850_000, 450_000, 300_000, 180_000],
+      wallet: "ledgerline",
+      walletWhy: "the stall needed a till, and the till came with a wallet",
       stats: { privacy: 2, thrift: 4, hassle: 1 },
     },
     community: 1,
@@ -224,6 +317,8 @@ const ARCHETYPES: Archetype[] = [
         "counterexample — and a reminder that even discipline only buys " +
         "bounded ambiguity.",
       roots: [1_700_000, 900_000, 420_000],
+      wallet: "foxglove",
+      walletWhy: "of course; he filed three of the fingerprinting issues on its tracker",
       stats: { privacy: 5, thrift: 1, hassle: 0 },
     },
     community: 2,
@@ -240,6 +335,8 @@ const ARCHETYPES: Archetype[] = [
         "payout list as a single record every time.",
       roots: [9_000_000, 4_500_000],
       batches: true,
+      wallet: "ledgerline",
+      walletWhy: "a desk pays on schedule or it stops being a desk; Ledgerline never misses",
       stats: { privacy: 1, thrift: 5, hassle: 2 },
     },
     community: 0,
@@ -291,15 +388,29 @@ export function buildCast(seed: string, pop: number): { personas: Persona[]; edg
     const name = TOWN_NAMES[i % TOWN_NAMES.length]!;
     const roots = Array.from({ length: 2 + rng.int(3) },
       () => 200_000 + rng.int(1_200_000));
+    // draw order matches the pre-wallet literal (arrives, then stats): the
+    // seeded streams that shape the town predate wallets and must not shift
+    const arrives = rng.int(90);
+    const stats = { privacy: 1 + rng.int(4), thrift: 1 + rng.int(4), hassle: 1 + rng.int(4) };
+    // wallet follows temperament, no extra dice
+    const wallet = stats.privacy >= 4 ? "foxglove"
+      : stats.thrift >= 4 ? "pelican"
+      : stats.hassle >= 4 ? "brightpay" : "hearth";
     personas.push({
       name, role, community,
       concern: `Pays and gets paid around town like everyone else. Every ` +
         `unilateral spend threads the ${role}'s wallet into the record, ` +
         "and every counterparty keeps what it learns.",
       roots,
+      wallet,
+      walletWhy: `runs ${WALLETS[wallet]!.name} — ` +
+        (wallet === "foxglove" ? "read one thread about wallet fingerprints and switched the same night"
+          : wallet === "pelican" ? "shopped the fee policies the way they shop everything"
+          : wallet === "brightpay" ? "wanted the one with the fewest screens"
+          : "took the default and never looked back"),
       // townsfolk trickle in across the story rather than all at once
-      arrives: rng.int(90),
-      stats: { privacy: 1 + rng.int(4), thrift: 1 + rng.int(4), hassle: 1 + rng.int(4) },
+      arrives,
+      stats,
     });
     // one or two edges into the local community, either direction
     const locals = personas
