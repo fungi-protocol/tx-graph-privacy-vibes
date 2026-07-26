@@ -936,10 +936,24 @@ const unclusterBtn = document.getElementById("unclusterbtn") as HTMLButtonElemen
 // toggle between the lens's partition and the lattice bottom (every
 // coin a singleton), animating the discs splitting apart / gathering
 // back — same repartition tween as a heuristic toggle
-function setUnclustered(on: boolean, animate = true): void {
-  if (unclustered === on) return;
+/** the first half of every contracted-view repartition: capture the
+ *  old partition for the tween, and re-aim the fit at the rect the
+ *  camera shows RIGHT NOW — a state change re-forms the map in place
+ *  (the discs travel, the viewport doesn't, same rule as the collapse
+ *  itself). Returns null (and leaves the fit alone) when there is
+ *  nothing on screen to animate from. */
+function repartitionStart(animate = true): { cl: Clustering; clay: ClusterLayout } | null {
   const before = collapsed && collapseT > 0.9 && collapseCache && animate
     ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  if (collapsed && animate && canvas.clientWidth > 0) {
+    clusterFit = visibleWorldRect();
+    collapseCache = null; // the cached layouts were fit to the old rect
+  }
+  return before;
+}
+function setUnclustered(on: boolean, animate = true): void {
+  if (unclustered === on) return;
+  const before = repartitionStart(animate);
   unclustered = on;
   unclusterBtn.textContent = on ? "clustered" : "unclustered";
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
@@ -955,7 +969,6 @@ function setUnclustered(on: boolean, animate = true): void {
     });
     kick();
   }
-  if (collapsed) flyTo(clusterLayout().bounds);
   recomputeTrace();
   draw();
   void syncFragment();
@@ -1007,8 +1020,7 @@ function setForceLayout(on: boolean, animate = true): void {
   if (forceLayout === on) return;
   // contracted, the button reorders the ring (time vs fewest crossings):
   // animate the discs gliding around it, the usual repartition tween
-  const beforeRing = collapsed && collapseT > 0.9 && collapseCache && animate
-    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  const beforeRing = repartitionStart(animate);
   forceLayout = on;
   layoutBtn.textContent = on ? "layout: force" : "layout: layered";
   if (beforeRing) {
@@ -1020,7 +1032,6 @@ function setForceLayout(on: boolean, animate = true): void {
     anim.add(900, (t) => { tr.t = t; }, {
       done: () => { if (clusterTrans === tr) clusterTrans = null; },
     });
-    flyTo(clusterLayout().bounds);
     kick();
   }
   relayoutGraph(animate);
@@ -1062,8 +1073,7 @@ function setLens(l: 0 | 1 | 2): void {
   // refinement lattice: the old partition's discs merge and split into
   // the new one's, the same repartition tween as a heuristic toggle —
   // not a camera move
-  const before = collapsed && collapseT > 0.9 && collapseCache
-    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  const before = repartitionStart();
   lens = l;
   if (l === 2 && lensAgent === null) lensAgent = defaultLensAgent();
   lensBtn.textContent =
@@ -1088,7 +1098,6 @@ function setLens(l: 0 | 1 | 2): void {
       });
       kick();
     }
-    flyTo(clusterLayout().bounds);
   }
   draw();
   void syncFragment();
@@ -1125,15 +1134,15 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
         </div>
       </div>`
     : "")).join("") +
-  `<label title="Narayanan–Shmatikov social-network analysis: split the cluster graph into columns (epochs of the timeline) and match vertices across them by the shape of their neighborhoods — a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nssoc"> social-network analysis</label>
+  `<label title="Narayanan–Shmatikov social-network analysis: partition the cluster graph — temporally, into contiguous epochs each expected to cluster into much the same shape — and match vertices across the parts by the shape of their neighborhoods; a match is an ownership claim, so accepting it merges the clusters. The side-by-side columns are just the display, one per part"><input type="checkbox" id="nssoc"> social-network analysis</label>
   <div id="nssoccontrols" style="display:none">
     <div class="ovslider" title="similarity a pair must clear to be matched (cosine of the two neighborhoods); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
       <span>threshold</span>
       <input type="range" id="nsth" min="0" max="101" step="1" value="50">
       <output id="nsthv">0.50</output>
     </div>
-    <div class="ovslider" title="the partition strategy: how many contiguous epochs the timeline splits into">
-      <span>columns</span>
+    <div class="ovslider" title="the partitioning strategy: how many contiguous epochs the timeline splits into — each drawn as its own column">
+      <span>partitions</span>
       <input type="range" id="nsparts" min="2" max="4" step="1" value="2">
       <output id="nspartsv">2</output>
     </div>
@@ -1357,8 +1366,7 @@ document.getElementById("mistakes")!.addEventListener("change", (e) => {
 // new ones (purely cosmetic — both endpoints are honestly computed
 // partitions, and the tween feeds nothing)
 function setOverlays(mask: number): void {
-  const before = collapsed && collapseT > 0.9 && collapseCache
-    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  const before = repartitionStart();
   overlays = mask & OV_ALL;
   simRev += 1; // the observer's map — and every lens seeded from it — changes
   reflectOverlays();
@@ -1371,7 +1379,6 @@ function setOverlays(mask: number): void {
     anim.add(900, (t) => { tr.t = t; }, {
       done: () => { if (clusterTrans === tr) clusterTrans = null; },
     });
-    flyTo(clusterLayout().bounds);
     kick();
   }
   recomputeTrace();
@@ -1416,8 +1423,7 @@ for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chaux", TEL
 // re-runs live per notch, so dragging shows names landing and clusters
 // fusing as the grant grows.
 function setGrants(kx: boolean, ax: number): void {
-  const before = collapsed && collapseT > 0.9 && collapseCache
-    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  const before = repartitionStart();
   kycObs = kx;
   auxFrac = ax;
   reflectOverlays();
@@ -1430,7 +1436,6 @@ function setGrants(kx: boolean, ax: number): void {
     anim.add(900, (t) => { tr.t = t; }, {
       done: () => { if (clusterTrans === tr) clusterTrans = null; },
     });
-    flyTo(clusterLayout().bounds);
     kick();
   }
   recomputeTrace();
@@ -1452,8 +1457,7 @@ document.getElementById("auxfrac")!.addEventListener("input", (e) => {
 // rides the same repartition tween as a heuristic toggle: matched discs
 // glide together, a retracted match pulls back apart.
 function withNsRepartition(mutate: () => void): void {
-  const before = collapsed && collapseT > 0.9 && collapseCache
-    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  const before = repartitionStart();
   mutate();
   // a merge can absorb the vertex a selection named
   if (selection?.kind === "cluster" && !lensClustering().members.has(selection.id)) {
@@ -1470,7 +1474,6 @@ function withNsRepartition(mutate: () => void): void {
     anim.add(900, (t) => { tr.t = t; }, {
       done: () => { if (clusterTrans === tr) clusterTrans = null; },
     });
-    if (collapsed) flyTo(clusterLayout().bounds);
     kick();
   }
   recomputeTrace();
