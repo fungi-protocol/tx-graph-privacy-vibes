@@ -96,6 +96,32 @@ function routedEdge(
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
 }
 
+/** Where the ray from a rect's center toward (tx, ty) crosses its border —
+ *  the radial edge anchor: edges leave a node wherever its perimeter faces
+ *  the other end, instead of always at the left/right midpoints. */
+function perimeter(r: Rect, tx: number, ty: number): Pt {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  const vx = tx - cx, vy = ty - cy;
+  if (vx === 0 && vy === 0) return { x: cx, y: cy };
+  const sx = vx === 0 ? Infinity : (r.w / 2) / Math.abs(vx);
+  const sy = vy === 0 ? Infinity : (r.h / 2) / Math.abs(vy);
+  const s = Math.min(sx, sy);
+  return { x: cx + vx * s, y: cy + vy * s };
+}
+
+/** Arrowhead at `to`, pointing away from `from` — the flow of funds,
+ *  forward in time, drawn on the edge since the radial layout has no
+ *  time axis to carry it. */
+function arrowHead(ctx: CanvasRenderingContext2D, from: Pt, to: Pt, size = 7): void {
+  const a = Math.atan2(to.y - from.y, to.x - from.x);
+  ctx.beginPath();
+  ctx.moveTo(to.x, to.y);
+  ctx.lineTo(to.x - size * Math.cos(a - 0.45), to.y - size * Math.sin(a - 0.45));
+  ctx.lineTo(to.x - size * Math.cos(a + 0.45), to.y - size * Math.sin(a + 0.45));
+  ctx.closePath();
+  ctx.fill();
+}
+
 /** A coin's single morphing frame: producing box -> bipartite vertex. */
 export function coinRectAt(block: Layout, bip: BipLayout, id: string, t: number): Rect | null {
   const from = block.coinBoxes.find((cb) => cb.coin === id && cb.role !== "in")?.rect;
@@ -197,17 +223,38 @@ export function drawMorph(
       const to = lerpRect(slot ?? txr, txr, t);
       const emphasized = hoverCoin === cid;
       ctx.globalAlpha = coinAlpha(cid);
-      routedEdge(
-        ctx,
-        { x: from.x + from.w, y: from.y + from.h / 2 },
-        { x: to.x, y: to.y + to.h / 2 },
-        block.routes.get(`in:${cid}`),
-        bip.routes.get(`in:${cid}`),
-        t,
-      );
-      ctx.strokeStyle = (coinMuted(cid) ? MUTED_FILL : paint.coinFill(coin)) + (emphasized ? "" : "b0");
+      const color = (coinMuted(cid) ? MUTED_FILL : paint.coinFill(coin)) + (emphasized ? "" : "b0");
+      let radialEnds: [Pt, Pt] | null = null;
+      if (bip.radial) {
+        // radial reading: anchors slide from the card view's side
+        // midpoints to the facing perimeter points, and the edge runs
+        // straight between them
+        const rp = perimeter(from, to.x + to.w / 2, to.y + to.h / 2);
+        const rq = perimeter(to, from.x + from.w / 2, from.y + from.h / 2);
+        const p = { x: lerp(from.x + from.w, rp.x, t), y: lerp(from.y + from.h / 2, rp.y, t) };
+        const q = { x: lerp(to.x, rq.x, t), y: lerp(to.y + to.h / 2, rq.y, t) };
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(q.x, q.y);
+        radialEnds = [p, q];
+      } else {
+        routedEdge(
+          ctx,
+          { x: from.x + from.w, y: from.y + from.h / 2 },
+          { x: to.x, y: to.y + to.h / 2 },
+          block.routes.get(`in:${cid}`),
+          bip.routes.get(`in:${cid}`),
+          t,
+        );
+      }
+      ctx.strokeStyle = color;
       ctx.lineWidth = emphasized ? 3.5 : 1.8;
       ctx.stroke();
+      if (radialEnds && t > 0.5) {
+        ctx.globalAlpha = coinAlpha(cid) * (2 * t - 1);
+        ctx.fillStyle = color;
+        arrowHead(ctx, radialEnds[0], radialEnds[1]);
+      }
       ctx.globalAlpha = 1;
     }
   }
@@ -224,17 +271,32 @@ export function drawMorph(
         const to = coinAt(cid);
         const emphasized = hoverCoin === cid;
         ctx.globalAlpha = t * coinAlpha(cid);
-        routedEdge(
-          ctx,
-          { x: txr.x + txr.w, y: txr.y + txr.h / 2 },
-          { x: to.x, y: to.y + to.h / 2 },
-          undefined,
-          bip.routes.get(`out:${cid}`),
-          1,
-        );
-        ctx.strokeStyle = (coinMuted(cid) ? MUTED_FILL : paint.coinFill(coin)) + (emphasized ? "" : "b0");
+        const color = (coinMuted(cid) ? MUTED_FILL : paint.coinFill(coin)) + (emphasized ? "" : "b0");
+        let radialEnds: [Pt, Pt] | null = null;
+        if (bip.radial) {
+          const p = perimeter(txr, to.x + to.w / 2, to.y + to.h / 2);
+          const q = perimeter(to, txr.x + txr.w / 2, txr.y + txr.h / 2);
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(q.x, q.y);
+          radialEnds = [p, q];
+        } else {
+          routedEdge(
+            ctx,
+            { x: txr.x + txr.w, y: txr.y + txr.h / 2 },
+            { x: to.x, y: to.y + to.h / 2 },
+            undefined,
+            bip.routes.get(`out:${cid}`),
+            1,
+          );
+        }
+        ctx.strokeStyle = color;
         ctx.lineWidth = emphasized ? 3.5 : 1.8;
         ctx.stroke();
+        if (radialEnds) {
+          ctx.fillStyle = color;
+          arrowHead(ctx, radialEnds[0], radialEnds[1]);
+        }
       }
     }
     ctx.restore();

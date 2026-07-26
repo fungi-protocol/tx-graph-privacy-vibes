@@ -74,6 +74,9 @@ export function blendBip(a: BipLayout, b: BipLayout, t: number): BipLayout {
     coins: blendRects(a.coins, b.coins, t),
     txs: blendRects(a.txs, b.txs, t),
     routes: blendRoutes(a.routes, b.routes, t),
+    // the radial edge reading follows the destination layout: a glide
+    // toward the force drawing draws its edges the force way throughout
+    ...(b.radial ? { radial: true } : {}),
     bounds: lerpRect(a.bounds, b.bounds, t),
   };
 }

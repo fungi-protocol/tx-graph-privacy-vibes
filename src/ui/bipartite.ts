@@ -19,6 +19,10 @@ export interface BipLayout {
    * point in an intermediate column's clear corridor
    */
   routes: Map<string, { x: number; y: number }[]>;
+  /** radial edge reading (force layout): edges leave a node wherever its
+   *  perimeter faces the other end, run straight, and carry arrowheads —
+   *  time is no longer an axis, so direction must travel on the edge */
+  radial?: boolean;
   bounds: Rect;
 }
 
