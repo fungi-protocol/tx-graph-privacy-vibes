@@ -237,21 +237,25 @@ function clustering(): Clustering {
 // coin its own vertex, the coin graph laid on the ring by time. A view
 // of the raw material every lens's partition is built from.
 let unclustered = false;
-let collapseCache: { rev: number; lens: number; agent: number; un: boolean; cl: Clustering; clay: ClusterLayout; ring: ClusterLayout } | null = null;
+let collapseCache: { rev: number; lens: number; agent: number; un: boolean; fd: boolean; cl: Clustering; clay: ClusterLayout; ring: ClusterLayout } | null = null;
 function lensClustering(): Clustering {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
   if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens ||
-      collapseCache.agent !== agent || collapseCache.un !== unclustered) {
+      collapseCache.agent !== agent || collapseCache.un !== unclustered ||
+      collapseCache.fd !== forceLayout) {
     const cl = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : clustering();
-    const clay = layoutClusterGraph(cl, active().chain);
+    // the layout button generalizes to the ring: layered orders it by
+    // time, force reorders it to minimize edge crossings
+    const mode = forceLayout ? "force" as const : "time" as const;
+    const clay = layoutClusterGraph(cl, active().chain, mode);
     // the singleton ring is the collapse morph's waypoint: coins land on
     // it before stacking into discs, and unstack onto it on the way out
     const ring = unclustered ? clay
-      : layoutClusterGraph(clusterSingletons(active().chain), active().chain);
-    collapseCache = { rev: simRev, lens, agent, un: unclustered, cl, clay, ring };
+      : layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode);
+    collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, cl, clay, ring };
   }
   return collapseCache.cl;
 }
@@ -683,8 +687,24 @@ clusterBtn.addEventListener("click", () => setCollapsed(!collapsed));
 const layoutBtn = document.getElementById("layoutbtn") as HTMLButtonElement;
 function setForceLayout(on: boolean, animate = true): void {
   if (forceLayout === on) return;
+  // contracted, the button reorders the ring (time vs fewest crossings):
+  // animate the discs gliding around it, the usual repartition tween
+  const beforeRing = collapsed && collapseT > 0.9 && collapseCache && animate
+    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
   forceLayout = on;
   layoutBtn.textContent = on ? "layout: force" : "layout: layered";
+  if (beforeRing) {
+    const tr: ClusterTransition = {
+      t: 0,
+      fragments: transitionFragments(beforeRing.cl, beforeRing.clay, lensClustering()),
+    };
+    clusterTrans = tr;
+    anim.add(900, (t) => { tr.t = t; }, {
+      done: () => { if (clusterTrans === tr) clusterTrans = null; },
+    });
+    flyTo(clusterLayout().bounds);
+    kick();
+  }
   const prevIntro = intro.bip;
   const prevEco = ecoScene;
   intro.bip = bipFor(intro.chain);

@@ -107,16 +107,24 @@ export function transitionFragments(
  *  anonymous singletons alike — sits on ONE ellipse, spaced by kind:
  *  clusters (>= 2 coins) claim wide arcs so they read apart, while the
  *  singletons — dust the partition resolved nothing about — pack
- *  tight. The ring is the TIMELINE bent around a circle: each vertex
- *  sits by its earliest coin, running clockwise from just left of six
- *  o'clock all the way around to just before it, a small gap between
- *  the ends. The bottom of the refinement lattice (every coin a
- *  singleton) is then literally the coin graph's vertices laid out by
- *  time, and any partial clustering keeps visual cohesion with it —
- *  the layered graph's left-to-right order, wrapped. Without a chain
- *  the rank order stands (tests, and the repartition tween's synthetic
- *  partitions). */
-export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout {
+ *  tight. The default ("time") ring is the TIMELINE bent around a
+ *  circle: each vertex sits by its earliest coin, running clockwise
+ *  from just left of six o'clock all the way around to just before it,
+ *  a small gap between the ends. The bottom of the refinement lattice
+ *  (every coin a singleton) is then literally the coin graph's
+ *  vertices laid out by time, and any partial clustering keeps visual
+ *  cohesion with it — the layered graph's left-to-right order,
+ *  wrapped. "force" instead orders the ring to reduce edge crossings:
+ *  starting from the time order, a few circular-barycenter sweeps pull
+ *  each vertex toward the mean angle of its transfer neighbors, so
+ *  connected vertices end up near each other and edges hug the rim.
+ *  Without a chain the rank order stands (tests, and the repartition
+ *  tween's synthetic partitions). */
+export function layoutClusterGraph(
+  cl: Clustering,
+  chain?: Chain,
+  mode: "time" | "force" = "time",
+): ClusterLayout {
   let order = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
   if (chain) {
     const day = (id: CoinId): number => {
@@ -130,6 +138,7 @@ export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout
       earliest.set(rep, e);
     }
     order = order.sort((a, b) => earliest.get(a)! - earliest.get(b)! || (a < b ? -1 : 1));
+    if (mode === "force") order = crossingMinimizedOrder(cl, chain, order);
   }
 
   // arc room by kind: a cluster's slot is its diameter plus a wide
@@ -159,6 +168,59 @@ export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout
     nodes,
     bounds: { x: -R * 1.35 - M, y: -R - M, w: 2 * R * 1.35 + 2 * M, h: 2 * R + 2 * M },
   };
+}
+
+/** the "force" ring order: iterative circular-barycenter sweeps.
+ *  Neighbors on the transfer multigraph attract; each sweep re-sorts
+ *  the ring by the weighted mean angle of every vertex's neighbors
+ *  (isolated vertices keep their current angle), which shortens edges
+ *  and untangles crossings without leaving the circle. Deterministic:
+ *  fixed sweep count, ties broken by id. */
+function crossingMinimizedOrder(cl: Clustering, chain: Chain, start: CoinId[]): CoinId[] {
+  // weighted adjacency over the contracted vertices, one edge per tx
+  // output whose source vertex differs
+  const adj = new Map<CoinId, Map<CoinId, number>>();
+  const bump = (a: CoinId, b: CoinId): void => {
+    let m = adj.get(a);
+    if (!m) adj.set(a, (m = new Map()));
+    m.set(b, (m.get(b) ?? 0) + 1);
+  };
+  for (const tid of chain.order) {
+    const tx = chain.txs.get(tid)!;
+    const from = cl.rep.get(tx.inputs[0]!)!;
+    for (const out of tx.outputs) {
+      const to = cl.rep.get(out)!;
+      if (to === from) continue;
+      bump(from, to);
+      bump(to, from);
+    }
+  }
+  let order = start;
+  const n = order.length;
+  if (n < 3) return order;
+  for (let sweep = 0; sweep < 8; sweep++) {
+    const angle = new Map<CoinId, number>();
+    order.forEach((rep, i) => angle.set(rep, (i / n) * 2 * Math.PI));
+    const key = new Map<CoinId, number>();
+    for (const rep of order) {
+      const nbrs = adj.get(rep);
+      if (!nbrs || nbrs.size === 0) {
+        key.set(rep, angle.get(rep)!);
+        continue;
+      }
+      // circular mean of neighbor angles, weighted by transfer count
+      let sx = 0, sy = 0;
+      for (const [o, w] of nbrs) {
+        const a = angle.get(o)!;
+        sx += Math.cos(a) * w;
+        sy += Math.sin(a) * w;
+      }
+      key.set(rep, sx === 0 && sy === 0 ? angle.get(rep)!
+        : (Math.atan2(sy, sx) + 2 * Math.PI) % (2 * Math.PI));
+    }
+    order = [...order].sort((a, b) => key.get(a)! - key.get(b)! || (a < b ? -1 : 1));
+  }
+  return order;
 }
 
 function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {

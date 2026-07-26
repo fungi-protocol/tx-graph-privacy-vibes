@@ -333,3 +333,35 @@ test("a partial clustering orders its ring by each vertex's earliest coin", asyn
     prev = e;
   }
 });
+
+test("the force ring order pulls transfer neighbors together", async () => {
+  const { layoutClusterGraph } = await import("../src/ui/clusterview");
+  const eco = new Economy("golden");
+  eco.runTo(30);
+  const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
+  const time = layoutClusterGraph(cl, eco.chain, "time");
+  const force = layoutClusterGraph(cl, eco.chain, "force");
+  assert.deepEqual([...force.nodes.keys()].sort(), [...time.nodes.keys()].sort());
+  // deterministic: same input, same drawing
+  const again = layoutClusterGraph(cl, eco.chain, "force");
+  assert.deepEqual(
+    [...force.nodes.values()].map((n) => [n.rep, n.x, n.y]),
+    [...again.nodes.values()].map((n) => [n.rep, n.x, n.y]),
+  );
+  // the point of the mode: total transfer-edge length shrinks
+  const cost = (lay: { nodes: Map<string, { x: number; y: number }> }): number => {
+    let s = 0;
+    for (const tid of eco.chain.order) {
+      const tx = eco.chain.txs.get(tid)!;
+      const from = lay.nodes.get(cl.rep.get(tx.inputs[0]!)!)!;
+      for (const out of tx.outputs) {
+        const to = lay.nodes.get(cl.rep.get(out)!)!;
+        if (to === from) continue;
+        s += Math.hypot(to.x - from.x, to.y - from.y);
+      }
+    }
+    return s;
+  };
+  assert.ok(cost(force) < cost(time),
+    `force ${Math.round(cost(force))} should beat time ${Math.round(cost(time))}`);
+});
