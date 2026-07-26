@@ -122,7 +122,10 @@ export function settlementSteps(
         from its two insiders. Beyond that, <b>what participants learn
         depends on the protocol used to construct the transaction;
         this simulation does not model that information
-        exchange</b>.</p>
+        exchange</b>. This town's settlements are built by
+        <b>anonymous broadcast</b> in the semi-honest setting — each
+        input and each output submitted independently — so an insider
+        is blinded by construction, a disclosed protocol choice.</p>
         <p>You are looking through one participant's eyes: their own
         coins, the payments they were a party to — and gray where the
         record alone, plus what this story models, says nothing.</p>`,

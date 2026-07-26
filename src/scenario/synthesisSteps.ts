@@ -452,11 +452,12 @@ export function synthesisSteps(
         a business — which makes tier two a <b>seed factory</b> for the
         card after this one.</p>
         <p>Inside multiparty transactions, what an insider sees depends on
-        the <b>protocol used to construct the transaction</b>, and this
-        simulation does not model that information exchange for
-        settlements. Its coinjoins are arranged blind — a disclosed
-        protocol assumption — so elimination leaves the rest ambiguous
-        and an insider is nearly as blind as an outsider.</p>`;
+        the <b>protocol used to construct the transaction</b>. This
+        town's settlements and coinjoins are both arranged blind —
+        anonymous broadcast, each input and each output submitted
+        independently, a disclosed protocol choice — so elimination
+        leaves the rest ambiguous and an insider is nearly as blind as
+        an outsider.</p>`;
       },
       focus: () => pad(bipBounds()),
       select: () => null,

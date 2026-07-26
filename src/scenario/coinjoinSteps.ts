@@ -115,9 +115,10 @@ export function coinjoinSteps(
       title: "Even insiders are blinded",
       html: `<p>Here is what the earlier forms could not offer. A payjoin
         counterparty knew exactly whose coins were whose — two parties,
-        no protocol can help. A settlement insider's knowledge depends
-        on the protocol used to construct the transaction (a design
-        space this story does not model). A coinjoin makes the
+        no protocol can help. What a settlement insider learns depends
+        on the protocol used to construct the transaction; this town
+        builds its settlements by anonymous broadcast, so theirs are
+        blinded too. A coinjoin makes the
         guarantee explicit: a participant eliminates their own coins
         and faces the same puzzle as everyone else — <b>several
         strangers, and no reading they can single out</b>. That takes

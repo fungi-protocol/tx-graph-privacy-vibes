@@ -5,12 +5,13 @@
 //     everything else is attributable to the other party — no protocol
 //     can prevent that. Multiparty forms are different: what a
 //     participant learns about the others depends on the protocol used
-//     to construct the transaction, and this simulation does not model
-//     that information exchange — so settlement participation records
-//     the transaction and the participant's own coins only, and a
-//     coinjoin insider (sessions here are arranged so nobody learns
-//     whose outputs are whose) only learns where their own payment
-//     went.
+//     to construct the transaction. This town's settlements and
+//     coinjoins are both built by anonymous broadcast in the
+//     semi-honest setting — each input and each output submitted
+//     independently, a protocol choice, not a law of nature — so
+//     settlement participation records the transaction and the
+//     participant's own coins only, and a coinjoin insider only learns
+//     where their own payment went.
 // These are fixed points — they compound with every payment and never
 // decay. And they seed the same public heuristics an outsider runs: a
 // cluster that contains a coin the agent can attribute is attributed
@@ -70,9 +71,10 @@ export function agentKnowledge(
       // protocol: each side eliminates their own coins and the rest is
       // the other's — the payjoin's arithmetic. With three or more,
       // what an insider learns about the others depends on the
-      // protocol that constructed the transaction, and this simulation
-      // does not model that information exchange: only the transaction
-      // itself is recorded.
+      // protocol that constructed the transaction — here, anonymous
+      // broadcast, which blinds insiders by construction — so only the
+      // transaction itself is recorded. Knowing WHO you owe does not
+      // tell you WHICH coins are theirs.
       const parts = new Set<number>();
       for (const e of events) {
         if (e.tid !== ev.tid || e.form !== "settlement") continue;
