@@ -176,14 +176,18 @@ function rideDays(from: number, to: number): void {
   } });
   kick();
 }
-let visCache: { rev: number; day: number; tx: number | null; s: SceneData } | null = null;
+let visCache: { src: SceneData; day: number; tx: number | null; s: SceneData } | null = null;
 function active(): SceneData {
   if (scene !== 1 || !ecoScene) return intro;
   if (!rewound()) return ecoScene;
   const day = cursorDay();
-  if (!visCache || visCache.rev !== simRev || visCache.day !== day || visCache.tx !== viewTx) {
+  // keyed by the source scene and the cursor, NOT simRev: truncation
+  // only depends on those (days recorded later than the cursor never
+  // enter it), and a knob toggle must not mint a fresh chain object —
+  // the analysis memos key on the visible chain's identity (#85)
+  if (!visCache || visCache.src !== ecoScene || visCache.day !== day || visCache.tx !== viewTx) {
     visCache = {
-      rev: simRev,
+      src: ecoScene,
       day,
       tx: viewTx,
       s: { chain: ecoScene.chain.through(day, viewTx ?? Infinity), layout: ecoScene.layout, bip: ecoScene.bip },
@@ -247,24 +251,60 @@ function tellCount(mask: number): number {
 // is wrong against the hidden truth (storyteller's grading — latent
 // truth flows only toward the learner's display, never into analysis)
 let showMistakes = false;
-let mistakeCache: { rev: number; sig: string; m: Map<string, Mistake[]> } | null = null;
-function mistakes(): Map<string, Mistake[]> {
-  const sig = grantSig();
-  if (!mistakeCache || mistakeCache.rev !== simRev || mistakeCache.sig !== sig) {
-    mistakeCache = { rev: simRev, sig, m: gradeWelds(active().chain, clustering().welds) };
+
+// --- #85: the heavy results memoize across knob changes. simRev keeps
+// bumping on every observer-map knob (the cheap per-rev caches stay
+// honest that way), but clusterings, matcher runs, gradings and
+// contracted layouts are keyed by WHAT they were computed from: the
+// visible chain's identity plus the full knob signature. Unchecking
+// and rechecking a heuristic lands back on a key already computed, so
+// the toggle replays the repartition tween without repeating the work.
+function memoLRU<V>(cap: number): (key: string, compute: () => V) => V {
+  const m = new Map<string, V>();
+  return (key, compute) => {
+    if (m.has(key)) {
+      const v = m.get(key)!;
+      m.delete(key); // re-insertion keeps the map in recency order
+      m.set(key, v);
+      return v;
+    }
+    const v = compute();
+    m.set(key, v);
+    if (m.size > cap) m.delete(m.keys().next().value!);
+    return v;
+  };
+}
+/** identity of the visible chain: which object, grown how far — the
+ *  part of every analysis input that is not a knob */
+let chainIdNext = 1;
+const chainIdOf = new WeakMap<object, number>();
+function chainKey(): string {
+  const c = active().chain;
+  let id = chainIdOf.get(c);
+  if (id === undefined) {
+    id = chainIdNext++;
+    chainIdOf.set(c, id);
   }
-  return mistakeCache.m;
+  return `${id}#${c.order.length}`;
+}
+/** everything the observer's base map is a function of */
+function mapSig(): string {
+  return `${chainKey()}§${overlays}|${ciohMax}|${changeEvidence}|${changeTells}|${grantSig()}`;
+}
+
+const mistakeMemo = memoLRU<Map<string, Mistake[]>>(16);
+function mistakes(): Map<string, Mistake[]> {
+  return mistakeMemo(mapSig(), () => gradeWelds(active().chain, clustering().welds));
 }
 // the base clustering reads the grant too (#66): an auxiliary
 // attribution is one of the change heuristic's payment identifiers, so
-// the observer's map varies with the dial — the cache keys on it
-let clCache: { rev: number; sig: string; cl: Clustering } | null = null;
+// the observer's map varies with the dial — the signature carries it
+const clMemo = memoLRU<Clustering>(24);
 function clustering(): Clustering {
-  const s = active();
-  const sig = grantSig();
-  if (!clCache || clCache.rev !== simRev || clCache.sig !== sig) {
+  return clMemo(mapSig(), () => {
+    const s = active();
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
-    const cl = clusterObserver(s.chain, priceAt, {
+    return clusterObserver(s.chain, priceAt, {
       reuse: (overlays & OV_REUSE) !== 0,
       cioh: (effOverlays() & OV_CIOH) !== 0,
       change: (overlays & OV_CHANGE) !== 0,
@@ -274,9 +314,7 @@ function clustering(): Clustering {
       ...(changeTells !== TELL_ALL ? { changeTells } : {}),
       ...(grantsOn() ? { grants: currentGrants() } : {}),
     });
-    clCache = { rev: simRev, sig, cl };
-  }
-  return clCache.cl;
+  });
 }
 
 // --- the observer's knowledge grant (#67): auxiliary information as a
@@ -295,40 +333,32 @@ function grantsOn(): boolean {
 // the granted set itself, cached apart from the attribution state: the
 // base clustering consumes it too (as the change heuristic's auxiliary
 // payment identifier), and must not have to build attributions first
-let grantMapCache: { rev: number; kx: boolean; ax: number; g: Map<string, number | null> } | null = null;
+const grantMapMemo = memoLRU<Map<string, number | null>>(16);
 function currentGrants(): Map<string, number | null> | undefined {
   if (!grantsOn()) return undefined;
-  if (!grantMapCache || grantMapCache.rev !== simRev ||
-      grantMapCache.kx !== kycObs || grantMapCache.ax !== auxFrac) {
-    grantMapCache = {
-      rev: simRev, kx: kycObs, ax: auxFrac,
-      g: observerGrants(active().chain, session.seed, auxFrac, kycObs),
-    };
-  }
-  return grantMapCache.g;
+  return grantMapMemo(`${chainKey()}|${grantSig()}`, () =>
+    observerGrants(active().chain, session.seed, auxFrac, kycObs));
 }
-let grantCache: {
-  rev: number; kx: boolean; ax: number;
+interface GrantState {
   attr: Map<string, Attribution>;
   /** attributed base-cluster representatives → the one owner their
    *  grants name (conflicted clusters are absent: the observer knows
    *  one of those welds is a lie, so the vertex earns no name) */
   owners: Map<string, number | null>;
   fused: Clustering;
-} | null = null;
-function grantState(): NonNullable<typeof grantCache> {
-  if (!grantCache || grantCache.rev !== simRev ||
-      grantCache.kx !== kycObs || grantCache.ax !== auxFrac) {
+}
+const grantMemo = memoLRU<GrantState>(16);
+function grantState(): GrantState {
+  // mapSig covers both the base clustering and the grant knobs
+  return grantMemo(mapSig(), () => {
     const g = currentGrants() ?? new Map<string, number | null>();
     const base = clustering();
-    grantCache = {
-      rev: simRev, kx: kycObs, ax: auxFrac,
+    return {
       attr: grantAttribution(g, base),
       owners: clusterGrantOwners(g, base),
       fused: nsApply(base, grantMerges(g, base)),
     };
-  }
-  return grantCache;
+  });
 }
 /** the observer's map with the grant compounded in: attributed clusters
  *  of one owner fused into one vertex — the base every matcher (and the
@@ -361,18 +391,13 @@ let nsPlayTimer: number | null = null;
 /** the second vertex of a paused-mode proposal (the first is the
  *  selected cluster); examined in the panel, accepted or dismissed */
 let nsSecond: string | null = null;
-let nsRunCache: { rev: number; th: number; parts: number; base: Clustering; events: NsEvent[] } | null = null;
+const nsRunMemo = memoLRU<NsEvent[]>(16);
 function nsRun(): NsEvent[] {
-  const base = observerBase();
-  if (!nsRunCache || nsRunCache.rev !== simRev || nsRunCache.th !== nsThreshold ||
-      nsRunCache.parts !== nsParts || nsRunCache.base !== base) {
-    nsRunCache = {
-      rev: simRev, th: nsThreshold, parts: nsParts, base,
-      events: nsSocialRun(base, active().chain, nsThreshold, nsParts),
-    };
-    nsCursor = Math.min(nsCursor, nsRunCache.events.length);
-  }
-  return nsRunCache.events;
+  // mapSig covers the base map (observerBase is a function of it)
+  const events = nsRunMemo(`${mapSig()}§ns${nsThreshold}|${nsParts}`, () =>
+    nsSocialRun(observerBase(), active().chain, nsThreshold, nsParts));
+  nsCursor = Math.min(nsCursor, events.length);
+  return events;
 }
 /** the events in force at the current replay position: the algorithmic
  *  prefix, then the user's own entries (stale ones — naming vertices the
@@ -412,7 +437,7 @@ let nfThreshold = 0.65;
 let nfCursor = 0;
 let nfPlaying = false;
 let nfPlayTimer: number | null = null;
-let nfRunCache: { rev: number; th: number; ns: string; events: NfEvent[] } | null = null;
+const nfRunMemo = memoLRU<NfEvent[]>(16);
 function nfActive(): boolean {
   return nfOn && lens === 1 && !unclustered;
 }
@@ -423,15 +448,11 @@ function nfBase(): Clustering {
   return nsActive() ? nsApply(base, nsEvents()) : base;
 }
 function nfRun(): NfEvent[] {
-  if (!nfRunCache || nfRunCache.rev !== simRev || nfRunCache.th !== nfThreshold ||
-      nfRunCache.ns !== `${grantSig()}§${nsSig()}`) {
-    nfRunCache = {
-      rev: simRev, th: nfThreshold, ns: `${grantSig()}§${nsSig()}`,
-      events: runNetflix(nfBase(), active().chain, nfThreshold),
-    };
-    nfCursor = Math.min(nfCursor, nfRunCache.events.length);
-  }
-  return nfRunCache.events;
+  // nfBase is a function of the base map and the ns-social replay
+  const events = nfRunMemo(`${mapSig()}§${nsSig()}§nf${nfThreshold}`, () =>
+    runNetflix(nfBase(), active().chain, nfThreshold));
+  nfCursor = Math.min(nfCursor, events.length);
+  return events;
 }
 /** applied prefix, as merge events the shared fusion understands */
 function nfEvents(): NsEvent[] {
@@ -449,7 +470,11 @@ function nfEvents(): NsEvent[] {
 // coin its own vertex, the coin graph laid on the ring by time. A view
 // of the raw material every lens's partition is built from.
 let unclustered = false;
-let collapseCache: { rev: number; lens: number; agent: number; un: boolean; fd: boolean; ns: string; cl: Clustering; clay: ClusterLayout; ring: ClusterLayout } | null = null;
+interface CollapseState { cl: Clustering; clay: ClusterLayout; ring: ClusterLayout }
+const collapseMemo = memoLRU<CollapseState>(16);
+/** the entry the contracted view last computed — what a repartition
+ *  tween animates from */
+let lastCollapse: CollapseState | null = null;
 /** cache signature of the ns-social replay position; "" = not applied */
 function nsSig(): string {
   return nsActive()
@@ -460,11 +485,14 @@ function nsSig(): string {
 function matchSig(): string {
   return `${grantSig()}§${nsSig()}§${nfActive() ? `${nfThreshold}|${nfCursor}` : ""}`;
 }
-function lensClustering(): Clustering {
+function collapseState(): CollapseState {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
-  if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens ||
-      collapseCache.agent !== agent || collapseCache.un !== unclustered ||
-      collapseCache.fd !== forceLayout || collapseCache.ns !== matchSig()) {
+  // the fit rect is part of the key: the same partition re-formed in a
+  // different viewport is a different arrangement, and toggling a knob
+  // back with the camera unmoved lands on the arrangement already laid
+  const fit = clusterFit ? `${clusterFit.x},${clusterFit.y},${clusterFit.w},${clusterFit.h}` : "·";
+  const key = `${mapSig()}§${matchSig()}§${lens}|${agent}|${unclustered ? 1 : 0}|${forceLayout ? 1 : 0}|${fit}`;
+  lastCollapse = collapseMemo(key, () => {
     const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
@@ -491,17 +519,18 @@ function lensClustering(): Clustering {
     const ring0 = unclustered ? clay
       : layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode);
     const ring = unclustered || !clusterFit ? ring0 : fitClusterLayout(ring0, clusterFit);
-    collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, ns: matchSig(), cl, clay, ring };
-  }
-  return collapseCache.cl;
+    return { cl, clay, ring };
+  });
+  return lastCollapse;
+}
+function lensClustering(): Clustering {
+  return collapseState().cl;
 }
 function clusterLayout(): ClusterLayout {
-  lensClustering();
-  return collapseCache!.clay;
+  return collapseState().clay;
 }
 function singletonRing(): ClusterLayout {
-  lensClustering();
-  return collapseCache!.ring;
+  return collapseState().ring;
 }
 // In the contracted view the TOPOLOGY carries the lens's information
 // (its partition shapes the vertices), so paint is freed to be the
@@ -949,11 +978,13 @@ const unclusterBtn = document.getElementById("unclusterbtn") as HTMLButtonElemen
  *  itself). Returns null (and leaves the fit alone) when there is
  *  nothing on screen to animate from. */
 function repartitionStart(animate = true): { cl: Clustering; clay: ClusterLayout } | null {
-  const before = collapsed && collapseT > 0.9 && collapseCache && animate
-    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  const before = collapsed && collapseT > 0.9 && lastCollapse && animate
+    ? { cl: lastCollapse.cl, clay: lastCollapse.clay } : null;
   if (collapsed && animate && canvas.clientWidth > 0) {
+    // the fit rect is part of the collapse memo's key, so re-aiming it
+    // invalidates nothing: layouts for the old rect stay cached, and a
+    // knob toggled back under an unmoved camera reuses its arrangement
     clusterFit = visibleWorldRect();
-    collapseCache = null; // the cached layouts were fit to the old rect
   }
   return before;
 }
@@ -1001,8 +1032,7 @@ function setCollapsed(on: boolean, animate = true): void {
   // inside the rect the camera is already showing. A restore (animate
   // = false) keeps whatever fit the fragment carried instead.
   if (on && animate && canvas.clientWidth > 0) {
-    clusterFit = visibleWorldRect();
-    collapseCache = null; // the cached layouts were fit to the old rect
+    clusterFit = visibleWorldRect(); // the fit keys the collapse memo
   }
   if (!animate) {
     collapseT = on ? 1 : 0;
