@@ -12,7 +12,7 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
@@ -233,14 +233,20 @@ function clustering(): Clustering {
 // heuristic pseudonym graph, honoring the toggles (all off = singletons,
 // the bare structure); an agent's lens to what that one ledger can
 // attribute, suspicions kept apart from facts.
-let collapseCache: { rev: number; lens: number; agent: number; cl: Clustering; clay: ClusterLayout } | null = null;
+// "unclustered": the bottom of the partition refinement lattice — every
+// coin its own vertex, the coin graph laid on the ring by time. A view
+// of the raw material every lens's partition is built from.
+let unclustered = false;
+let collapseCache: { rev: number; lens: number; agent: number; un: boolean; cl: Clustering; clay: ClusterLayout } | null = null;
 function lensClustering(): Clustering {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
-  if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens || collapseCache.agent !== agent) {
-    const cl = lens === 0 ? clusterByOwner(active().chain)
+  if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens ||
+      collapseCache.agent !== agent || collapseCache.un !== unclustered) {
+    const cl = unclustered ? clusterSingletons(active().chain)
+      : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : clustering();
-    collapseCache = { rev: simRev, lens, agent, cl, clay: layoutClusterGraph(cl, active().chain) };
+    collapseCache = { rev: simRev, lens, agent, un: unclustered, cl, clay: layoutClusterGraph(cl, active().chain) };
   }
   return collapseCache.cl;
 }
@@ -267,6 +273,11 @@ function lensClusterPaint(): ClusterPaint {
     color: truthColor,
     slices: (rep: string) => truthSlices(cl, rep, truthColor),
   };
+  if (unclustered) {
+    // the lattice bottom carries no partition information to caption:
+    // just the coins on the ring, wearing their true colors
+    return { ...base, label: () => "", center: () => "" };
+  }
   if (lens === 0) {
     const ownerOf = (id: string): number | null => chain.coins.get(id)!.owner;
     return {
@@ -594,10 +605,39 @@ viewBtn.addEventListener("click", () => {
 
 // --- cluster collapse: flatten the current view into the user graph ---
 const clusterBtn = document.getElementById("clusterbtn") as HTMLButtonElement;
+const unclusterBtn = document.getElementById("unclusterbtn") as HTMLButtonElement;
+// toggle between the lens's partition and the lattice bottom (every
+// coin a singleton), animating the discs splitting apart / gathering
+// back — same repartition tween as a heuristic toggle
+function setUnclustered(on: boolean, animate = true): void {
+  if (unclustered === on) return;
+  const before = collapsed && collapseT > 0.9 && collapseCache && animate
+    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  unclustered = on;
+  unclusterBtn.textContent = on ? "clustered" : "unclustered";
+  if (selection?.kind === "cluster") { selection = null; highlight = null; }
+  if (before) {
+    const tr: ClusterTransition = {
+      t: 0,
+      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+    };
+    clusterTrans = tr;
+    anim.add(900, (t) => { tr.t = t; }, {
+      done: () => { if (clusterTrans === tr) clusterTrans = null; },
+    });
+    kick();
+  }
+  if (collapsed) flyTo(clusterLayout().bounds);
+  recomputeTrace();
+  draw();
+  void syncFragment();
+}
+unclusterBtn.addEventListener("click", () => setUnclustered(!unclustered));
 let preCollapseCam: Camera | null = null;
 function setCollapsed(on: boolean, animate = true): void {
   collapsed = on;
   clusterBtn.textContent = on ? "expand" : "clusters";
+  unclusterBtn.style.display = on ? "block" : "none";
   if (!animate) {
     collapseT = on ? 1 : 0;
     draw();
@@ -1689,6 +1729,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (t >= 0) state.t = t;
   if (collapsed) state.v = 2; // encoded like the old third view, for old links
   else if (targetView !== 0) state.v = targetView;
+  if (collapsed && unclustered) state.uc = 1;
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
@@ -1839,6 +1880,7 @@ async function init(): Promise<void> {
   }
   setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
   if (state?.v === 2) setCollapsed(true, false);
+  if (state?.v === 2 && state.uc === 1) setUnclustered(true, false);
   if (state?.sc === 1) setScene(1, state.n ?? 0);
   if (session.manual !== null) setManual(session.manual); // light the decisions panel
   if (state?.ov !== undefined) {

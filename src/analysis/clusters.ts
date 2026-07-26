@@ -293,6 +293,17 @@ function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Cluste
 }
 
 /**
+ * The bottom of the partition refinement lattice: every coin its own
+ * vertex, nothing welded — the coin graph itself, dressed as a cluster
+ * graph. Every lens's partition refines down to this, so it is the
+ * natural waypoint for animating between the transaction graph and any
+ * clustered view.
+ */
+export function clusterSingletons(chain: Chain): Clustering {
+  return partitionBy(chain, () => null);
+}
+
+/**
  * The true wallet partition — what the all-seeing lens contracts to: one
  * vertex per person (the doc's user graph, reached by edge contraction),
  * every one of them labeled, plus a single vertex for the outside world's

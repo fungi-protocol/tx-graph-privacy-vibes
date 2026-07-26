@@ -40,6 +40,8 @@ export interface FragmentState {
   cam?: [number, number, number];
   /** view: 0 = block explorer (default), 1 = bipartite */
   v?: number;
+  /** cluster view only: 1 = the lattice bottom (every coin a singleton) */
+  uc?: number;
   /** scene: 0 = intro story (default), 1 = the economy */
   sc?: number;
   /** lens: 0 = all-seeing (default), 1 = third-party observer, 2 = one agent's view */
@@ -187,6 +189,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   }
   const v = num(r.v, 0, 2, true);
   if (v !== undefined) out.v = v;
+  const uc = num(r.uc, 0, 1, true);
+  if (uc !== undefined) out.uc = uc;
   const sc = num(r.sc, 0, 1, true);
   if (sc !== undefined) out.sc = sc;
   const l = num(r.l, 0, 2, true);

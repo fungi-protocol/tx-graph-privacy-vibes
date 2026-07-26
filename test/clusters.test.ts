@@ -265,3 +265,71 @@ test("change identification applies per sub-transaction of a unique partition", 
   const noChange = clusterObserver(c, at, { change: false });
   assert.equal(noChange.changeGuess.size, 0);
 });
+
+test("the lattice bottom: every coin its own vertex", async () => {
+  const { clusterSingletons } = await import("../src/analysis/clusters");
+  const eco = new Economy("golden");
+  eco.runTo(30);
+  const cl = clusterSingletons(eco.chain);
+  assert.equal(cl.members.size, eco.chain.coins.size);
+  for (const [rep, members] of cl.members) {
+    assert.deepEqual(members, [rep]);
+  }
+});
+
+test("the ring is the timeline bent around a circle, gap at six o'clock", async () => {
+  const { layoutClusterGraph } = await import("../src/ui/clusterview");
+  const { clusterSingletons } = await import("../src/analysis/clusters");
+  const eco = new Economy("golden");
+  eco.runTo(30);
+  const cl = clusterSingletons(eco.chain);
+  const clay = layoutClusterGraph(cl, eco.chain);
+  assert.equal(clay.nodes.size, eco.chain.coins.size);
+  const day = (id: string): number => {
+    const c = eco.chain.coins.get(id)!;
+    return c.producer ? eco.chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+  };
+  const byTime = [...clay.nodes.keys()].sort((a, b) => day(a) - day(b) || (a < b ? -1 : 1));
+  const first = clay.nodes.get(byTime[0]!)!;
+  const last = clay.nodes.get(byTime[byTime.length - 1]!)!;
+  // six o'clock is straight down: the earliest vertex lands just left
+  // of it (x < 0, y > 0), the latest just right (x > 0, y > 0)
+  assert.ok(first.x < 0 && first.y > 0, `first at (${first.x}, ${first.y})`);
+  assert.ok(last.x > 0 && last.y > 0, `last at (${last.x}, ${last.y})`);
+  // and the walk between them is monotone in angle from six o'clock
+  const angleFromSix = (n: { x: number; y: number }): number => {
+    const a = Math.atan2(n.y, n.x / 1.35); // undo the ellipse stretch
+    return (a - Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI);
+  };
+  let prev = -1;
+  for (const id of byTime) {
+    const a = angleFromSix(clay.nodes.get(id)!);
+    assert.ok(a >= prev - 1e-9, `angle regressed at ${id}`);
+    prev = a;
+  }
+});
+
+test("a partial clustering orders its ring by each vertex's earliest coin", async () => {
+  const { layoutClusterGraph } = await import("../src/ui/clusterview");
+  const eco = new Economy("golden");
+  eco.runTo(30);
+  const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
+  const clay = layoutClusterGraph(cl, eco.chain);
+  const day = (id: string): number => {
+    const c = eco.chain.coins.get(id)!;
+    return c.producer ? eco.chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+  };
+  const earliest = (rep: string): number =>
+    Math.min(...cl.members.get(rep)!.map(day));
+  const angleFromSix = (n: { x: number; y: number }): number => {
+    const a = Math.atan2(n.y, n.x / 1.35);
+    return (a - Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI);
+  };
+  const byAngle = [...clay.nodes.values()].sort((a, b) => angleFromSix(a) - angleFromSix(b));
+  let prev = -Infinity;
+  for (const n of byAngle) {
+    const e = earliest(n.rep);
+    assert.ok(e >= prev, `ring order not by earliest coin at ${n.rep}`);
+    prev = e;
+  }
+});

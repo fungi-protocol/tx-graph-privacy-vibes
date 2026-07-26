@@ -107,106 +107,50 @@ export function transitionFragments(
  *  anonymous singletons alike — sits on ONE ellipse, spaced by kind:
  *  clusters (>= 2 coins) claim wide arcs so they read apart, while the
  *  singletons — dust the partition resolved nothing about — pack
- *  tight. Placement follows the EDGES, not the rank: ring neighbors
- *  are chosen by transfer-edge weight (greedy seriation, so clusters
- *  that transact sit side by side and their edges hug the rim), and a
- *  connected singleton rides just after its busiest partner rather
- *  than at an arbitrary angle dragging a chord across the whole
- *  drawing. Without a chain the old rank order stands (tests, and the
- *  repartition tween's synthetic partitions). */
+ *  tight. The ring is the TIMELINE bent around a circle: each vertex
+ *  sits by its earliest coin, running clockwise from just left of six
+ *  o'clock all the way around to just before it, a small gap between
+ *  the ends. The bottom of the refinement lattice (every coin a
+ *  singleton) is then literally the coin graph's vertices laid out by
+ *  time, and any partial clustering keeps visual cohesion with it —
+ *  the layered graph's left-to-right order, wrapped. Without a chain
+ *  the rank order stands (tests, and the repartition tween's synthetic
+ *  partitions). */
 export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout {
-  const reps = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
-  let inner = reps.filter((r) => cl.members.get(r)!.length >= 2);
-  const halo = reps.filter((r) => cl.members.get(r)!.length < 2);
-  const innerSet = new Set(inner);
-
-  // symmetric transfer-edge weights between partition vertices — one
-  // count per tx output that crosses clusters, same rule the renderer
-  // draws by
-  const w = new Map<CoinId, Map<CoinId, number>>();
+  let order = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
   if (chain) {
-    const bump = (a: CoinId, b: CoinId): void => {
-      const m = w.get(a) ?? new Map<CoinId, number>();
-      m.set(b, (m.get(b) ?? 0) + 1);
-      w.set(a, m);
+    const day = (id: CoinId): number => {
+      const c = chain.coins.get(id)!;
+      return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
     };
-    for (const tid of chain.order) {
-      const tx = chain.txs.get(tid)!;
-      const from = cl.rep.get(tx.inputs[0]!)!;
-      for (const out of tx.outputs) {
-        const to = cl.rep.get(out)!;
-        if (to !== from) {
-          bump(from, to);
-          bump(to, from);
-        }
-      }
+    const earliest = new Map<CoinId, number>();
+    for (const [rep, members] of cl.members) {
+      let e = Infinity;
+      for (const id of members) e = Math.min(e, day(id));
+      earliest.set(rep, e);
     }
-    // greedy seriation: walk from the largest cluster to whichever
-    // unplaced cluster it transacts with most, and so on. Ties (and the
-    // unconnected) fall back to rank order — deterministic throughout.
-    if (inner.length > 2) {
-      const order: CoinId[] = [inner[0]!];
-      const placed = new Set(order);
-      while (order.length < inner.length) {
-        const last = order[order.length - 1]!;
-        let best: CoinId | undefined;
-        let bw = -1;
-        for (const r of inner) {
-          if (placed.has(r)) continue;
-          const wt = w.get(last)?.get(r) ?? 0;
-          if (wt > bw) {
-            bw = wt;
-            best = r;
-          }
-        }
-        order.push(best!);
-        placed.add(best!);
-      }
-      inner = order;
-    }
+    order = order.sort((a, b) => earliest.get(a)! - earliest.get(b)! || (a < b ? -1 : 1));
   }
 
-  // each singleton rides just after its busiest ring partner; the
-  // unconnected trail at the end of the ring in rank order
-  const anchored = new Map<CoinId, CoinId[]>();
-  const loose: CoinId[] = [];
-  for (const rep of halo) {
-    let a: CoinId | undefined;
-    let bw = 0;
-    for (const [nb, wt] of w.get(rep) ?? []) {
-      if (innerSet.has(nb) && wt > bw) {
-        bw = wt;
-        a = nb;
-      }
-    }
-    if (a === undefined) loose.push(rep);
-    else {
-      const g = anchored.get(a);
-      if (g) g.push(rep);
-      else anchored.set(a, [rep]);
-    }
-  }
-
-  // one ring, arc room by kind: a cluster's slot is its diameter plus a
-  // wide gap, a singleton's just its own footprint plus a sliver
-  const items: { rep: CoinId; r: number; size: number; width: number }[] = [];
-  const slot = (rep: CoinId): void => {
+  // arc room by kind: a cluster's slot is its diameter plus a wide
+  // gap, a singleton's just its own footprint plus a sliver
+  const items = order.map((rep) => {
     const size = cl.members.get(rep)!.length;
     const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
-    items.push({ rep, r, size, width: 2 * r + (size >= 2 ? 90 : 12) });
-  };
-  for (const rep of inner) {
-    slot(rep);
-    for (const s of [...(anchored.get(rep) ?? [])].sort()) slot(s);
-  }
-  for (const rep of loose) slot(rep);
+    return { rep, r, size, width: 2 * r + (size >= 2 ? 90 : 12) };
+  });
 
   const nodes = new Map<CoinId, ClusterNode>();
   const total = Math.max(1, items.reduce((s, it) => s + it.width, 0));
-  const R = Math.max(320, total / (2 * Math.PI));
+  const gapW = Math.max(80, total * 0.04); // the seam at six o'clock
+  const T = total + gapW;
+  const R = Math.max(320, T / (2 * Math.PI));
   let cum = 0;
   for (const it of items) {
-    const a = ((cum + it.width / 2) / total) * 2 * Math.PI - Math.PI / 2;
+    // six o'clock is PI/2 in screen coordinates (y down); the gap
+    // straddles it, so the first vertex lands just left of it and the
+    // last just right, the timeline running clockwise between them
+    const a = Math.PI / 2 + ((gapW / 2 + cum + it.width / 2) / T) * 2 * Math.PI;
     cum += it.width;
     nodes.set(it.rep, { rep: it.rep, x: Math.cos(a) * R * 1.35, y: Math.sin(a) * R, r: it.r, size: it.size });
   }
