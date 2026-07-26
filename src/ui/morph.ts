@@ -114,9 +114,9 @@ export function txRectAt(block: Layout, bip: BipLayout, id: string, t: number): 
 export interface MorphDrawOptions {
   hover?: Hit | null;
   /**
-   * joint-trace highlight: the intersection (full) at full strength, the
-   * union (partial) partly lit, everything else gently dimmed (not too
-   * dim) — or hidden entirely when hideDim is set
+   * joint-trace highlight: the intersection (full) at full strength and
+   * ringed, the union (partial) half dimmed, everything else very dimmed
+   * — or hidden entirely when hideDim is set
    */
   highlight?: {
     full: { coins: Set<string>; txs: Set<string> };
@@ -130,8 +130,11 @@ export interface MorphDrawOptions {
   selected?: { coins: Set<string>; txs: Set<string> } | null;
 }
 
-const DIM = 0.45;
-const PARTIAL = 0.8;
+// The three tiers must read at a glance (Yuval: complement very dimmed,
+// union half dimmed, intersection highlighted) — 1 / 0.8 / 0.45 all
+// looked like "the union" and the intersection disappeared into it.
+const DIM = 0.15;
+const PARTIAL = 0.5;
 /** dimmed entities also lose their color — gray reads as "not involved"
  *  far better than darkness alone */
 const MUTED_FILL = "#3a3e46";
