@@ -12,7 +12,7 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterColor, clusterLabel, CLUSTER_MISC, type Clustering } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { layoutClusterGraph, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
@@ -27,6 +27,7 @@ import { gameSteps } from "./scenario/gameSteps";
 import { setCastNames, OMNISCIENT } from "./scenario/omniscient";
 import { layoutChain, type Layout, type Hit, type Rect } from "./ui/blockview";
 import { layoutBipartite, type BipLayout } from "./ui/bipartite";
+import { layoutForce } from "./ui/force";
 import { drawMorph, hitTestMorph, coinRectAt, txRectAt } from "./ui/morph";
 import { blendLayout, blendBip } from "./ui/blend";
 import { commonInputFill, type Paint } from "./ui/paint";
@@ -65,6 +66,11 @@ const session: {
   manualFrom: 0,
   interventions: [],
 };
+/** graph-view arrangement (#44): false = layered timeline, true = force-directed */
+let forceLayout = false;
+function bipFor(chain: Chain): BipLayout {
+  return forceLayout ? layoutForce(chain) : layoutBipartite(chain);
+}
 let eco: Economy | null = null;
 const castList = (): Persona[] => eco ? eco.cast : PERSONAS;
 let ecoScene: SceneData | null = null;
@@ -108,7 +114,7 @@ function rebuildEconomy(toDay: number): void {
   void syncFragment();
 }
 function refreshEcoLayouts(): void {
-  ecoScene = { chain: eco!.chain, layout: layoutChain(eco!.chain), bip: layoutBipartite(eco!.chain) };
+  ecoScene = { chain: eco!.chain, layout: layoutChain(eco!.chain), bip: bipFor(eco!.chain) };
 }
 // --- the time cursor (#17): rewinding is a display filter, not a rebuild.
 // The layout stays the full history's; transactions after the cursor are
@@ -190,6 +196,17 @@ let lensAgent: number | null = null;
 // the observer's map degrades honestly into the bare public structure.
 const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_ALL = 7;
 let overlays = OV_ALL;
+// grading toggle: mark transactions where a heuristic's local inference
+// is wrong against the hidden truth (storyteller's grading — latent
+// truth flows only toward the learner's display, never into analysis)
+let showMistakes = false;
+let mistakeCache: { rev: number; m: Map<string, Mistake[]> } | null = null;
+function mistakes(): Map<string, Mistake[]> {
+  if (!mistakeCache || mistakeCache.rev !== simRev) {
+    mistakeCache = { rev: simRev, m: gradeWelds(active().chain, clustering().welds) };
+  }
+  return mistakeCache.m;
+}
 let clCache: { rev: number; cl: Clustering } | null = null;
 function clustering(): Clustering {
   const s = active();
@@ -287,6 +304,12 @@ function observerPaint(): Paint {
     txAttribution: (t, ch) => {
       const fill = commonInputFill(ch, t, (c) => clusterColor(cl, c.id));
       return fill === CLUSTER_MISC ? null : fill; // unclustered is not attribution
+    },
+    txFlag: (t) => {
+      if (!showMistakes) return null;
+      const ms = mistakes().get(t.id);
+      if (!ms) return null;
+      return ms.length === 1 ? ms[0]!.note : `${ms[0]!.note} (+${ms.length - 1} more)`;
     },
   };
 }
@@ -514,6 +537,42 @@ function setCollapsed(on: boolean, animate = true): void {
 }
 clusterBtn.addEventListener("click", () => setCollapsed(!collapsed));
 
+// --- graph layout mode (#44): layered timeline vs force-directed. The
+// bipartite view can be drawn either way; both scenes swap their bip
+// layout and everything on screen glides to its new frame.
+const layoutBtn = document.getElementById("layoutbtn") as HTMLButtonElement;
+function setForceLayout(on: boolean, animate = true): void {
+  if (forceLayout === on) return;
+  forceLayout = on;
+  layoutBtn.textContent = on ? "layout: force" : "layout: layered";
+  const prevIntro = intro.bip;
+  const prevEco = ecoScene;
+  intro.bip = bipFor(intro.chain);
+  if (eco) refreshEcoLayouts();
+  const targetIntro = intro.bip;
+  const targetEco = ecoScene;
+  if (!animate) {
+    draw();
+    void syncFragment();
+    return;
+  }
+  const gen = ++dayGen; // a day stepped mid-glide takes over from here
+  anim.add(900, (t) => {
+    if (gen !== dayGen) return;
+    intro.bip = t >= 1 ? targetIntro : blendBip(prevIntro, targetIntro, t);
+    if (prevEco && targetEco) {
+      ecoScene = t >= 1 ? targetEco : { ...targetEco, bip: blendBip(prevEco.bip, targetEco.bip, t) };
+    }
+  }, { done: () => void syncFragment() });
+  // the two arrangements live in different coordinate regions: re-frame
+  if (targetView === 1 && !collapsed) {
+    const b = (scene === 0 ? targetIntro : (targetEco?.bip ?? targetIntro)).bounds;
+    flyTo({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 });
+  }
+  kick();
+}
+layoutBtn.addEventListener("click", () => setForceLayout(!forceLayout));
+
 const lensBtn = document.getElementById("lens") as HTMLButtonElement;
 function setLens(l: 0 | 1 | 2): void {
   lens = l;
@@ -545,14 +604,26 @@ const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition welds its sub-transactions together" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
-  `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>`).join("");
+  `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>`).join("") +
+  `<h3>grading</h3>
+  <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 function reflectOverlays(): void {
-  overlaysPanel.querySelectorAll("input[type=checkbox]").forEach((el) => {
+  overlaysPanel.querySelectorAll("input[data-bit]").forEach((el) => {
     const input = el as HTMLInputElement;
     input.checked = (overlays & Number(input.dataset["bit"])) !== 0;
   });
+  (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
 }
 reflectOverlays();
+function setMistakes(on: boolean): void {
+  showMistakes = on;
+  reflectOverlays();
+  draw();
+  void syncFragment();
+}
+document.getElementById("mistakes")!.addEventListener("change", (e) => {
+  setMistakes((e.target as HTMLInputElement).checked);
+});
 // a heuristic toggle while the map is contracted repartitions the
 // vertices: animate the old discs merging into / splitting out of the
 // new ones (purely cosmetic — both endpoints are honestly computed
@@ -579,9 +650,10 @@ function setOverlays(mask: number): void {
   draw();
   void syncFragment();
 }
-overlaysPanel.addEventListener("change", () => {
+overlaysPanel.addEventListener("change", (e) => {
+  if ((e.target as HTMLElement).id === "mistakes") return; // its own handler
   let mask = 0;
-  overlaysPanel.querySelectorAll("input:checked").forEach((el) => {
+  overlaysPanel.querySelectorAll("input[data-bit]:checked").forEach((el) => {
     mask |= Number((el as HTMLInputElement).dataset["bit"]);
   });
   setOverlays(mask);
@@ -1253,7 +1325,13 @@ function readableHandoff(): void {
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
   onDone: () => readableHandoff(),
-  onStepChange: () => void syncFragment(),
+  onStepChange: () => {
+    // the hide filter ("h") outlives selections; combined with a step
+    // that keeps the prior selection it can hide the very transaction
+    // the step is framing — a step landing always lifts it
+    if (hideDim) hideDim = false;
+    void syncFragment();
+  },
   onView: (view) => {
     // step "view 2" means: the graph flattened into clusters
     const flat = view === 2;
@@ -1433,6 +1511,8 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
+  if (lens === 1 && showMistakes) state.mi = 1;
+  if (forceLayout) state.fd = 1;
   if (scene === 1) {
     state.sc = 1;
     // the displayed day: a rewound reference restores to what you see,
@@ -1584,6 +1664,11 @@ async function init(): Promise<void> {
     simRev += 1;
     reflectOverlays();
   }
+  if (state?.mi === 1) {
+    showMistakes = true;
+    reflectOverlays();
+  }
+  if (state?.fd === 1) setForceLayout(true, false);
   // lens after scene: the agent lens defaults to a payee the economy knows
   if (state?.l === 1 || state?.l === 2) {
     if (state.l === 2 && typeof state.a === "number" && state.a < MAX_POP) lensAgent = state.a;

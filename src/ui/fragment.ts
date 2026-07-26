@@ -48,6 +48,10 @@ export interface FragmentState {
   a?: number;
   /** lens 1 only: observer heuristics bitmask (1 CIOH, 2 change, 4 subset-sum) */
   ov?: number;
+  /** lens 1 only: 1 = grade the observer's welds, flagging wrong inferences */
+  mi?: number;
+  /** graph-view layout: 0 = layered left-to-right (default), 1 = force-directed */
+  fd?: number;
   /** economy day (scene 1 only) */
   n?: number;
   /** copy-reference: world position clicked + element selector under cursor */
@@ -189,6 +193,10 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (a !== undefined) out.a = a;
   const ov = num(r.ov, 0, 7, true);
   if (ov !== undefined) out.ov = ov;
+  const mi = num(r.mi, 0, 1, true);
+  if (mi !== undefined) out.mi = mi;
+  const fd = num(r.fd, 0, 1, true);
+  if (fd !== undefined) out.fd = fd;
   const n = num(r.n, 0, MAX_DAY, true);
   if (n !== undefined) out.n = n;
   if (typeof r.ref === "object" && r.ref !== null) {
