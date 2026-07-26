@@ -103,6 +103,7 @@ test("grantAttribution: unanimous clusters attributed wholesale, conflicted clus
     rank: new Map([["a1", 1], ["b1", 2], ["c1", 3]]),
     changeGuess: new Map(),
     payGuess: new Map(),
+    changeReads: new Map(),
     welds: [],
   };
   // cluster a: one grant -> both coins attributed; cluster b: grants

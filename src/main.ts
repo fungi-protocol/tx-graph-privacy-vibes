@@ -12,7 +12,7 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type ChangeRead, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
@@ -676,6 +676,47 @@ function lensClusterPaint(): ClusterPaint {
     },
   };
 }
+/** one caption line from the change/payment identification's recorded
+ *  reading of a transaction (#92): counts of what step one identified,
+ *  the suspected change if step two linked one, and — where nothing was
+ *  linked — the reason the analysis itself declined. Null when the
+ *  heuristic read nothing at all (so ordinary transactions stay
+ *  uncaptioned rather than every square growing a "nothing here" line). */
+function changeReadCaption(reads: ChangeRead[] | undefined): string | null {
+  if (!reads || reads.length === 0) return null;
+  let pay = 0, self = 0, changed = 0, unknowns = 0;
+  let abstain: ChangeRead["abstain"];
+  for (const r of reads) {
+    pay += r.payments.length;
+    self += r.selfs.length;
+    if (r.change) changed += 1;
+    if (r.abstain) {
+      unknowns += r.unknowns;
+      abstain ??= r.abstain;
+    }
+  }
+  const parts: string[] = [];
+  if (pay > 0) parts.push(pay === 1 ? "1 payment identified" : `${pay} payments identified`);
+  if (self > 0) parts.push(self === 1 ? "1 denominated self-spend linked" : `${self} denominated self-spends linked`);
+  if (changed > 0) parts.push(changed === 1 ? "change suspected, linked" : `${changed} suspected as change, linked`);
+  if (abstain) {
+    const why: Record<NonNullable<ChangeRead["abstain"]>, string> = {
+      inputs: "inputs not one cluster — nothing linked",
+      mapping: "sub-transaction mapping open — nothing linked",
+      part: "one-owner reading contradicted — nothing linked",
+      batch: pay > 0
+        ? `${unknowns} unclear, read as a batch — unlinked`
+        : "no payment identified — read as a batch, nothing linked",
+      bar: pay > 0
+        ? "evidence below the bar — not linked"
+        : "no payment identified — nothing linked",
+      refuted: "contradicted by attributions — not linked",
+    };
+    parts.push(why[abstain]);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 function observerPaint(): Paint {
   const cl = clustering();
   // grant attribution rides on top of the map: a granted coin is
@@ -693,7 +734,13 @@ function observerPaint(): Paint {
       const a = attr?.get(c.id);
       return a ? `${nameOf(a.owner)} · ${a.direct ? "disclosed" : "likely"}` : clusterLabel(cl, c.id);
     },
-    txMemo: () => null,
+    // the change/payment identification's own reading of the
+    // transaction, where it read anything: payments identified, the
+    // suspected change, or why it declined to link (#92). This is the
+    // observer's verdict, not the town's memo — the abstentions are as
+    // informative as the links, so they get named instead of leaving a
+    // silent gap where the all-seeing lens shows a story.
+    txMemo: (t) => changeReadCaption(cl.changeReads.get(t.id)),
     txAttribution: (t, ch) => {
       const fill = commonInputFill(ch, t, (c) => clusterColor(cl, c.id));
       return fill === CLUSTER_MISC ? null : fill; // unclustered is not attribution

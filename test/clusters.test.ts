@@ -658,3 +658,94 @@ test("a re-met group counts as one combined input and can collapse the mapping t
   const part = m.kind === "unique" ? m.parts.find((p) => p.outs.includes(1))! : undefined!;
   assert.deepEqual(part.ins.flatMap((i) => expand[i]!).sort(), [0, 1, 3]);
 });
+
+test("changeReads records the verdict: payment + linked change on a plain spend (#92)", () => {
+  const c = new Chain();
+  c.addRoot("a", 1_000_000, 0);
+  const fee = txfee(1, 2, 2);
+  c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 100_000 }, // $100: reads as the payment
+    { owner: 0, value: 900_000 - fee },
+  ], 2);
+  const reads = clusterObserver(c, at).changeReads.get("t1")!;
+  assert.equal(reads.length, 1);
+  assert.deepEqual(reads[0]!.payments, ["t1o1"]);
+  assert.equal(reads[0]!.change, "t1o2");
+  assert.equal(reads[0]!.abstain, undefined);
+});
+
+test("changeReads names the batch abstention when no output reads as a payment (#92)", () => {
+  const c = new Chain();
+  const fee = txfee(1, 2, 2);
+  // neither output round in BTC or dollars: two unknowns, batch rule
+  c.addRoot("a", 550_000 + 373_211 + fee, 0);
+  c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 550_000 - 89 },
+    { owner: 0, value: 373_300 },
+  ], 2);
+  const reads = clusterObserver(c, at).changeReads.get("t1")!;
+  assert.equal(reads.length, 1);
+  assert.deepEqual(reads[0]!.payments, []);
+  assert.equal(reads[0]!.change, undefined);
+  assert.equal(reads[0]!.unknowns, 2);
+  assert.equal(reads[0]!.abstain, "batch");
+});
+
+test("changeReads: unclustered inputs abstain with reason 'inputs' (#92)", () => {
+  const c = new Chain();
+  c.addRoot("a", 200_000, 0);
+  c.addRoot("b", 300_000, 1);
+  const fee = txfee(2, 2, 2);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 1, value: 100_000 }, // $100: a payment read
+    { owner: 0, value: 400_000 - fee },
+  ], 2);
+  // CIOH off: the inputs never merge, so step two has no one spender
+  const cl = clusterObserver(c, at, { reuse: true, cioh: false, change: true, subsum: false });
+  const reads = cl.changeReads.get("t1")!;
+  assert.equal(reads.length, 1);
+  assert.deepEqual(reads[0]!.payments, ["t1o1"]);
+  assert.equal(reads[0]!.abstain, "inputs");
+  assert.equal(cl.changeGuess.get("t1"), undefined);
+});
+
+test("changeReads: an underdetermined mapping abstains with reason 'mapping' (#92)", () => {
+  const c = new Chain();
+  const fee = txfee(2, 3, 2);
+  c.addRoot("a", 150_000, 0);
+  c.addRoot("b", 300_000 + fee, 1);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 2, value: 150_000 },
+    { owner: 3, value: 150_000 },
+    { owner: 4, value: 150_000 },
+  ], 2);
+  // no price series: $150 reads as nothing, so all three outputs stay
+  // unidentified and the open mapping is what blocks any link
+  const reads = clusterObserver(c).changeReads.get("t1")!;
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0]!.abstain, "mapping");
+  assert.equal(reads[0]!.unknowns, 3);
+  assert.deepEqual(reads[0]!.payments, []);
+  // with the rate the same outputs all read as payments: nothing left
+  // to link, so the read carries no abstention at all
+  const priced = clusterObserver(c, at).changeReads.get("t1")!;
+  assert.deepEqual(priced[0]!.payments, ["t1o1", "t1o2", "t1o3"]);
+  assert.equal(priced[0]!.abstain, undefined);
+});
+
+test("changeReads: radix self-spends recorded as such, change heuristic off records nothing (#92)", () => {
+  const c = new Chain();
+  const fee = txfee(1, 3, 2);
+  c.addRoot("a", 4_371_337 + fee, 0);
+  c.addTx("t1", 1, ["a"], [
+    { owner: 0, value: 2_000_000 },
+    { owner: 0, value: 2_000_000 },
+    { owner: 0, value: 371_337 },
+  ], 2);
+  const reads = clusterObserver(c, at).changeReads.get("t1")!;
+  assert.equal(reads.length, 1);
+  assert.deepEqual(reads[0]!.selfs.sort(), ["t1o1", "t1o2", "t1o3"]);
+  assert.equal(reads[0]!.abstain, undefined);
+  const off = clusterObserver(c, at, { reuse: true, cioh: true, change: false, subsum: true });
+  assert.equal(off.changeReads.size, 0);
+});

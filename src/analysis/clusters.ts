@@ -126,6 +126,14 @@ export interface Clustering {
    *  input). Recorded whether or not step two got to link anything —
    *  identification is per coin and does not presume clustered inputs. */
   payGuess: Map<TxId, CoinId[]>;
+  /** tx -> the change/payment identification's full reading, one entry
+   *  per sub-transaction analyzed (the whole transaction when no
+   *  partition applies). This is the observer's own verdict — what it
+   *  identified and, where it linked nothing, why it declined — kept so
+   *  the display can caption each transaction with the reading instead
+   *  of leaving the abstention silent. Empty when the change heuristic
+   *  is off. */
+  changeReads: Map<TxId, ChangeRead[]>;
   /** the ownership-weld ledger — deliberately narrow, NOT a general
    *  evidence ledger (it cannot hold rejected candidates, seeds,
    *  relationship features, or propagation decisions; those get their
@@ -134,6 +142,30 @@ export interface Clustering {
    *  observation, however many features it feeds — so disabling a
    *  method (or distrusting an observation) drops them together. */
   welds: Weld[];
+}
+
+/** One (sub-)transaction's change/payment identification verdict: what
+ *  step one identified and what step two did about it. Everything here
+ *  is the observer's own reading — no hidden truth leaks through. */
+export interface ChangeRead {
+  /** outputs step one read as payments */
+  payments: CoinId[];
+  /** radix self-spend defaults actually linked to the inputs */
+  selfs: CoinId[];
+  /** the sole remaining output linked as suspected change, if any */
+  change?: CoinId;
+  /** outputs step one left unidentified (step two's raw material) */
+  unknowns: number;
+  /** why step two linked nothing, when unidentified outputs remained:
+   *  "inputs" — the inputs do not read as one cluster, so there is no
+   *  single spender to hand change to; "mapping" — the sub-transaction
+   *  mapping stayed underdetermined; "part" — a unique part's one-owner
+   *  reading was refuted, so the part has no owner to link to; "batch"
+   *  — several outputs remained, so the null reading is a batch payment;
+   *  "bar" — a sole output remained but the payment evidence fell below
+   *  the configured bar; "refuted" — the link was contradicted by held
+   *  attributions. Absent when a link was made or nothing remained. */
+  abstain?: "inputs" | "mapping" | "part" | "batch" | "bar" | "refuted";
 }
 
 /** Which heuristics the observer is running; all on by default. */
@@ -362,6 +394,7 @@ export function clusterObserver(
 
   const changeGuess = new Map<TxId, CoinId[]>();
   const payGuess = new Map<TxId, CoinId[]>();
+  const changeReads = new Map<TxId, ChangeRead[]>();
   const welds: Weld[] = [];
   // the repeated-co-membership read asks the same shape question of a
   // coin's producer over and over — memoized once per transaction
@@ -437,7 +470,10 @@ export function clusterObserver(
     // read as one cluster (`anchor` stands in for them): step two's
     // welds are contingent on it, step one's identifications are not.
     const radixStructure = [...denomCount.values()].some((n) => n >= 2);
-    const identifyAndLink = (outs: CoinId[], ins: CoinId[], anchor: CoinId, linked: boolean): void => {
+    // `whyUnlinked` names the caller's reason when `linked` is false, so
+    // the recorded reading can say why step two had no cluster to link to
+    const identifyAndLink = (outs: CoinId[], ins: CoinId[], anchor: CoinId, linked: boolean,
+      whyUnlinked: "inputs" | "mapping" | "part" = "inputs"): void => {
       const inOwners = new Set<Owner>();
       for (const i of ins) {
         const g = grants?.get(i);
@@ -491,16 +527,32 @@ export function clusterObserver(
         if (p) p.push(...payments);
         else payGuess.set(tid, [...payments]);
       }
-      if (!linked) return; // no single "whoever paid" to hand anything to
+      // the recorded reading: what this pass identified and what became
+      // of the rest — filled in below and pushed once at every exit
+      const read: ChangeRead = { payments: [...payments], selfs: [], unknowns: unknowns.length };
+      const record = (): void => {
+        const r = changeReads.get(tid);
+        if (r) r.push(read);
+        else changeReads.set(tid, [read]);
+      };
+      if (!linked) {
+        // no single "whoever paid" to hand anything to
+        if (unknowns.length > 0 || selfs.length > 0) read.abstain = whyUnlinked;
+        record();
+        return;
+      }
       // the radix null hypothesis links self-spends like change — but
       // they are default readings, not change guesses, so they join
       // the weld ledger without entering changeGuess; and a weld is
       // recorded only where it links something new (inside a unique
       // part the part weld already claims these coins)
       for (const s of selfs) {
-        if (find(s) !== find(anchor) && !refuted([s, ...ins])) {
-          union(s, anchor);
-          welds.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
+        if (!refuted([s, ...ins])) {
+          read.selfs.push(s);
+          if (find(s) !== find(anchor)) {
+            union(s, anchor);
+            welds.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
+          }
         }
       }
       // the bar counts distinct tell KINDS that fired — corroboration
@@ -508,14 +560,22 @@ export function clusterObserver(
       const evidence = ((kinds & TELL_USD) !== 0 ? 1 : 0) +
         ((kinds & TELL_BTC) !== 0 ? 1 : 0) + ((kinds & TELL_AUX) !== 0 ? 1 : 0) +
         ((kinds & TELL_SCRIPT) !== 0 ? 1 : 0);
-      if (unknowns.length === 1 && evidence >= bar && !refuted([unknowns[0]!, ...ins])) {
-        const guess = unknowns[0]!;
-        const g = changeGuess.get(tid);
-        if (g) g.push(guess);
-        else changeGuess.set(tid, [guess]);
-        union(guess, anchor);
-        welds.push({ method: "change", tx: tid, coins: [guess, anchor], basis: "residue" });
+      if (unknowns.length === 1) {
+        if (evidence < bar) read.abstain = "bar";
+        else if (refuted([unknowns[0]!, ...ins])) read.abstain = "refuted";
+        else {
+          const guess = unknowns[0]!;
+          read.change = guess;
+          const g = changeGuess.get(tid);
+          if (g) g.push(guess);
+          else changeGuess.set(tid, [guess]);
+          union(guess, anchor);
+          welds.push({ method: "change", tx: tid, coins: [guess, anchor], basis: "residue" });
+        }
+      } else if (unknowns.length > 1) {
+        read.abstain = "batch";
       }
+      record();
     };
     // repeated co-membership (#105): inputs of this coinjoin-shaped
     // transaction that were all issued by ONE earlier coinjoin-shaped
@@ -576,7 +636,7 @@ export function clusterObserver(
           if (refuted(coins) || mixedWallets(partIns.map((i) => tx.inputs[i]!))) {
             if (change) {
               identifyAndLink(part.outs.map((o) => tx.outputs[o]!),
-                partIns.map((i) => tx.inputs[i]!), anchor, false);
+                partIns.map((i) => tx.inputs[i]!), anchor, false, "part");
             }
             continue;
           }
@@ -618,7 +678,7 @@ export function clusterObserver(
           union(b, ins[0]!);
           welds.push({ method: "subtx", tx: tid, coins: [...ins, b], assumption: "one-owner-per-part", basis: "bound" });
         }
-        if (change) identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, false);
+        if (change) identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, false, "mapping");
         continue;
       }
       // atomic: no way to split it — fall through to plain CIOH
@@ -661,7 +721,7 @@ export function clusterObserver(
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess, payGuess, welds };
+  return { rep, members, rank, changeGuess, payGuess, changeReads, welds };
 }
 
 /** one graded error in the observer's map: a weld whose coins do NOT in
@@ -738,7 +798,7 @@ function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Cluste
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
   const rank = new Map<CoinId, number>();
   ranked.forEach(([r], i) => rank.set(r, i + 1));
-  return { rep, members, rank, changeGuess: new Map(), payGuess: new Map(), welds: [] };
+  return { rep, members, rank, changeGuess: new Map(), payGuess: new Map(), changeReads: new Map(), welds: [] };
 }
 
 /**
