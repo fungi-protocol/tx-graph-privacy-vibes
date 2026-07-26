@@ -1,7 +1,6 @@
 // Chapter 7: intersection attacks — deanonymization as a guessing game.
 // A coinjoined coin's candidate origins are clusters, an anonymity set
-// (the candidate-set entropy formalized by Kelen & Seres); every
-// observation is an answered yes-or-no question. Linking two
+// (the candidate-set entropy formalized by Kelen & Seres). Linking two
 // post-coinjoin coins intersects their candidate sets, and intersections
 // cut by factors, not by items — the adversary plays twenty questions,
 // not process-of-elimination. The corrected highlight semantics carry the
@@ -62,10 +61,7 @@ export function intersectionSteps(
         exactly this — the entropy of a coin's candidate set, read off
         the graph structure: Kelen &amp; Seres. It grows by coinjoining,
         especially with widely chosen peers — and it can decay much
-        faster than it grew.)</p>
-        <p>Every observation is an answered yes-or-no question, and enough
-        answers always win the game. The question is not whether the
-        observer makes progress, but <b>how fast</b>.</p>`,
+        faster than it grew.)</p>`,
       focus: at(tracedCoin),
       select: sel("coin", tracedCoin),
       view: 1,
