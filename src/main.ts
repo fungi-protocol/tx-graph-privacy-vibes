@@ -880,6 +880,9 @@ function originsPart(): string {
   if (selection?.kind !== "coins" || selection.ids.length !== 1) return "";
   const id = selection.ids[0]!;
   const s = active();
+  // a rewound cursor (or a mid-ride frame) can show a chain from before
+  // the selected coin existed — same guard recomputeTrace applies
+  if (!s.chain.coins.has(id)) return "";
   if (!originsCache || originsCache.id !== id || originsCache.rev !== simRev) {
     const o = counterfactualOrigins(s.chain, id);
     originsCache = {
