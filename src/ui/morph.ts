@@ -435,7 +435,7 @@ function drawCoinBox(
   ctx.lineWidth = focused ? 2.5 : unspent ? 3 : 1;
   ctx.stroke();
   ctx.fillStyle = paint.coinText(coin);
-  ctx.font = "600 12px system-ui, sans-serif";
+  ctx.font = unspent ? "700 12px system-ui, sans-serif" : "400 12px system-ui, sans-serif";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
   ctx.fillText(fmtSats(coin.value), rect.x + rect.w / 2, rect.y + rect.h / 2);
