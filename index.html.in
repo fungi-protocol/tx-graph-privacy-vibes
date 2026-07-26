@@ -28,15 +28,16 @@
   .tut-nav button:hover:not(:disabled) { background: #3d414a; }
   .tut-nav button:disabled { opacity: 0.4; cursor: default; }
   .tut-skip { margin-left: auto; opacity: 0.7; }
-  #viewtoggle, #clusterbtn, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
+  #viewtoggle, #layoutbtn, #clusterbtn, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
                 border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
                 font: inherit; font-size: 13px; cursor: pointer; }
   #viewtoggle { top: 16px; }
-  #clusterbtn { top: 56px; }
-  #lens { top: 96px; }
-  #paramsbtn { top: 136px; }
-  #viewtoggle:hover, #clusterbtn:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
-  #params { position: fixed; left: 16px; top: 176px; display: none; width: 260px;
+  #layoutbtn { top: 56px; }
+  #clusterbtn { top: 96px; }
+  #lens { top: 136px; }
+  #paramsbtn { top: 176px; }
+  #viewtoggle:hover, #layoutbtn:hover, #clusterbtn:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
+  #params { position: fixed; left: 16px; top: 216px; display: none; width: 260px;
             background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
             padding: 12px 14px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
   #params label { display: block; margin: 8px 0 2px; opacity: 0.8; }
@@ -50,7 +51,7 @@
             font: inherit; font-size: 13px; cursor: pointer; }
   #params .apply:hover { background: #3d414a; }
   #params .hint { margin: 8px 0 0; font-size: 11px; line-height: 1.4; opacity: 0.55; }
-  #overlays { position: fixed; left: 16px; top: 176px; display: none; width: 210px;
+  #overlays { position: fixed; left: 16px; top: 216px; display: none; width: 210px;
             background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
             padding: 10px 12px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
   #overlays h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; opacity: 0.7;
@@ -115,6 +116,7 @@
 <canvas id="view"></canvas>
 <div id="hud"></div>
 <button id="viewtoggle" title="flip between the transaction-card and graph drawings (v)">view: cards</button>
+<button id="layoutbtn" title="graph drawing: layered timeline (left to right) or force-directed (springs and repulsion — no time axis, better for large dense graphs)">layout: layered</button>
 <button id="clusterbtn" title="collapse each cluster's coins into one vertex — the observer's user graph (c)">clusters</button>
 <button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
 <button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>
