@@ -101,6 +101,11 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       view: 1,
       lens: 1,
       overlays: 8,
+      // the exchange-records checkbox surfaces here, unchecked: the
+      // reader meets the books before any heuristic, and may hold them
+      // from this card on — the story itself picks them up at the
+      // chapter's end
+      reveals: ["kyc"],
       scene: 1,
       minDay: 21,
     },

@@ -1238,7 +1238,7 @@ const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition links each sub-transaction's coins together; even when several partitions balance, an output larger than the rest of the inputs combined is linked to the one input that could fund it" },
   { bit: OV_REMEET, label: "repeated co-membership", title: "inputs of a likely coinjoin that are outputs of one earlier likely coinjoin — peers are drawn from anywhere, so the same owners landing in the same two sessions by chance is the unlikely reading, and one participant bringing their own coins back is the plain one. The linked coins also count as one combined input in the sub-transaction analysis, striking every balanced reading that splits them" },
 ];
-overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
+overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEFS.map((d) =>
   `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>` +
   (d.bit === OV_CIOH
     ? `<div class="ovslider" title="CIOH abstains on transactions with more inputs than this — honest wallets rarely co-spend that many coins, collaborative transactions routinely do">
@@ -1299,14 +1299,14 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     <div id="nsnfstats"></div>
     <div class="nshint">each wallet product here keeps one script family, one nLockTime default and one signing habit — the same knobs real wallet software leaves set on the record</div>
   </div>
-  <h3>auxiliary information</h3>
+  <h4>auxiliary information</h4>
   <label title="the exchange's private books: a coin withdrawn by an identified customer, or spent into an identified deposit, carries a true name. Nothing on the graph marks these — this observer simply holds the records, and the named coins become a floor of certain knowledge under whatever the slider leaks"><input type="checkbox" id="kycobs"> exchange records (KYC)</label>
-  <div class="ovslider" title="a second, separate source: suppose some fraction of ALL coins leaked their true owners at random — subpoenas, trackers, counterparties, careless payees. This is not the exchange's records and does not adjust them; the two grants combine, and every named coin from either source seeds the map the same way: clusters holding a named coin take the name, and same-named clusters fuse. The slider's minimum is the plain observer; its maximum is omniscience — the all-seeing lens is just this slider pushed to the top. Each notch adds leaks without retracting any"><span>random leaks</span>
+  <div class="ovslider" id="auxleaks" title="a second, separate source IN ADDITION to the exchange's records: suppose some fraction of ALL coins leaked their true owners at random — subpoenas, trackers, counterparties, careless payees. This is not the exchange's records and does not adjust them; the two grants combine, and every named coin from either source seeds the map the same way: clusters holding a named coin take the name, and same-named clusters fuse. The slider's minimum is the plain observer; its maximum is omniscience — the all-seeing lens is just this slider pushed to the top. Each notch adds leaks without retracting any"><span>random leaks</span>
     <input type="range" id="auxfrac" min="0" max="100" step="1" value="0">
     <output id="auxfracv">none</output>
   </div>
   <div class="nshint" id="auxhint">two independent sources that combine: the records name the exchange's own coins; the slider leaks a random sample of everyone's</div>
-  <h3>grading</h3>
+  <h4>grading</h4>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 // the panel grows with the story: a row stays off the panel until the
 // walked path (or the free-playing user, or a restored fragment) first
@@ -1350,7 +1350,7 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     overlaysPanel.querySelector(`input[data-bit="${bit}"]`)?.closest("label") ?? null;
   const byId = (id: string): Element | null =>
     document.getElementById(id)?.closest("label") ?? null;
-  const h3 = overlaysPanel.querySelectorAll("h3");
+  const h4 = overlaysPanel.querySelectorAll("h4");
   switch (k) {
     case "reuse": return [byBit(OV_REUSE)];
     case "cioh": return [byBit(OV_CIOH), document.getElementById("ciohmax")?.closest(".ovslider") ?? null];
@@ -1359,13 +1359,13 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     case "remeet": return [byBit(OV_REMEET)];
     case "nssoc": return [byId("nssoc")];
     case "nsnf": return [byId("nsnf")];
-    case "kyc": return [h3[1] ?? null, byId("kycobs")];
+    case "kyc": return [h4[1] ?? null, byId("kycobs")];
     case "chusd": return [byId("chusd")];
     case "chbtc": return [byId("chbtc")];
     case "chscript": return [byId("chscript")];
     case "chaux": return [byId("chaux")];
-    case "aux": return [document.getElementById("auxfrac")?.closest(".ovslider") ?? null, document.getElementById("auxhint")];
-    case "grading": return [h3[2] ?? null, byId("mistakes")];
+    case "aux": return [document.getElementById("auxleaks"), document.getElementById("auxhint")];
+    case "grading": return [h4[2] ?? null, byId("mistakes")];
   }
 }
 function reflectOverlays(): void {
@@ -1378,15 +1378,21 @@ function reflectOverlays(): void {
   const rowOn = rowsOnNow();
   const rowKeys = Object.keys(rowOn) as PanelRow[];
   let anyHeuristic = false;
+  let anyRow = false;
   for (const k of rowKeys) {
     const show = allRowsSeen || seenRows.has(k) || rowOn[k];
+    if (show) anyRow = true;
     if (show && k !== "kyc" && k !== "aux" && k !== "grading") anyHeuristic = true;
     for (const el of panelRowEls(k)) {
       if (el) (el as HTMLElement).style.display = show ? "" : "none";
     }
   }
-  // with no rows yet the panel is a bare heading — hide that too
+  // with no rows yet the panel is bare headings — hide those too; the
+  // heuristics section header waits for its first row even while the
+  // auxiliary section is already up
   (overlaysPanel.querySelector("h3") as HTMLElement).style.display =
+    anyRow ? "" : "none";
+  (overlaysPanel.querySelector("h4") as HTMLElement).style.display =
     anyHeuristic ? "" : "none";
   overlaysPanel.querySelectorAll("input[data-bit]").forEach((el) => {
     const input = el as HTMLInputElement;

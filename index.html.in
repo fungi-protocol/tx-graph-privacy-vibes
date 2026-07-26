@@ -67,6 +67,13 @@
             padding: 10px 12px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
   #overlays h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; opacity: 0.7;
             text-transform: uppercase; letter-spacing: 0.04em; }
+  #overlays h4 { margin: 10px 0 2px; font-size: 11px; font-weight: 600; opacity: 0.5;
+            text-transform: uppercase; letter-spacing: 0.04em; }
+  /* the random-leaks slider is a source of its own, in addition to the
+     exchange's records — flush left with its own rule, not indented
+     under the checkbox like a nested control */
+  #overlays #auxleaks { margin: 8px 0 6px; padding-top: 8px;
+            border-top: 1px dashed #3a3e46; }
   #overlays label { display: block; margin: 6px 0; opacity: 0.85; cursor: pointer; }
   #overlays input { margin-right: 6px; }
   #overlays label.ovnest { margin: 3px 0 3px 20px; font-size: 12px; }
