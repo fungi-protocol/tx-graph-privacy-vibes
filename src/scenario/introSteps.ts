@@ -134,21 +134,15 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       scene: 0,
     },
     {
-      id: "one-address-once",
-      title: "One address, once",
-      html: `<p>Each coin is locked to an <b>address</b> — a fresh
-        destination its owner's wallet generated for it. Nothing stops a
-        wallet from handing out the same address twice, and when that
-        happens the record links the two coins on its face: one key
-        plainly controls both. <b>Address reuse</b> is by far the worst
-        form of clustering — no inference, no guessing, just reading —
-        and, sadly, it is still pervasive on the real chain: donation
-        pages, exchange deposit addresses, lazy software.</p>
-        <p>Nearly every wallet in this simulation draws a <b>fresh address
-        for every output</b>, as well-made wallets do. Keep that in mind:
-        almost everything an observer manages in this story is managed
-        <i>without</i> the easiest lever, the one the real world still
-        offers.</p>`,
+      id: "addresses",
+      title: "Addresses",
+      html: `<p>Each coin is locked to an <b>address</b> — the destination
+        its owner's wallet named when the coin was created. An address is
+        what you hand someone so they can pay you, and it is what the
+        record shows in place of a name.</p>
+        <p>Look at Alice's coins: her wallet drew a <b>fresh address for
+        every output</b> — the withdrawal, each payment, each piece of
+        change its own destination — as well-made wallets do.</p>`,
       focus: pad(all, 60),
       view: 0,
       scene: 0,

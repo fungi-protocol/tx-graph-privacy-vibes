@@ -56,7 +56,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
     },
     {
       id: "address-reuse",
-      title: "The oldest linkage",
+      title: "Address reuse",
       html: `<p>The most basic clustering needs no inference at all. Every
         coin is locked to an <b>address</b>, and paying the same address
         twice links the coins on the face of the record — one key plainly
