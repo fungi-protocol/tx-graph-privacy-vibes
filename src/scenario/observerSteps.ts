@@ -171,12 +171,16 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         outputs stay unidentified, a payment may simply have been missed,
         so the null hypothesis is a batch of payments, not one payment
         plus change, and nothing is linked.</p>
-        <p>The rest of its caution is yours to set. The <b>evidence
-        bar</b> under the change checkbox is how much payment evidence
-        the weld demands: at one tell, a single round amount decides —
-        every bet taken; raise it and watch welds let go, coverage traded
-        for caution. And the family you just met keeps growing — real
-        observers add tells this lens doesn't model.</p>
+        <p>The rest of its caution is yours to set. Each payment tell
+        this lens runs is its own checkbox under the change heuristic —
+        round dollars, round bitcoin, and (further on) auxiliary
+        attributions — so you can take one away and watch the others
+        still vote. The <b>evidence bar</b> below them is how many
+        <i>kinds</i> of tell the weld demands: at one, any single tell
+        decides — every bet taken; raise it and only payments that two
+        different tells agree on still anchor a weld, coverage traded
+        for caution. And the family keeps growing — real observers add
+        tells this lens doesn't model.</p>
         <p class="tut-aside">The rule of thumb from cryptography applies:
         attacks always get better; they never get worse.</p>`,
       focus: () => pad(bipBounds()),

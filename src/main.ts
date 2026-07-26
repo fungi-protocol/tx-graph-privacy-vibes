@@ -12,7 +12,7 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_ALL, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
@@ -216,9 +216,17 @@ let lensAgent: number | null = null;
 // the observer's map degrades honestly into the bare public structure.
 const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_ALL = 15;
 let overlays = OV_ALL;
+// what the analysis actually runs: the sub-transaction analysis
+// GENERALIZES CIOH (an unsplittable transaction reads as one user's
+// spend), so while it is on CIOH runs regardless — but the user's own
+// CIOH setting is kept, not overwritten, and returns when sub-tx is
+// switched back off (#80)
+function effOverlays(): number {
+  return (overlays & OV_SUBSUM) !== 0 ? overlays | OV_CIOH : overlays;
+}
 // CIOH's max-inputs cap: transactions with more inputs than this are
 // not welded by CIOH. The slider's top position means "no cap".
-const CIOH_MAX_OFF = 12;
+const CIOH_MAX_OFF = 10;
 let ciohMax = CIOH_MAX_OFF;
 // the change link's evidentiary bar (#66): how many payment tells the
 // sub-transaction's identified payments must total before the sole
@@ -226,6 +234,15 @@ let ciohMax = CIOH_MAX_OFF;
 // amount decides; higher bars trade coverage for fewer wrong welds.
 const CHANGE_EV_MAX = 3;
 let changeEvidence = 1;
+// which payment-identification tells the change heuristic runs (#76):
+// TELL_USD | TELL_BTC | TELL_AUX, all on by default. The bar above is
+// how many of the ENABLED kinds must fire before the sole leftover
+// output is linked.
+let changeTells = TELL_ALL;
+function tellCount(mask: number): number {
+  return ((mask & TELL_USD) !== 0 ? 1 : 0) + ((mask & TELL_BTC) !== 0 ? 1 : 0) +
+    ((mask & TELL_AUX) !== 0 ? 1 : 0);
+}
 // grading toggle: mark transactions where a heuristic's local inference
 // is wrong against the hidden truth (storyteller's grading — latent
 // truth flows only toward the learner's display, never into analysis)
@@ -249,11 +266,12 @@ function clustering(): Clustering {
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
     const cl = clusterObserver(s.chain, priceAt, {
       reuse: (overlays & OV_REUSE) !== 0,
-      cioh: (overlays & OV_CIOH) !== 0,
+      cioh: (effOverlays() & OV_CIOH) !== 0,
       change: (overlays & OV_CHANGE) !== 0,
       subsum: (overlays & OV_SUBSUM) !== 0,
       ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
       ...(changeEvidence > 1 ? { changeEvidence } : {}),
+      ...(changeTells !== TELL_ALL ? { changeTells } : {}),
       ...(grantsOn() ? { grants: currentGrants() } : {}),
     });
     clCache = { rev: simRev, sig, cl };
@@ -1082,10 +1100,15 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
         <output id="ciohmaxv">off</output>
       </div>`
     : d.bit === OV_CHANGE
-    ? `<div class="ovslider" title="how much payment evidence the change weld needs: the tells (round amounts, disclosed owners) across the sub-transaction's identified payments must total this many before the leftover output is linked. At 1 a single round amount decides; higher bars trade coverage for fewer wrong welds">
-        <span>evidence bar</span>
-        <input type="range" id="chev" min="1" max="${CHANGE_EV_MAX}" step="1" value="1">
-        <output id="chevv">1 tell</output>
+    ? `<div id="chtells">
+        <label class="ovnest" title="an amount landing on a round multiple of $10 at that day's exchange rate reads as a payment — prices are set in dollars"><input type="checkbox" id="chusd" checked> round dollars</label>
+        <label class="ovnest" title="an amount round in BTC terms (0.05, not 0.0473) reads as a payment too"><input type="checkbox" id="chbtc" checked> round bitcoin</label>
+        <label class="ovnest" title="an output the observer's auxiliary information attributes to a different owner than a granted input is a payment however the amount reads — needs the knowledge grant below to have anything to say"><input type="checkbox" id="chaux" checked> auxiliary attribution</label>
+        <div class="ovslider" title="how many of the ENABLED tell kinds must fire across the sub-transaction's identified payments before the leftover output is linked. At 1 any single tell decides; higher bars demand the kinds corroborate each other, trading coverage for fewer wrong welds">
+          <span>evidence bar</span>
+          <input type="range" id="chev" min="1" max="${CHANGE_EV_MAX}" step="1" value="1">
+          <output id="chevv">1 tell</output>
+        </div>
       </div>`
     : "")).join("") +
   `<label title="Narayanan–Shmatikov social-network analysis: split the cluster graph into columns (epochs of the timeline) and match vertices across them by the shape of their neighborhoods — a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nssoc"> social-network analysis</label>
@@ -1138,24 +1161,36 @@ let subsumSeen = false;
 function reflectOverlays(): void {
   overlaysPanel.querySelectorAll("input[data-bit]").forEach((el) => {
     const input = el as HTMLInputElement;
-    input.checked = (overlays & Number(input.dataset["bit"])) !== 0;
+    // the boxes show what RUNS — the forced CIOH reads checked while
+    // sub-tx is on, though the user's own setting waits underneath
+    input.checked = (effOverlays() & Number(input.dataset["bit"])) !== 0;
   });
   const subRow = overlaysPanel.querySelector(`input[data-bit="${OV_SUBSUM}"]`)!
     .closest("label") as HTMLElement;
   subRow.style.display = subsumSeen || (overlays & OV_SUBSUM) !== 0 ? "" : "none";
-  // the sub-transaction analysis GENERALIZES CIOH (an unsplittable
-  // transaction reads as one user's spend), so running it without CIOH
-  // is incoherent: while it is on, CIOH is forced on and greyed out
+  // while the sub-transaction analysis runs, CIOH is forced on and
+  // greyed out (see effOverlays)
   const ciohBox = overlaysPanel.querySelector(`input[data-bit="${OV_CIOH}"]`) as HTMLInputElement;
   ciohBox.disabled = (overlays & OV_SUBSUM) !== 0;
   const slider = document.getElementById("ciohmax") as HTMLInputElement;
   slider.value = String(ciohMax);
-  slider.disabled = (overlays & OV_CIOH) === 0;
+  slider.disabled = (effOverlays() & OV_CIOH) === 0;
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
     ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
+  const changeOff = (overlays & OV_CHANGE) === 0;
+  for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chaux", TELL_AUX]] as const) {
+    const box = document.getElementById(id) as HTMLInputElement;
+    box.checked = (changeTells & bit) !== 0;
+    box.disabled = changeOff;
+  }
+  // the bar counts kinds, so it can demand at most the enabled kinds —
+  // and with none enabled nothing can clear it either way
   const chev = document.getElementById("chev") as HTMLInputElement;
+  const enabledKinds = Math.max(1, tellCount(changeTells));
+  chev.max = String(enabledKinds);
+  changeEvidence = Math.min(changeEvidence, enabledKinds);
   chev.value = String(changeEvidence);
-  chev.disabled = (overlays & OV_CHANGE) === 0;
+  chev.disabled = changeOff || tellCount(changeTells) <= 1;
   (document.getElementById("chevv") as HTMLOutputElement).textContent =
     changeEvidence === 1 ? "1 tell" : `${changeEvidence} tells`;
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
@@ -1259,7 +1294,6 @@ document.getElementById("mistakes")!.addEventListener("change", (e) => {
 function setOverlays(mask: number): void {
   const before = collapsed && collapseT > 0.9 && collapseCache
     ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
-  if ((mask & OV_SUBSUM) !== 0) mask |= OV_CIOH; // sub-tx analysis forces its base
   overlays = mask & OV_ALL;
   if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
   simRev += 1; // the observer's map — and every lens seeded from it — changes
@@ -1300,6 +1334,19 @@ document.getElementById("chev")!.addEventListener("input", (e) => {
   draw();
   syncFragmentSoon();
 });
+// the tell checkboxes re-run the map too; the bar clamps to however
+// many kinds remain enabled
+for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chaux", TELL_AUX]] as const) {
+  document.getElementById(id)!.addEventListener("change", (e) => {
+    changeTells = (e.target as HTMLInputElement).checked
+      ? changeTells | bit : changeTells & ~bit;
+    simRev += 1; // the observer's map changes
+    reflectOverlays();
+    recomputeTrace();
+    draw();
+    syncFragmentSoon();
+  });
+}
 // --- the knowledge-grant controls. The KYC toggle repartitions the
 // contracted map with the same tween as a heuristic toggle; the slider
 // re-runs live per notch, so dragging shows names landing and clusters
@@ -1516,7 +1563,7 @@ document.getElementById("nsnfskip")!.addEventListener("click", () => {
 overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
   // their own handlers
-  if (id === "mistakes" || id === "ciohmax" || id === "chev" || id.startsWith("ns")) return;
+  if (id === "mistakes" || id === "ciohmax" || id.startsWith("ch") || id.startsWith("ns")) return;
   // a hand on the panel keeps the sub-transaction row: unchecking a
   // visible heuristic must not make it vanish from under the pointer
   if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
@@ -1524,6 +1571,9 @@ overlaysPanel.addEventListener("change", (e) => {
   overlaysPanel.querySelectorAll("input[data-bit]:checked").forEach((el) => {
     mask |= Number((el as HTMLInputElement).dataset["bit"]);
   });
+  // the CIOH box reads checked while sub-tx forces it — that forced
+  // reading must not overwrite the user's own (possibly off) setting
+  if ((overlays & OV_SUBSUM) !== 0) mask = (mask & ~OV_CIOH) | (overlays & OV_CIOH);
   setOverlays(mask);
 });
 
@@ -2558,6 +2608,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
   if (lens === 1 && ciohMax < CIOH_MAX_OFF) state.cm = ciohMax;
   if (lens === 1 && changeEvidence !== 1) state.ce = changeEvidence;
+  if (lens === 1 && changeTells !== TELL_ALL) state.ct = changeTells;
   if (lens === 1 && grantsOn()) state.ai = [kycObs ? 1 : 0, Math.round(auxFrac * 100)];
   if (lens === 1 && showMistakes) state.mi = 1;
   if (lens === 1 && nsSocial) {
@@ -2724,8 +2775,7 @@ async function init(): Promise<void> {
   }
   if (session.manual !== null) setManual(session.manual); // light the decisions panel
   if (state?.ov !== undefined) {
-    overlays = state.ov & OV_ALL;
-    if ((overlays & OV_SUBSUM) !== 0) overlays |= OV_CIOH; // sub-tx forces its base
+    overlays = state.ov & OV_ALL; // sub-tx forcing is effOverlays' business
     simRev += 1;
     reflectOverlays();
   }
@@ -2736,6 +2786,11 @@ async function init(): Promise<void> {
   }
   if (state?.ce !== undefined) {
     changeEvidence = Math.min(state.ce, CHANGE_EV_MAX);
+    simRev += 1;
+    reflectOverlays();
+  }
+  if (state?.ct !== undefined) {
+    changeTells = state.ct & TELL_ALL;
     simRev += 1;
     reflectOverlays();
   }

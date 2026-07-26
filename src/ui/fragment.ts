@@ -57,6 +57,10 @@ export interface FragmentState {
    *  tells required before the sole unidentified output welds (absent
    *  = 1, a single tell decides) */
   ce?: number;
+  /** lens 1 only: which change-identification tells run — a bitmask of
+   *  round-USD (1), round-BTC (2), auxiliary attribution (4); absent =
+   *  all of them */
+  ct?: number;
   /** lens 1 only: the observer's knowledge grant [1 = holds the
    *  exchange's KYC records, auxiliary-information reveals as a % of
    *  all coins (0 = the plain observer, 100 = omniscience)] */
@@ -223,6 +227,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (cm !== undefined) out.cm = cm;
   const ce = num(r.ce, 1, 8, true);
   if (ce !== undefined) out.ce = ce;
+  const ct = num(r.ct, 0, 7, true);
+  if (ct !== undefined) out.ct = ct;
   if (Array.isArray(r.ai)) {
     const kx = num(r.ai[0], 0, 1, true), ax = num(r.ai[1], 0, 100, true);
     if (kx !== undefined && ax !== undefined) out.ai = [kx, ax];

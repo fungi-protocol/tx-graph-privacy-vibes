@@ -125,14 +125,19 @@ export interface Heuristics {
   cioh?: boolean;
   change?: boolean;
   subsum?: boolean;
+  /** which of the change heuristic's payment-identification tells run
+   *  (a bitmask of the TELL_* bits); all of them by default. Each is
+   *  one member of the real-world family — switching one off shows the
+   *  others still voting. */
+  changeTells?: number;
   /** the evidentiary bar for linking the sole non-payment output as
-   *  change: the total count of payment tells (amount reads, auxiliary
-   *  attributions) across the sub-transaction's identified payment
-   *  outputs must reach this before the weld is made. 1 (the default)
-   *  lets a single round amount decide; higher bars trade coverage for
-   *  fewer wrong welds. The radix self-spend link is a null
-   *  hypothesis, not an inference from payment tells, so the bar does
-   *  not gate it. */
+   *  change: how many DISTINCT enabled tell kinds (round dollars,
+   *  round bitcoin, auxiliary attributions) must have fired across the
+   *  sub-transaction's identified payment outputs before the weld is
+   *  made. 1 (the default) lets a single tell decide; higher bars
+   *  demand corroboration between kinds, trading coverage for fewer
+   *  wrong welds. The radix self-spend link is a null hypothesis, not
+   *  an inference from payment tells, so the bar does not gate it. */
   changeEvidence?: number;
   /** auxiliary attributions the observer holds (the #67 grant): coin →
    *  true owner. Read here ONLY as a payment identifier — an output
@@ -152,6 +157,12 @@ export interface Heuristics {
    *  observer holds (payjoin detection). */
   except?: Set<TxId>;
 }
+
+/** The change heuristic's payment-identification tells, individually
+ *  switchable (Heuristics.changeTells). The script-type tell is real
+ *  but has nothing to bite here — this town's script types are uniform
+ *  by construction — so it is named in prose, not modeled as a bit. */
+export const TELL_USD = 1, TELL_BTC = 2, TELL_AUX = 4, TELL_ALL = 7;
 
 /** decimal hamming weight: how many nonzero digits the integer has */
 function decHW(n: number): number {
@@ -173,11 +184,22 @@ function decHW(n: number): number {
  * coin depends on context (the same round BTC figure that reads as a
  * payment alone reads as a self-spend among repeated denominations).
  */
-export function plausiblePayment(value: Sats, price?: number): boolean {
-  if (decHW(value) <= 1) return true;
-  if (price === undefined) return false;
+export function plausiblePayment(value: Sats, price?: number, tells = TELL_ALL): boolean {
+  if ((tells & TELL_BTC) !== 0 && decHW(value) <= 1) return true;
+  if ((tells & TELL_USD) === 0 || price === undefined) return false;
   const usd = (value * price) / 1e8;
   return Math.abs(usd - Math.round(usd / 10) * 10) < 0.05;
+}
+
+/** which amount-tell kinds fire on this value — the bar counts kinds */
+function amountKinds(value: Sats, price: number | undefined, tells: number): number {
+  let k = 0;
+  if ((tells & TELL_BTC) !== 0 && decHW(value) <= 1) k |= TELL_BTC;
+  if ((tells & TELL_USD) !== 0 && price !== undefined) {
+    const usd = (value * price) / 1e8;
+    if (Math.abs(usd - Math.round(usd / 10) * 10) < 0.05) k |= TELL_USD;
+  }
+  return k;
 }
 
 /**
@@ -196,7 +218,9 @@ export function clusterObserver(
 ): Clustering {
   const { reuse = true, cioh = true, change = true, subsum = true } = heuristics;
   const bar = heuristics.changeEvidence ?? 1;
-  const grants = heuristics.grants;
+  const tellsOn = heuristics.changeTells ?? TELL_ALL;
+  // the grant is read as a payment identifier only through the aux tell
+  const grants = (tellsOn & TELL_AUX) !== 0 ? heuristics.grants : undefined;
   const parent = new Map<CoinId, CoinId>();
   for (const id of chain.coins.keys()) parent.set(id, id);
   const find = (x: CoinId): CoinId => {
@@ -285,7 +309,8 @@ export function clusterObserver(
         const g = grants?.get(i);
         if (g !== undefined) inOwners.add(g);
       }
-      const payments: { id: CoinId; tells: number }[] = [];
+      const payments: CoinId[] = [];
+      let kinds = 0; // TELL_* bits that fired across the identified payments
       const selfs: CoinId[] = [];
       const unknowns: CoinId[] = [];
       for (const o of outs) {
@@ -293,15 +318,19 @@ export function clusterObserver(
         const g = grants?.get(o);
         // inside a radix structure a menu denomination is what a
         // self-spend looks like, so its amount says nothing
-        const amount = plausiblePayment(v, price) && !(radixStructure && isDenomination(v));
+        const amount = radixStructure && isDenomination(v) ? 0 : amountKinds(v, price, tellsOn);
         if (g !== undefined && inOwners.size > 0) {
           // an auxiliary attribution outranks the amount guess in both
           // directions: a different owner is a payment however the
           // amount reads; the same owner is a self-spend already
           // settled by the grant layer, so no change weld is needed
-          if (!inOwners.has(g)) payments.push({ id: o, tells: 1 + (amount ? 1 : 0) });
-        } else if (amount) {
-          payments.push({ id: o, tells: 1 });
+          if (!inOwners.has(g)) {
+            payments.push(o);
+            kinds |= TELL_AUX | amount;
+          }
+        } else if (amount !== 0) {
+          payments.push(o);
+          kinds |= amount;
         } else if (radixStructure) {
           selfs.push(o); // the inverted null hypothesis: self-spend
         } else {
@@ -310,8 +339,8 @@ export function clusterObserver(
       }
       if (payments.length > 0) {
         const p = payGuess.get(tid);
-        if (p) p.push(...payments.map((x) => x.id));
-        else payGuess.set(tid, payments.map((x) => x.id));
+        if (p) p.push(...payments);
+        else payGuess.set(tid, [...payments]);
       }
       if (!linked) return; // no single "whoever paid" to hand anything to
       // the radix null hypothesis links self-spends like change — but
@@ -325,7 +354,10 @@ export function clusterObserver(
           welds.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
         }
       }
-      const evidence = payments.reduce((s, p) => s + p.tells, 0);
+      // the bar counts distinct tell KINDS that fired — corroboration
+      // between kinds, not repetition within one
+      const evidence = ((kinds & TELL_USD) !== 0 ? 1 : 0) +
+        ((kinds & TELL_BTC) !== 0 ? 1 : 0) + ((kinds & TELL_AUX) !== 0 ? 1 : 0);
       if (unknowns.length === 1 && evidence >= bar) {
         const guess = unknowns[0]!;
         const g = changeGuess.get(tid);

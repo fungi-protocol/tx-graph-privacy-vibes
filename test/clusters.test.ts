@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Chain } from "../src/model/chain";
 import { txfee } from "../src/core/sats";
-import { clusterObserver, clusterByOwner, clusterByKnowledge } from "../src/analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, TELL_USD, TELL_BTC, TELL_AUX } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
 
 const PRICE = 100_000; // $100k/BTC: 1000 sats = $1
@@ -329,6 +329,62 @@ test("the evidentiary bar gates the change link, not the identifications", () =>
   const aux = clusterObserver(c, at, { changeEvidence: 2, grants });
   assert.deepEqual(aux.changeGuess.get("t1"), ["t1o2"]);
   assert.equal(aux.rep.get("a"), aux.rep.get("t1o2"));
+});
+
+test("tell toggles: each kind can be switched off, and the bar counts kinds", () => {
+  const c = new Chain();
+  const fee = txfee(1, 2, 2);
+  c.addRoot("a", 1_000_000, 0);
+  // $150 = 150,000 sats: round in dollars only
+  c.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 150_000 },
+    { owner: 0, value: 850_000 - fee },
+  ], 2);
+  // with the round-dollar tell off, nothing identifies the payment
+  const noUsd = clusterObserver(c, at, { changeTells: TELL_BTC | TELL_AUX });
+  assert.equal(noUsd.payGuess.get("t1"), undefined);
+  assert.equal(noUsd.changeGuess.get("t1"), undefined);
+  // a round-BTC value with the BTC tell off likewise
+  const b = new Chain();
+  b.addRoot("a", 1_000_000, 0);
+  b.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 100_000 },
+    { owner: 0, value: 900_000 - fee },
+  ], 2);
+  assert.equal(clusterObserver(b, undefined, { changeTells: TELL_USD | TELL_AUX })
+    .changeGuess.get("t1"), undefined);
+  // the aux tell off means the grant identifies nothing (the grant
+  // layer's own fusion is separate machinery, not under test here)
+  const grants = new Map([["a", 0], ["t1o1", 1]] as [string, number][]);
+  const d = new Chain();
+  d.addRoot("a", 1_000_000, 0);
+  d.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 371_300 },
+    { owner: 0, value: 628_700 - fee },
+  ], 2);
+  assert.equal(clusterObserver(d, at, { grants, changeTells: TELL_USD | TELL_BTC })
+    .payGuess.get("t1"), undefined);
+  // the bar counts KINDS: $100 at $100k/BTC is 100,000 sats — round in
+  // dollars AND in BTC, two kinds firing on one output clear bar 2
+  const e = new Chain();
+  e.addRoot("a", 1_000_000, 0);
+  e.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 100_000 },
+    { owner: 0, value: 900_000 - fee },
+  ], 2);
+  assert.deepEqual(clusterObserver(e, at, { changeEvidence: 2 }).changeGuess.get("t1"), ["t1o2"]);
+  // ...but two round-DOLLAR payments are still one kind: bar 2 holds
+  const f = new Chain();
+  const fee13 = txfee(1, 3, 2);
+  f.addRoot("a", 150_000 + 250_000 + 371_337 + fee13, 0);
+  f.addTx("t1", 1, ["a"], [
+    { owner: 1, value: 150_000 },
+    { owner: 2, value: 250_000 },
+    { owner: 0, value: 371_337 },
+  ], 2);
+  const g = clusterObserver(f, at, { changeEvidence: 2 });
+  assert.deepEqual(g.payGuess.get("t1"), ["t1o1", "t1o2"]);
+  assert.equal(g.changeGuess.get("t1"), undefined);
 });
 
 test("auxiliary attribution identifies a payment no amount tell would", () => {

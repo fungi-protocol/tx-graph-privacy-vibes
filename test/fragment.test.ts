@@ -57,6 +57,17 @@ test("change evidence bar round-trips and is clamped", async () => {
   assert.equal(junk.ce, undefined);
 });
 
+test("change tell mask round-trips and is clamped", async () => {
+  const full = { seed: "welcome", l: 1, ct: 5 };
+  assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+  const craft = (state: unknown): Promise<unknown> =>
+    encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
+  const wild = await craft({ seed: "ok", ct: 999 }) as Record<string, unknown>;
+  assert.equal(wild.ct, 7);
+  const junk = await craft({ seed: "ok", ct: "aux" }) as Record<string, unknown>;
+  assert.equal(junk.ct, undefined);
+});
+
 test("missing fragment decodes to null", async () => {
   assert.equal(await decodeFragment(""), null);
   assert.equal(await decodeFragment("#other=1"), null);

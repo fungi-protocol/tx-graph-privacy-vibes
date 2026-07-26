@@ -59,6 +59,7 @@
             text-transform: uppercase; letter-spacing: 0.04em; }
   #overlays label { display: block; margin: 6px 0; opacity: 0.85; cursor: pointer; }
   #overlays input { margin-right: 6px; }
+  #overlays label.ovnest { margin: 3px 0 3px 20px; font-size: 12px; }
   #overlays .ovslider { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 20px;
             font-size: 12px; opacity: 0.75; }
   #overlays .ovslider input[type="range"] { flex: 1; margin: 0; min-width: 0; }
