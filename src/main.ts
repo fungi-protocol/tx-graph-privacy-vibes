@@ -237,7 +237,7 @@ function clustering(): Clustering {
 // coin its own vertex, the coin graph laid on the ring by time. A view
 // of the raw material every lens's partition is built from.
 let unclustered = false;
-let collapseCache: { rev: number; lens: number; agent: number; un: boolean; cl: Clustering; clay: ClusterLayout } | null = null;
+let collapseCache: { rev: number; lens: number; agent: number; un: boolean; cl: Clustering; clay: ClusterLayout; ring: ClusterLayout } | null = null;
 function lensClustering(): Clustering {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
   if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens ||
@@ -246,13 +246,22 @@ function lensClustering(): Clustering {
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : clustering();
-    collapseCache = { rev: simRev, lens, agent, un: unclustered, cl, clay: layoutClusterGraph(cl, active().chain) };
+    const clay = layoutClusterGraph(cl, active().chain);
+    // the singleton ring is the collapse morph's waypoint: coins land on
+    // it before stacking into discs, and unstack onto it on the way out
+    const ring = unclustered ? clay
+      : layoutClusterGraph(clusterSingletons(active().chain), active().chain);
+    collapseCache = { rev: simRev, lens, agent, un: unclustered, cl, clay, ring };
   }
   return collapseCache.cl;
 }
 function clusterLayout(): ClusterLayout {
   lensClustering();
   return collapseCache!.clay;
+}
+function singletonRing(): ClusterLayout {
+  lensClustering();
+  return collapseCache!.ring;
 }
 // In the contracted view the TOPOLOGY carries the lens's information
 // (its partition shapes the vertices), so paint is freed to be the
@@ -513,7 +522,7 @@ function draw(): void {
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
       clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
-      hover?.kind === "cluster" ? hover.id : undefined);
+      hover?.kind === "cluster" ? hover.id : undefined, singletonRing());
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -706,6 +715,12 @@ layoutBtn.addEventListener("click", () => setForceLayout(!forceLayout));
 
 const lensBtn = document.getElementById("lens") as HTMLButtonElement;
 function setLens(l: 0 | 1 | 2): void {
+  // a lens change while the map is contracted is a walk through the
+  // refinement lattice: the old partition's discs merge and split into
+  // the new one's, the same repartition tween as a heuristic toggle —
+  // not a camera move
+  const before = collapsed && collapseT > 0.9 && collapseCache
+    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
   lens = l;
   if (l === 2 && lensAgent === null) lensAgent = defaultLensAgent();
   lensBtn.textContent =
@@ -715,9 +730,20 @@ function setLens(l: 0 | 1 | 2): void {
   overlaysPanel.style.display = l === 1 ? "block" : "none";
   recomputeTrace(); // the joint-trace intersection is cluster-wise under the observer
   // the contracted graph is a different partition under a different lens:
-  // re-frame it, and drop a selection that named a vertex of the old one
+  // drop a selection that named a vertex of the old one
   if (collapsed) {
     if (selection?.kind === "cluster") { selection = null; highlight = null; }
+    if (before) {
+      const tr: ClusterTransition = {
+        t: 0,
+        fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+      };
+      clusterTrans = tr;
+      anim.add(900, (t) => { tr.t = t; }, {
+        done: () => { if (clusterTrans === tr) clusterTrans = null; },
+      });
+      kick();
+    }
     flyTo(clusterLayout().bounds);
   }
   draw();

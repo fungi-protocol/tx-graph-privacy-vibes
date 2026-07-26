@@ -175,10 +175,14 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
 /**
  * Draw the contraction morph: t = 0 is the current graph drawing (whatever
  * mix of block and bipartite the morph phase shows), t = 1 the contracted
- * cluster graph — one dimension flattened, the helix seen end-on. Coin
- * vertices glide into their cluster's disc and fade; transfer edges fade in.
- * `hover` names a vertex under the pointer: its edges and neighbors hold
- * full strength while the rest of the drawing recedes.
+ * cluster graph — one dimension flattened, the helix seen end-on. With a
+ * `ring` (the singleton layout) the morph passes THROUGH the bottom of the
+ * refinement lattice: each coin first flies to its own slot on the time
+ * ring — the layered timeline wrapping around the circle — and only then
+ * stacks into its cluster's disc; expanding unstacks first. Transfer edges
+ * fade in with the discs. `hover` names a vertex under the pointer: its
+ * edges and neighbors hold full strength while the rest of the drawing
+ * recedes.
  */
 export function drawContraction(
   ctx: CanvasRenderingContext2D,
@@ -192,8 +196,13 @@ export function drawContraction(
   paint: ClusterPaint,
   trans?: ClusterTransition,
   hover?: CoinId,
+  ring?: ClusterLayout,
 ): void {
   const transT = trans ? trans.t : 1;
+  // with a ring waypoint the disc-side of the morph compresses into the
+  // second leg: nothing stacks until the coins have reached the ring
+  const RING_PHASE = 0.55;
+  const discT = ring ? Math.max(0, (t - RING_PHASE) / (1 - RING_PHASE)) : t;
   const nodeOf = (id: CoinId): ClusterNode => clay.nodes.get(cl.rep.get(id)!)!;
   const hov = hover !== undefined && clay.nodes.has(hover) ? hover : undefined;
   const neighbors = new Set<CoinId>();
@@ -213,7 +222,7 @@ export function drawContraction(
   // residual transfer edges (one per tx output whose source differs);
   // during a repartition tween they fade in with the settling discs
   ctx.save();
-  ctx.globalAlpha = Math.max(0, t * 0.75) * (0.25 + 0.75 * transT);
+  ctx.globalAlpha = Math.max(0, discT * 0.75) * (0.25 + 0.75 * transT);
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
     const from = nodeOf(tx.inputs[0]!);
@@ -229,22 +238,45 @@ export function drawContraction(
   }
   ctx.restore();
 
-  // coins gliding into their cluster's disc
+  // coins gliding into their cluster's disc — with a ring, via their own
+  // slot on it: fly to the timeline-on-a-circle first, stack second
   if (t < 0.98) {
     ctx.save();
-    ctx.globalAlpha = 1 - t;
     for (const coin of chain.coins.values()) {
       const from = coinRectAt(block, bip, coin.id, morphT)!;
       const node = nodeOf(coin.id);
-      const x = from.x + (node.x - (from.x + from.w / 2)) * t;
-      const y = from.y + (node.y - (from.y + from.h / 2)) * t;
-      const w = from.w * (1 - 0.8 * t), h = from.h * (1 - 0.8 * t);
+      const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
+      const slot = ring?.nodes.get(coin.id);
+      let cx: number, cy: number, k: number, alpha: number;
+      if (slot) {
+        if (t < RING_PHASE) {
+          const s = t / RING_PHASE;
+          cx = cx0 + (slot.x - cx0) * s;
+          cy = cy0 + (slot.y - cy0) * s;
+          k = 1 - 0.5 * s;
+          alpha = 1;
+        } else {
+          const s = discT;
+          cx = slot.x + (node.x - slot.x) * s;
+          cy = slot.y + (node.y - slot.y) * s;
+          k = 0.5 - 0.3 * s;
+          alpha = 1 - s;
+        }
+      } else {
+        cx = cx0 + (node.x - cx0) * t;
+        cy = cy0 + (node.y - cy0) * t;
+        k = 1 - 0.8 * t;
+        alpha = 1 - t;
+      }
+      const w = from.w * k, h = from.h * k;
+      ctx.globalAlpha = alpha;
       ctx.beginPath();
-      ctx.roundRect(x, y, w, h, 12);
+      ctx.roundRect(cx - w / 2, cy - h / 2, w, h, 12);
       ctx.fillStyle = paint.color(coin.id);
       ctx.fill();
     }
     // tx squares fade toward the midpoint of their transfer
+    ctx.globalAlpha = 1 - t;
     for (const tid of chain.order) {
       const tx = chain.txs.get(tid)!;
       const from = txRectAt(block, bip, tid, morphT)!;
@@ -293,8 +325,9 @@ export function drawContraction(
   for (const node of clay.nodes.values()) {
     const focus =
       hov === undefined || node.rep === hov || neighbors.has(node.rep) ? 1 : 0.3;
-    ctx.globalAlpha = Math.min(1, 0.25 + 0.75 * t) * focus;
-    const r = node.r * (0.4 + 0.6 * t);
+    ctx.globalAlpha = (ring ? discT : Math.min(1, 0.25 + 0.75 * t)) * focus;
+    if (ctx.globalAlpha <= 0) continue;
+    const r = node.r * (0.4 + 0.6 * discT);
     const slices = paint.slices(node.rep);
     const frags = transT < 1 ? trans!.fragments.get(node.rep) : undefined;
     if (frags && frags.length > 0) {
@@ -308,8 +341,8 @@ export function drawContraction(
       disc(node.x, node.y, r, slices);
     }
     const label = paint.label(node.rep);
-    if (t > 0.6 && transT > 0.6 && label) {
-      ctx.globalAlpha = ((t - 0.6) / 0.4) * ((transT - 0.6) / 0.4) * focus;
+    if (discT > 0.6 && transT > 0.6 && label) {
+      ctx.globalAlpha = ((discT - 0.6) / 0.4) * ((transT - 0.6) / 0.4) * focus;
       const total = cl.members.get(node.rep)!
         .map((id) => chain.coins.get(id)!)
         .filter((c) => c.dest === null)
