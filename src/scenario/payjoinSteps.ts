@@ -98,6 +98,7 @@ export function payjoinSteps(
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 0,
+      grants: [0, 0], // the observer chapter's KYC demo ends with it
       scene: 1,
       minDay: 35,
       select: selectIt,

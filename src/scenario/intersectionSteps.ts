@@ -17,6 +17,14 @@
 // leg, never as a CIOH source — accuracy/035's trap note). What stays
 // unmodelable is WHICH assumption is true of a given adversary, not
 // what follows from it.
+//
+// The exchange's KYC records were introduced back in the observer
+// chapter; what this chapter introduces is the random-leaks slider —
+// deliberately AFTER ambiguity and the heuristics' first errors, because
+// its pedagogical point is the phase transition: a surprisingly small
+// leaked fraction town-wide crosses a critical threshold and tips the
+// map into widespread loss of privacy (the synthesis chapter runs the
+// experiment on the propagation machinery).
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type AuxDecay } from "../analysis/auxinfo";
 
@@ -154,35 +162,35 @@ export function intersectionSteps(
     {
       id: "the-adversarys-hand",
       title: "The adversary's hand, as a dial",
-      html: `<p>That supposition is now a control you can hold. This town
-        buys its bitcoin somewhere: Carol withdrew hers from an
-        <b>exchange</b>, some of the town's income arrives through one,
-        and some purchases are deposits back into one. Nothing on the
-        record marks any of that — but the exchange's <b>private books</b>
-        tie each of those coins to a verified customer. The heuristics
-        panel now has an <b>auxiliary information</b> section: checking
-        <i>exchange records (KYC)</i> hands this observer those books,
-        and the named coins land on the map as <b>disclosed</b> knowledge
-        — watch the captions. Names compound exactly like a
-        counterparty's fixed points: a cluster holding a named coin takes
-        the name, unless its grants disagree — then the observer knows
-        one of its own welds is a lie, and the cluster earns no name at
-        all.</p>
-        <p>The <i>random leaks</i> slider is a <b>separate</b> source —
-        it does not adjust the exchange's records. It leaks the observer
-        a random fraction of <b>all</b> coins, truly labeled — subpoenas,
-        trackers, careless payees, whatever the story of each leak. At
-        its minimum this is the plain observer you have watched all
-        along; at its maximum it is the all-seeing lens —
-        <b>omniscience is not a different observer, just this dial
-        turned to the top</b>. The two sources <b>combine</b>: with the
-        KYC box checked, the exchange's coins stay a floor of certain
-        knowledge under whatever the slider leaks on top.</p>`,
+      html: `<p>That supposition is now a control you can hold. You met
+        the exchange's books in the third chapter — the KYC box is
+        checked again, and its named coins are back on the map as
+        <b>disclosed</b> knowledge. New beside it is the <i>random
+        leaks</i> slider, a <b>separate</b> source that does not adjust
+        the records: it leaks the observer a random fraction of
+        <b>all</b> coins, truly labeled — subpoenas, trackers, careless
+        payees, whatever the story of each leak. At its minimum this is
+        the plain observer you have watched all along; at its maximum it
+        is the all-seeing lens — <b>omniscience is not a different
+        observer, just this dial turned to the top</b>. The two sources
+        <b>combine</b>: the exchange's coins stay a floor of certain
+        knowledge under whatever the slider leaks on top.</p>
+        <p>Why hand you this dial <b>now</b>, after the guesses started
+        missing and the coinjoins made pasts ambiguous? Because of what
+        the previous step showed at the scale of one name. Leaks do not
+        add up — they <b>compound</b>: each named coin seeds the welds
+        around it, and past a <b>critical threshold</b> the seeds start
+        creating each other. Drag the slider slowly and watch for it: a
+        surprisingly <b>small</b> fraction of coins leaked town-wide is
+        enough to tip the map from mostly-pseudonymous into a
+        <b>widespread loss of privacy</b> — a phase transition, not a
+        slope. A later chapter runs that experiment deliberately.</p>`,
       focus: at(tracedCoin),
       select: sel("coin", tracedCoin),
       view: 1,
       lens: 1,
       grants: [1, 0],
+      reveals: ["aux"], // "drag the slider slowly" — it must be visible
       scene: 1,
       minDay: 115,
     },

@@ -1,14 +1,20 @@
 // Chapter 3: the third-party observer — the bare public record first,
 // then each linkage switched on in turn: address reuse (the most basic
 // clustering, inference-free, live in this town because Carol reuses;
-// everyone else's fresh addresses keep the floor framing honest), CIOH,
-// two-step change identification (identify the payment outputs first,
-// then suspect the sole remainder; several remainders read as a batch
-// payment and the observer abstains) with its real-world family of
-// tells and the configurable evidence bar, cluster contraction, and
-// the pseudonym graph. The Scroll #2/#3 arc: familiar heuristics
-// first, then the honest caveat that attacks always get better, then
-// the observer's real product — a social graph.
+// everyone else's fresh addresses keep the floor framing honest), then
+// exchange KYC records named as a kind of observation that can happen
+// (description only — the checkbox waits for the chapter's close), then
+// CIOH, then two-step change identification (identify the payment
+// outputs first, then suspect the sole remainder; several remainders
+// read as a batch payment and the observer abstains) with its
+// real-world family of tells and the configurable evidence bar, cluster
+// contraction, and the pseudonym graph — which the chapter closes by
+// combining with the exchange's records: names seed clusters, welds
+// spread names. The Scroll #2/#3 arc: familiar heuristics first, then
+// the honest caveat that attacks always get better, then the observer's
+// real product — a social graph. The random-leaks slider is deliberately
+// NOT here: it waits for the intersection chapter, after ambiguity and
+// errors, where its phase-transition lesson lands.
 //
 // The change-tell family step follows accuracy/030's constraints: the
 // ordering tell is position-leaks-when-ordering-is-deterministic (with
@@ -70,6 +76,30 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         starts with far more of this free linkage than one careless
         neighbor's. Everything the observer achieves in this story is a
         <b>floor</b>.</p>`,
+      focus: () => pad(bipBounds()),
+      view: 1,
+      lens: 1,
+      overlays: 8,
+      scene: 1,
+      minDay: 21,
+    },
+    {
+      id: "names-from-outside",
+      title: "Names from outside the chain",
+      html: `<p>One more kind of observation before the guessing starts —
+        one that is not an inference either. This town buys its bitcoin
+        somewhere: Carol withdrew hers from an <b>exchange</b>, some of
+        the town's income arrives through one, and some purchases are
+        deposits back into one. Nothing on the record marks any of that
+        — but the exchange keeps <b>private books</b> tying each of
+        those coins to a verified customer, because the law requires it
+        to know them.</p>
+        <p>An observer can simply <b>hold</b> those books — be the
+        exchange, buy from it, subpoena it. Where the record meets them,
+        a coin carries a true name: not a guess, a fact read off a
+        ledger. Keep this card in mind through everything that follows —
+        the guesses come next, and at the end of this chapter you will
+        see what names and guesses do to each other.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
@@ -218,17 +248,25 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       minDay: 21,
     },
     {
-      id: "pseudonyms-not-names",
-      title: "Pseudonyms, not names — yet",
-      html: `<p>What separates this map from a directory of the
-        neighborhood is only the names. One identified point — Carol's
-        exchange withdrawal, an invoice with a name on it, a delivery
-        address — ties a pseudonym to a person, and everything its cluster
-        ever did comes with it. The map is patient — a name learned today
-        applies to everything already on it, and it can be joined with
-        data from outside the chain. The stakes are ordinary ones: rates,
-        salaries, balances, habits, and who deals with whom — read by
-        whoever holds the map.</p>
+      id: "names-meet-the-welds",
+      title: "Names meet the welds",
+      html: `<p>Now play the card from earlier. The heuristics panel has
+        an <b>auxiliary information</b> section, and checking <i>exchange
+        records (KYC)</i> just handed this observer the exchange's books
+        — watch the captions: named coins land on the map as
+        <b>disclosed</b> knowledge.</p>
+        <p>This is where the three observations <b>combine</b>, and the
+        combination is worth more than its parts. The records name a few
+        coins; CIOH and the change guesses built the clusters; and a
+        cluster holding a named coin takes the name — everything the
+        welds gathered, the name now covers. One exchange withdrawal
+        identifies a whole pseudonym's history, rates, salary, and
+        counterparties. The traffic runs the other way too: a
+        <b>wrong</b> weld hands someone's coins to someone else's name —
+        unless two disagreeing names land in one cluster, in which case
+        the observer knows one of its own welds is a lie, and the
+        cluster earns no name at all. The map is patient: a name learned
+        today applies to everything already on it.</p>
         <p>Everything so far assumed each transaction has <b>one
         author</b>. The rest of this story is about what happens when the
         neighborhood breaks that assumption.</p>`,
@@ -236,6 +274,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       view: 2,
       lens: 1,
       overlays: 11,
+      grants: [1, 0],
       scene: 1,
       minDay: 21,
     },

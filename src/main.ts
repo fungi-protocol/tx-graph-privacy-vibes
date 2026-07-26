@@ -1188,7 +1188,7 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
 // stays, even through the remove-one-clue rerun. A step can also unhide
 // a row it only points at (TutorialStep.reveals), and leaving the tour
 // — done or skip — or arriving on a tourless link reveals everything.
-type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "nssoc" | "nsnf" | "aux" | "grading";
+type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "nssoc" | "nsnf" | "kyc" | "aux" | "grading";
 const seenRows = new Set<PanelRow>();
 let allRowsSeen = false;
 function rowsOnNow(): Record<PanelRow, boolean> {
@@ -1200,7 +1200,11 @@ function rowsOnNow(): Record<PanelRow, boolean> {
     subsum: (overlays & OV_SUBSUM) !== 0,
     nssoc: nsSocial,
     nsnf: nfOn,
-    aux: kycObs || auxFrac > 0,
+    // the exchange's records and the random leaks are separate rows so
+    // the tutorial can introduce them chapters apart; a live slider
+    // reveals the section (and its checkbox) even if KYC never ran
+    kyc: kycObs || auxFrac > 0,
+    aux: auxFrac > 0,
     grading: showMistakes,
   };
 }
@@ -1219,7 +1223,8 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     case "subsum": return [byBit(OV_SUBSUM)];
     case "nssoc": return [byId("nssoc")];
     case "nsnf": return [byId("nsnf")];
-    case "aux": return [h3[1] ?? null, byId("kycobs"), document.getElementById("auxfrac")?.closest(".ovslider") ?? null, document.getElementById("auxhint")];
+    case "kyc": return [h3[1] ?? null, byId("kycobs")];
+    case "aux": return [document.getElementById("auxfrac")?.closest(".ovslider") ?? null, document.getElementById("auxhint")];
     case "grading": return [h3[2] ?? null, byId("mistakes")];
   }
 }
@@ -1233,7 +1238,7 @@ function reflectOverlays(): void {
   let anyHeuristic = false;
   for (const k of rowKeys) {
     const show = allRowsSeen || seenRows.has(k) || rowOn[k];
-    if (show && k !== "aux" && k !== "grading") anyHeuristic = true;
+    if (show && k !== "kyc" && k !== "aux" && k !== "grading") anyHeuristic = true;
     for (const el of panelRowEls(k)) {
       if (el) (el as HTMLElement).style.display = show ? "" : "none";
     }
