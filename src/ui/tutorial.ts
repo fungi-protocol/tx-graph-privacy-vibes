@@ -23,6 +23,11 @@ export interface TutorialStep {
    * introduces it switches it on (a jump to any step lands on the same
    * value the walked path would) */
   overlays?: number;
+  /** lens 1: the observer's knowledge grant [1 = KYC records held,
+   * auxiliary reveals as % of coins]; undefined = inherit from the last
+   * step that set it (default none — the plain observer), same rule as
+   * `overlays` so jumps land on the walked path's value */
+  grants?: [number, number];
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
@@ -41,6 +46,8 @@ export interface TutorialCallbacks {
   onLens?: (lens: 0 | 1 | 2, agent?: number) => void;
   /** observer-lens steps set which heuristics run, after lens */
   onOverlays?: (overlays: number) => void;
+  /** observer-lens steps set the knowledge grant, after overlays */
+  onGrants?: (kyc: number, aux: number) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
   /** steps that trace something fire this after lens, before focus */
@@ -105,6 +112,10 @@ export class Tutorial {
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
     if (animate) this.cb.onOverlays?.(this.overlaysAt(this.index));
+    if (animate) {
+      const [kyc, aux] = this.grantsAt(this.index);
+      this.cb.onGrants?.(kyc, aux);
+    }
     if (animate && step.select) {
       const sel = step.select();
       if (sel !== undefined) this.cb.onSelect?.(sel);
@@ -126,6 +137,16 @@ export class Tutorial {
       if (o !== undefined) return o;
     }
     return 3;
+  }
+
+  /** effective knowledge grant at a step, same walked-path rule as
+   *  overlaysAt; before any step declares one, none — the plain observer */
+  private grantsAt(index: number): [number, number] {
+    for (let i = index; i >= 0; i--) {
+      const g = this.steps[i]!.grants;
+      if (g !== undefined) return g;
+    }
+    return [0, 0];
   }
 
   hide(): void {

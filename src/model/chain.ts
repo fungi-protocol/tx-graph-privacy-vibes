@@ -62,6 +62,12 @@ export interface Coin {
   label?: string;          // narrative tag, e.g. "exchange withdrawal"
   /** the day a root entered from outside; undefined = pre-story savings */
   entered?: number;
+  /** the exchange's private books know this coin: a KYC-ed withdrawal
+   *  landed it in an identified customer's wallet, or the customer spent
+   *  it into a KYC-ed deposit. NOT public record — nothing on the graph
+   *  marks it; only an observer holding the exchange's records (the KYC
+   *  observer) may read it, and then only to construct its grant. */
+  kyc?: boolean;
   /** the address this output pays to — public record, like the value.
    *  Assigned retroactively by assignAddresses (a pure walk of the record,
    *  so the seeded streams that shape the town never move); undefined only

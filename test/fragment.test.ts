@@ -35,6 +35,17 @@ test("observer heuristics bitmask round-trips and is clamped", async () => {
   assert.equal(neg.ov, 0);
 });
 
+test("knowledge grant round-trips and is clamped", async () => {
+  const full = { seed: "welcome", l: 1, ai: [1, 40] as [number, number] };
+  assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+  const craft = (state: unknown): Promise<unknown> =>
+    encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
+  const wild = await craft({ seed: "ok", ai: [9, 999] }) as Record<string, unknown>;
+  assert.deepEqual(wild.ai, [1, 100]);
+  const junk = await craft({ seed: "ok", ai: ["kyc", 40] }) as Record<string, unknown>;
+  assert.equal(junk.ai, undefined);
+});
+
 test("missing fragment decodes to null", async () => {
   assert.equal(await decodeFragment(""), null);
   assert.equal(await decodeFragment("#other=1"), null);

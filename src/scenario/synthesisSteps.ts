@@ -413,8 +413,36 @@ export function synthesisSteps(
       minDay: 115,
     },
     {
+      id: "feed-it-names",
+      title: "Feed it names",
+      html: `<p>The sweep you watched was seeded with a few identities.
+        The <b>auxiliary information</b> dial on the heuristics panel
+        lets you deal the observer a bigger hand and rerun the whole
+        machine yourself: every revealed coin names its cluster, clusters
+        named alike fuse into one vertex — the map you see now carries a
+        modest grant — and the propagation heuristics run <b>on the fused
+        map</b>, so every name is a seed.</p>
+        <p>Try it: check <i>social-network analysis</i>, then drag
+        <i>revealed</i> and watch the match counter. Narayanan and
+        Shmatikov observed a <b>phase transition</b> in exactly this
+        machine: below a critical seed density the propagation stalls —
+        matches trickle and die out — while past it each match creates
+        the neighbors that justify the next, and the sweep <b>cascades</b>
+        across the board. The frightening property is on the steep side
+        of that boundary: there, a marginal name is worth far more than
+        one name's information, because the graph pays the rest.</p>`,
+      focus: () => pad(clusterBounds()),
+      select: () => null,
+      view: 2,
+      lens: 1,
+      grants: [0, 12],
+      scene: 1,
+      minDay: 115,
+    },
+    {
       id: "the-public-analyst",
       title: "Card one: the public analyst",
+      grants: [0, 0], // the cards argue from capability, not a dealt hand
       html: `<p>Now name who actually holds each level of power — three
         cards, weakest first. The first is the observer you have watched
         all along: the <b>full chain</b>, commodity computation, every
@@ -486,7 +514,10 @@ export function synthesisSteps(
         <b>seed count</b>. The sweep you watched ran on a handful of
         seeds and stalled; the propagation paper's own experiments make
         the number of seeds the variable that separates stalling from
-        cascading. Tier three holds exactly that variable.</p>`,
+        cascading. Tier three holds exactly that variable — the
+        <b>auxiliary information</b> dial you just turned is this card
+        in miniature: the KYC box is one exchange's feed, the slider is
+        the sum of all of them.</p>`,
       focus: () => pad(bipBounds()),
       select: () => null,
       view: 1,

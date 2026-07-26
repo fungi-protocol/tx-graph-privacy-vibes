@@ -214,6 +214,7 @@ export class Economy {
       this.arrivals.set(arrives, due);
     });
     this.chain.assignAddresses(this.reusers());
+    this.routeExchange();
   }
 
   /** who hands out one address for everything — a profile trait, read by
@@ -222,6 +223,38 @@ export class Economy {
     const out = new Set<number>();
     this.cast.forEach((p, u) => { if (p.reuses) out.add(u); });
     return out;
+  }
+
+  /**
+   * Exchange use, routed retroactively: some money enters town as a KYC-ed
+   * exchange withdrawal, and some external purchases are really deposits
+   * at the exchange's counter. Each flow's routing is a pure function of
+   * the seed and the flow's own id (a dedicated stream per id), so the
+   * seeded streams that shape the town never move and recorded economies
+   * replay bit-identically. A withdrawal marks the received coin; a
+   * deposit marks the coins the customer sent (the spent inputs) — the
+   * two flows the steer names, and exactly what the exchange's books can
+   * testify to. On the graph nothing changes: no exchange entity, just
+   * external payments and receives.
+   */
+  private routeExchange(): void {
+    for (const c of this.chain.coins.values()) {
+      if (c.producer !== null || c.kyc !== undefined) continue;
+      // pre-story savings never touched the exchange's counter — except
+      // Carol's, whose identified withdrawal is the story's baseline
+      if (c.label === "exchange withdrawal") { c.kyc = true; continue; }
+      if (c.entered === undefined) { c.kyc = false; continue; }
+      c.kyc = new Rng(`${this.seed}/kyc/${c.id}`).next() < 0.2;
+      if (c.kyc) c.label = `${c.label ?? "outside income"} — via exchange`;
+    }
+    for (const ev of this.events) {
+      if (ev.payee !== null || ev.form !== "unilateral") continue;
+      const tx = this.chain.txs.get(ev.tid);
+      if (!tx) continue;
+      if (new Rng(`${this.seed}/kyc/${ev.tid}`).next() < 0.15) {
+        for (const id of tx.inputs) this.chain.coins.get(id)!.kyc = true;
+      }
+    }
   }
 
   /** the parameters in effect on a given day: the base params with every
@@ -1110,6 +1143,7 @@ export class Economy {
     // the day's new outputs get their addresses — the retroactive script
     // choice, replayed after the fact so no seeded stream ever moves
     this.chain.assignAddresses(this.reusers());
+    this.routeExchange();
     return this.events.slice(before);
   }
 

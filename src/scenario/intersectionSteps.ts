@@ -152,8 +152,43 @@ export function intersectionSteps(
       minDay: 115,
     },
     {
+      id: "the-adversarys-hand",
+      title: "The adversary's hand, as a dial",
+      html: `<p>That supposition is now a control you can hold. This town
+        buys its bitcoin somewhere: Carol withdrew hers from an
+        <b>exchange</b>, some of the town's income arrives through one,
+        and some purchases are deposits back into one. Nothing on the
+        record marks any of that — but the exchange's <b>private books</b>
+        tie each of those coins to a verified customer. The heuristics
+        panel now has an <b>auxiliary information</b> section: checking
+        <i>exchange records (KYC)</i> hands this observer those books,
+        and the named coins land on the map as <b>disclosed</b> knowledge
+        — watch the captions. Names compound exactly like a
+        counterparty's fixed points: a cluster holding a named coin takes
+        the name, unless its grants disagree — then the observer knows
+        one of its own welds is a lie, and the cluster earns no name at
+        all.</p>
+        <p>The <i>revealed</i> slider generalizes the supposition: it
+        grants the observer a random fraction of all coins, truly
+        labeled — subpoenas, trackers, leaks, whatever the story of the
+        reveal. At its minimum this is the plain observer you have
+        watched all along; at its maximum it is the all-seeing lens —
+        <b>omniscience is not a different observer, just this dial
+        turned to the top</b>. With the KYC box checked, the exchange's
+        coins stay a floor of certain knowledge under whatever the
+        slider adds.</p>`,
+      focus: at(tracedCoin),
+      select: sel("coin", tracedCoin),
+      view: 1,
+      lens: 1,
+      grants: [1, 0],
+      scene: 1,
+      minDay: 115,
+    },
+    {
       id: "two-coins-meet",
       title: "Two coins meet",
+      grants: [0, 0], // the dial returns to the plain observer
       html: `<p>Then somebody spends two coinjoined coins <b>in one
         transaction</b> — coins whose pasts run through different
         sessions. The observer traces both together: the union of the two

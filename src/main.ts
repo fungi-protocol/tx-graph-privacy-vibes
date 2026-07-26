@@ -13,7 +13,7 @@ import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
-import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
+import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
 import { layoutClusterGraph, layoutClusterColumns, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
@@ -22,7 +22,7 @@ import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, t
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
-import { auxInfoDecay, type AuxDecay } from "./analysis/auxinfo";
+import { auxInfoDecay, observerGrants, grantAttribution, grantMerges, clusterGrantOwners, type AuxDecay } from "./analysis/auxinfo";
 import { synthesisSteps, claimExhibit, rentForms, counterpartyExhibit, type ClaimExhibit, type SweepView } from "./scenario/synthesisSteps";
 import { synthesisSweepExhibit, clusterOwner, outsiderEdges } from "./scenario/synthesisStaging";
 import { gameSteps } from "./scenario/gameSteps";
@@ -250,6 +250,54 @@ function clustering(): Clustering {
   return clCache.cl;
 }
 
+// --- the observer's knowledge grant (#67): auxiliary information as a
+// slider — a seeded fraction of coins revealed with their true labels —
+// with the exchange's KYC records as an optional floor of specific
+// coins underneath. The slider's minimum is the plain observer, its
+// maximum is omniscience; the KYC box clamps its floor either way. The
+// grant is DISCLOSED knowledge: truth enters only as the granted set,
+// and everything downstream (attribution, fusion, the propagation
+// sweeps seeded by it) runs blind on the public graph.
+let kycObs = false;
+let auxFrac = 0;
+function grantsOn(): boolean {
+  return kycObs || auxFrac > 0;
+}
+let grantCache: {
+  rev: number; kx: boolean; ax: number;
+  attr: Map<string, Attribution>;
+  /** attributed base-cluster representatives → the one owner their
+   *  grants name (conflicted clusters are absent: the observer knows
+   *  one of those welds is a lie, so the vertex earns no name) */
+  owners: Map<string, number | null>;
+  fused: Clustering;
+} | null = null;
+function grantState(): NonNullable<typeof grantCache> {
+  if (!grantCache || grantCache.rev !== simRev ||
+      grantCache.kx !== kycObs || grantCache.ax !== auxFrac) {
+    const g = observerGrants(active().chain, session.seed, auxFrac, kycObs);
+    const base = clustering();
+    grantCache = {
+      rev: simRev, kx: kycObs, ax: auxFrac,
+      attr: grantAttribution(g, base),
+      owners: clusterGrantOwners(g, base),
+      fused: nsApply(base, grantMerges(g, base)),
+    };
+  }
+  return grantCache;
+}
+/** the observer's map with the grant compounded in: attributed clusters
+ *  of one owner fused into one vertex — the base every matcher (and the
+ *  contracted view) reads, so a sweep run on it is a sweep seeded by
+ *  the grant */
+function observerBase(): Clustering {
+  return grantsOn() ? grantState().fused : clustering();
+}
+/** cache signature of the grant; "" = none in force */
+function grantSig(): string {
+  return grantsOn() ? `${kycObs ? 1 : 0}|${auxFrac}` : "";
+}
+
 // --- ns-social (#59): Narayanan–Shmatikov propagation over the cluster
 // graph. A layer ON TOP of the observer's map: the base heuristics weld
 // coins into clusters, this matches clusters to each other by graph
@@ -271,7 +319,7 @@ let nsPlayTimer: number | null = null;
 let nsSecond: string | null = null;
 let nsRunCache: { rev: number; th: number; parts: number; base: Clustering; events: NsEvent[] } | null = null;
 function nsRun(): NsEvent[] {
-  const base = clustering();
+  const base = observerBase();
   if (!nsRunCache || nsRunCache.rev !== simRev || nsRunCache.th !== nsThreshold ||
       nsRunCache.parts !== nsParts || nsRunCache.base !== base) {
     nsRunCache = {
@@ -287,7 +335,7 @@ function nsRun(): NsEvent[] {
  *  base map no longer has — drop out silently) */
 function nsEvents(): NsEvent[] {
   const run = nsRun();
-  const base = clustering();
+  const base = observerBase();
   const live = nsManual.filter((e) => base.members.has(e.a) && base.members.has(e.b));
   return [...run.slice(0, Math.min(nsCursor, run.length)), ...live];
 }
@@ -327,14 +375,14 @@ function nfActive(): boolean {
 /** the clustering the behavioral matcher reads: the observer's welds,
  *  with any ns-social matches already fused */
 function nfBase(): Clustering {
-  const base = clustering();
+  const base = observerBase();
   return nsActive() ? nsApply(base, nsEvents()) : base;
 }
 function nfRun(): NfEvent[] {
   if (!nfRunCache || nfRunCache.rev !== simRev || nfRunCache.th !== nfThreshold ||
-      nfRunCache.ns !== nsSig()) {
+      nfRunCache.ns !== `${grantSig()}§${nsSig()}`) {
     nfRunCache = {
-      rev: simRev, th: nfThreshold, ns: nsSig(),
+      rev: simRev, th: nfThreshold, ns: `${grantSig()}§${nsSig()}`,
       events: runNetflix(nfBase(), active().chain, nfThreshold),
     };
     nfCursor = Math.min(nfCursor, nfRunCache.events.length);
@@ -364,9 +412,9 @@ function nsSig(): string {
     ? `${nsThreshold}|${nsParts}|${nsCursor}|${nsManual.map((e) => `${e.a}+${e.b}`).join(",")}`
     : "";
 }
-/** combined overlay-matching signature (ns-social + ns-netflix) */
+/** combined overlay-matching signature (grant + ns-social + ns-netflix) */
 function matchSig(): string {
-  return `${nsSig()}§${nfActive() ? `${nfThreshold}|${nfCursor}` : ""}`;
+  return `${grantSig()}§${nsSig()}§${nfActive() ? `${nfThreshold}|${nfCursor}` : ""}`;
 }
 function lensClustering(): Clustering {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
@@ -376,7 +424,7 @@ function lensClustering(): Clustering {
     const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
-      : clustering();
+      : observerBase();
     // the ns-social matches sit on top of the observer's welds, and the
     // behavioral (ns-netflix) matches fuse on top of both — the same
     // fusion, composed: matched clusters become one vertex at each
@@ -457,10 +505,30 @@ function lensClusterPaint(): ClusterPaint {
       },
     };
   }
+  // the observer's contracted map: granted names caption the vertices
+  // they attribute. Only unanimous grants name a vertex — a cluster
+  // whose grants conflict exposes one of its welds as a lie and earns
+  // no name, however many of its coins are individually disclosed.
+  const gs = grantsOn() ? grantState() : null;
   return {
     ...base,
-    label: (rep) => clusterLabel(cl, rep),
-    center: (rep) => (clusterLabel(cl, rep) ? String(cl.rank.get(rep)) : ""),
+    label: (rep) => {
+      if (gs?.owners.has(rep)) {
+        const o = gs.owners.get(rep)!;
+        // "disclosed" only when every member coin was granted outright;
+        // any propagation over the map's own welds keeps it "likely"
+        const all = (cl.members.get(rep) ?? [rep]).every((id) => gs.attr.get(id)?.direct);
+        return `${o === null ? "outside town" : castList()[o]!.name} · ${all ? "disclosed" : "likely"}`;
+      }
+      return clusterLabel(cl, rep);
+    },
+    center: (rep) => {
+      if (gs?.owners.has(rep)) {
+        const o = gs.owners.get(rep)!;
+        return o === null ? "~" : castList()[o]!.name[0]!;
+      }
+      return clusterLabel(cl, rep) ? String(cl.rank.get(rep)) : "";
+    },
     // grade the apparent cluster against the town's truth: the largest
     // same-owner subset is what the observer got right; everything else
     // in the disc is error, and what that owner holds elsewhere is what
@@ -489,10 +557,21 @@ function lensClusterPaint(): ClusterPaint {
 }
 function observerPaint(): Paint {
   const cl = clustering();
+  // grant attribution rides on top of the map: a granted coin is
+  // disclosed truth, a coin colored through its cluster is the grant
+  // compounding over a weld — which can be wrong, so it says "likely"
+  const attr = grantsOn() ? grantState().attr : null;
+  const nameOf = (o: number | null): string => (o === null ? "outside town" : castList()[o]!.name);
   return {
-    coinFill: (c) => clusterColor(cl, c.id),
+    coinFill: (c) => {
+      const a = attr?.get(c.id);
+      return a ? (a.owner === null ? "#e8e5da" : ownerColor(a.owner)) : clusterColor(cl, c.id);
+    },
     coinText: () => "#111",
-    coinCaption: (c) => clusterLabel(cl, c.id),
+    coinCaption: (c) => {
+      const a = attr?.get(c.id);
+      return a ? `${nameOf(a.owner)} · ${a.direct ? "disclosed" : "likely"}` : clusterLabel(cl, c.id);
+    },
     txMemo: () => null,
     txAttribution: (t, ch) => {
       const fill = commonInputFill(ch, t, (c) => clusterColor(cl, c.id));
@@ -1012,6 +1091,12 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     <div id="nsnfstats"></div>
     <div class="nshint">real wallets also differ in script types, nLockTime defaults and signature grinding — named here, not simulated</div>
   </div>
+  <h3>auxiliary information</h3>
+  <label title="the exchange's private books: a coin withdrawn by an identified customer, or spent into an identified deposit, carries a true name. Nothing on the graph marks these — this observer simply holds the records, and the named coins become a floor of certain knowledge under whatever the slider grants"><input type="checkbox" id="kycobs"> exchange records (KYC)</label>
+  <div class="ovslider" title="suppose some fraction of all coins were revealed with their true owners — subpoenas, trackers, counterparties, leaks. The slider's minimum is the plain observer; its maximum is omniscience — the all-seeing lens is just this slider pushed to the top. Each notch adds reveals without retracting any, and every reveal seeds the map: clusters holding a named coin take the name, and same-named clusters fuse"><span>revealed</span>
+    <input type="range" id="auxfrac" min="0" max="100" step="1" value="0">
+    <output id="auxfracv">none</output>
+  </div>
   <h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 // the panel grows with the story: the sub-transaction row stays off the
@@ -1037,6 +1122,10 @@ function reflectOverlays(): void {
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
     ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
+  (document.getElementById("kycobs") as HTMLInputElement).checked = kycObs;
+  (document.getElementById("auxfrac") as HTMLInputElement).value = String(Math.round(auxFrac * 100));
+  (document.getElementById("auxfracv") as HTMLOutputElement).textContent =
+    auxFrac <= 0 ? "none" : auxFrac >= 1 ? "omniscient" : `${Math.round(auxFrac * 100)}%`;
   (document.getElementById("nssoc") as HTMLInputElement).checked = nsSocial;
   (document.getElementById("nssoccontrols") as HTMLElement).style.display = nsSocial ? "block" : "none";
   if (nsSocial) {
@@ -1100,7 +1189,7 @@ function reflectNsProposal(): void {
     return;
   }
   const [a, b] = pair;
-  const cl = clustering();
+  const cl = observerBase();
   const { comp, membersOf } = matchState(cl, nsEvents());
   if (comp.get(a) === comp.get(b)) {
     box.innerHTML = `<span class="nshint">already one vertex — undo to part them</span>`;
@@ -1159,6 +1248,42 @@ function setOverlays(mask: number): void {
 document.getElementById("ciohmax")!.addEventListener("input", (e) => {
   ciohMax = Number((e.target as HTMLInputElement).value);
   simRev += 1; // the observer's map changes
+  reflectOverlays();
+  recomputeTrace();
+  draw();
+  syncFragmentSoon();
+});
+// --- the knowledge-grant controls. The KYC toggle repartitions the
+// contracted map with the same tween as a heuristic toggle; the slider
+// re-runs live per notch, so dragging shows names landing and clusters
+// fusing as the grant grows.
+function setGrants(kx: boolean, ax: number): void {
+  const before = collapsed && collapseT > 0.9 && collapseCache
+    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  kycObs = kx;
+  auxFrac = ax;
+  reflectOverlays();
+  if (before) {
+    const tr: ClusterTransition = {
+      t: 0,
+      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+    };
+    clusterTrans = tr;
+    anim.add(900, (t) => { tr.t = t; }, {
+      done: () => { if (clusterTrans === tr) clusterTrans = null; },
+    });
+    flyTo(clusterLayout().bounds);
+    kick();
+  }
+  recomputeTrace();
+  draw();
+  void syncFragment();
+}
+document.getElementById("kycobs")!.addEventListener("change", (e) => {
+  setGrants((e.target as HTMLInputElement).checked, auxFrac);
+});
+document.getElementById("auxfrac")!.addEventListener("input", (e) => {
+  auxFrac = Number((e.target as HTMLInputElement).value) / 100;
   reflectOverlays();
   recomputeTrace();
   draw();
@@ -2121,6 +2246,7 @@ const tutorial = new Tutorial(steps, {
   onSkip: () => {
     setScene(1, eco ? economy().day : 0);
     setOverlays(OV_ALL);
+    if (grantsOn()) setGrants(false, 0); // the dial is the player's to turn
     readableHandoff();
   },
   onStepChange: () => {
@@ -2143,6 +2269,9 @@ const tutorial = new Tutorial(steps, {
   },
   onOverlays: (ov) => {
     if (ov !== overlays) setOverlays(ov);
+  },
+  onGrants: (kyc, aux) => {
+    if ((kyc === 1) !== kycObs || aux / 100 !== auxFrac) setGrants(kyc === 1, aux / 100);
   },
   onScene: (s, minDay) => setScene(s, minDay, true),
   onSelect: (sel) => {
@@ -2361,6 +2490,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
   if (lens === 1 && ciohMax < CIOH_MAX_OFF) state.cm = ciohMax;
+  if (lens === 1 && grantsOn()) state.ai = [kycObs ? 1 : 0, Math.round(auxFrac * 100)];
   if (lens === 1 && showMistakes) state.mi = 1;
   if (lens === 1 && nsSocial) {
     state.ns = [1, Math.round(nsThreshold * 100), nsParts, Math.min(nsCursor, nsRun().length)];
@@ -2538,6 +2668,11 @@ async function init(): Promise<void> {
   }
   if (state?.mi === 1) {
     showMistakes = true;
+    reflectOverlays();
+  }
+  if (state?.ai !== undefined) {
+    kycObs = state.ai[0] === 1;
+    auxFrac = state.ai[1] / 100;
     reflectOverlays();
   }
   if (state?.ns !== undefined && state.ns[0] === 1) {

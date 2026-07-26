@@ -53,6 +53,10 @@ export interface FragmentState {
   ov?: number;
   /** lens 1 only: CIOH max-inputs cap (absent = no cap) */
   cm?: number;
+  /** lens 1 only: the observer's knowledge grant [1 = holds the
+   *  exchange's KYC records, auxiliary-information reveals as a % of
+   *  all coins (0 = the plain observer, 100 = omniscience)] */
+  ai?: [number, number];
   /** lens 1 only: 1 = grade the observer's welds, flagging wrong inferences */
   mi?: number;
   /** graph-view layout: 0 = layered left-to-right (default), 1 = force-directed */
@@ -213,6 +217,10 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (ov !== undefined) out.ov = ov;
   const cm = num(r.cm, 2, 64, true);
   if (cm !== undefined) out.cm = cm;
+  if (Array.isArray(r.ai)) {
+    const kx = num(r.ai[0], 0, 1, true), ax = num(r.ai[1], 0, 100, true);
+    if (kx !== undefined && ax !== undefined) out.ai = [kx, ax];
+  }
   const mi = num(r.mi, 0, 1, true);
   if (mi !== undefined) out.mi = mi;
   const fd = num(r.fd, 0, 1, true);
