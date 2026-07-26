@@ -139,3 +139,20 @@ test("ns-social state round-trips; hostile entries clamp or drop", async () => {
   assert.deepEqual(hostile?.ns, [1, 101, 4, 0]);
   assert.deepEqual(hostile?.nm, [["ok", "also", 1000, 1]]);
 });
+
+test("ns-netflix state round-trips; hostile entries clamp", async () => {
+  const fragment = await encodeFragment({
+    seed: "welcome",
+    nf: [1, 75, 3],
+  });
+  const state = await decodeFragment(fragment);
+  assert.deepEqual(state, { seed: "welcome", nf: [1, 75, 3] });
+
+  const hostile = sanitize({
+    seed: "x",
+    nf: [1, 5000, -3], // clamped into slider/cursor bounds
+  });
+  assert.deepEqual(hostile?.nf, [1, 101, 0]);
+  // a malformed tuple drops rather than half-applies
+  assert.equal(sanitize({ seed: "x", nf: [1, "no"] })?.nf, undefined);
+});

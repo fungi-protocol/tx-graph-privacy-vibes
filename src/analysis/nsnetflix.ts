@@ -179,14 +179,22 @@ export function nfSimilarity(a: NfStats, b: NfStats): number {
   return n === 0 ? 0 : sum / n;
 }
 
+/** matching needs a record to match: a cluster with fewer spends than
+ *  this carries only one-hot vectors, and two one-hots in the same
+ *  bucket read as a perfect cosine — coincidence, not behavior */
+export const NF_MIN_SPENDS = 2;
+
 /**
- * The greedy run: score every unordered pair, rank best-first, and unify
- * down the ranking — each vertex matched at most once, never revisited.
+ * The greedy run: score every unordered pair of clusters with
+ * substantive records (≥ NF_MIN_SPENDS spends each — the paper's
+ * robustness requirement, simplified), rank best-first, and unify down
+ * the ranking — each vertex matched at most once, never revisited.
  * A threshold above cosine's ceiling admits nothing (view-only mode).
  */
 export function nfRun(cl: Clustering, chain: Chain, threshold: number): NfEvent[] {
   const stats = nfStats(cl, chain);
-  const reps = [...cl.members.keys()].sort();
+  const reps = [...cl.members.keys()].sort()
+    .filter((r) => stats.get(r)!.spends >= NF_MIN_SPENDS);
   const scored: NfEvent[] = [];
   for (let i = 0; i < reps.length - 1; i++) {
     for (let j = i + 1; j < reps.length; j++) {

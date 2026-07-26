@@ -15,6 +15,7 @@ import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
+import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
 import { layoutClusterGraph, layoutClusterColumns, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
@@ -288,6 +289,43 @@ function nsLanes(base: Clustering, applied: Clustering): Map<string, number[]> {
   return out;
 }
 
+// The ns-netflix rendition: statistical de-anonymization on top of the
+// same map — clusters matched by how they behave (amounts, timing,
+// feerates absolute and relative), not whom they touch. Greedy playback:
+// best score first, no vertex revisited. The checkbox controls both
+// application and view; the threshold's maximum admits nothing.
+let nfOn = false;
+let nfThreshold = 0.65;
+let nfCursor = 0;
+let nfPlaying = false;
+let nfPlayTimer: number | null = null;
+let nfRunCache: { rev: number; th: number; ns: string; events: NfEvent[] } | null = null;
+function nfActive(): boolean {
+  return nfOn && lens === 1 && !unclustered;
+}
+/** the clustering the behavioral matcher reads: the observer's welds,
+ *  with any ns-social matches already fused */
+function nfBase(): Clustering {
+  const base = clustering();
+  return nsActive() ? nsApply(base, nsEvents()) : base;
+}
+function nfRun(): NfEvent[] {
+  if (!nfRunCache || nfRunCache.rev !== simRev || nfRunCache.th !== nfThreshold ||
+      nfRunCache.ns !== nsSig()) {
+    nfRunCache = {
+      rev: simRev, th: nfThreshold, ns: nsSig(),
+      events: runNetflix(nfBase(), active().chain, nfThreshold),
+    };
+    nfCursor = Math.min(nfCursor, nfRunCache.events.length);
+  }
+  return nfRunCache.events;
+}
+/** applied prefix, as merge events the shared fusion understands */
+function nfEvents(): NsEvent[] {
+  return nfRun().slice(0, Math.min(nfCursor, nfRun().length))
+    .map((e) => ({ kind: "merge" as const, a: e.a, b: e.b, score: e.score }));
+}
+
 // The contracted graph is not one fixed flattening: the partition — and
 // with it the layout — follows the active lens. All-seeing contracts to
 // the true user graph (every vertex a named wallet); the observer to its
@@ -305,18 +343,25 @@ function nsSig(): string {
     ? `${nsThreshold}|${nsParts}|${nsCursor}|${nsManual.map((e) => `${e.a}+${e.b}`).join(",")}`
     : "";
 }
+/** combined overlay-matching signature (ns-social + ns-netflix) */
+function matchSig(): string {
+  return `${nsSig()}§${nfActive() ? `${nfThreshold}|${nfCursor}` : ""}`;
+}
 function lensClustering(): Clustering {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
   if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens ||
       collapseCache.agent !== agent || collapseCache.un !== unclustered ||
-      collapseCache.fd !== forceLayout || collapseCache.ns !== nsSig()) {
+      collapseCache.fd !== forceLayout || collapseCache.ns !== matchSig()) {
     const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : clustering();
-    // the ns-social matches sit on top of the observer's welds: matched
-    // clusters fuse into one vertex at the current replay position
-    const cl = nsActive() ? nsApply(base, nsEvents()) : base;
+    // the ns-social matches sit on top of the observer's welds, and the
+    // behavioral (ns-netflix) matches fuse on top of both — the same
+    // fusion, composed: matched clusters become one vertex at each
+    // matcher's current replay position
+    const cl0 = nsActive() ? nsApply(base, nsEvents()) : base;
+    const cl = nfActive() ? nsApply(cl0, nfEvents()) : cl0;
     // the layout button generalizes to the ring: layered orders it by
     // time, force reorders it to minimize edge crossings. Under the
     // ns-social partition the circle opens into columns — one vertical
@@ -329,7 +374,7 @@ function lensClustering(): Clustering {
     // it before stacking into discs, and unstack onto it on the way out
     const ring = unclustered ? clay
       : layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode);
-    collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, ns: nsSig(), cl, clay, ring };
+    collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, ns: matchSig(), cl, clay, ring };
   }
   return collapseCache.cl;
 }
@@ -605,7 +650,7 @@ function draw(): void {
     // examination draws bright (the panel holds the verdict); paused
     // mid-replay, the next match the algorithm would accept draws dim —
     // press play or skip to take it
-    const mapEdge = (a: string, b: string, alpha: number): void => {
+    const mapEdge = (a: string, b: string, alpha: number, color = "#edc948"): void => {
       const clay = clusterLayout();
       const na = clay.nodes.get(a), nb = clay.nodes.get(b);
       if (!na || !nb) return;
@@ -615,7 +660,7 @@ function draw(): void {
       ctx.beginPath();
       ctx.moveTo(na.x, na.y);
       ctx.lineTo(nb.x, nb.y);
-      ctx.strokeStyle = "#edc948";
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2.2;
       ctx.stroke();
       ctx.setLineDash([]);
@@ -630,6 +675,17 @@ function draw(): void {
     }
     const pair = nsProposalPair();
     if (pair && collapseT > 0.9) mapEdge(pair[0], pair[1], 1);
+    // ns-netflix proposed links: matches the greedy run scored but the
+    // replay has not yet applied, drawn teal between the clusters they
+    // would fuse — the ranking made visible before it lands
+    if (collapseT > 0.9 && nfActive()) {
+      const cl = lensClustering();
+      for (const e of nfRun().slice(nfCursor)) {
+        const ra = cl.rep.get(e.a) ?? e.a, rb = cl.rep.get(e.b) ?? e.b;
+        if (ra === rb) continue;
+        mapEdge(ra, rb, 0.55, "#76b7b2");
+      }
+    }
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -914,6 +970,21 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     </div>
     <div id="nsproposal"></div>
   </div>
+  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, feerates absolute and relative to the day's prevailing rate — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
+  <div id="nsnfcontrols" style="display:none">
+    <div class="ovslider" title="similarity a pair must clear to be matched (mean cosine over the feature blocks); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
+      <span>threshold</span>
+      <input type="range" id="nsnfth" min="0" max="101" step="1" value="65">
+      <output id="nsnfthv">0.65</output>
+    </div>
+    <div class="nsrow">
+      <button id="nsnfplay" title="animate the greedy run best-match-first — no revisiting, so this is only a way to watch the ranking land">play</button>
+      <button id="nsnfskip" title="jump to where the greedy run terminates">skip</button>
+      <span id="nsnfpos"></span>
+    </div>
+    <div id="nsnfstats"></div>
+    <div class="nshint">real wallets also differ in script types, nLockTime defaults and signature grinding — named here, not simulated</div>
+  </div>
   <h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 // the panel grows with the story: the sub-transaction row stays off the
@@ -954,6 +1025,42 @@ function reflectOverlays(): void {
       `${Math.min(nsCursor, run.length)}/${run.length} · ${matches} match${matches === 1 ? "" : "es"}`;
     reflectNsProposal();
   }
+  (document.getElementById("nsnf") as HTMLInputElement).checked = nfOn;
+  (document.getElementById("nsnfcontrols") as HTMLElement).style.display = nfOn ? "block" : "none";
+  if (nfOn) {
+    (document.getElementById("nsnfth") as HTMLInputElement).value = String(Math.round(nfThreshold * 100));
+    (document.getElementById("nsnfthv") as HTMLOutputElement).textContent =
+      nfThreshold > 1 ? "none" : nfThreshold.toFixed(2);
+    (document.getElementById("nsnfplay") as HTMLButtonElement).textContent = nfPlaying ? "pause" : "play";
+    const run = nfRun();
+    const applied = Math.min(nfCursor, run.length);
+    (document.getElementById("nsnfpos") as HTMLElement).textContent =
+      `${applied}/${run.length} match${run.length === 1 ? "" : "es"}`;
+    reflectNfStats();
+  }
+}
+// relative-rate bucket labels, matching nsnetflix's FEE_REL_EDGES
+const NF_REL_LABELS = ["<0.7×", "0.7–0.85×", "0.85–0.95×", "0.95–1.05×", "1.05–1.2×", "1.2–1.45×", "1.45–2×", "≥2×"];
+/** the selected vertex's behavioral fingerprint, summarized */
+function reflectNfStats(): void {
+  const box = document.getElementById("nsnfstats") as HTMLElement;
+  if (!nfActive() || !collapsed || selection?.kind !== "cluster") {
+    box.innerHTML = nfOn && collapsed
+      ? `<span class="nshint">select a vertex to read its fingerprint</span>` : "";
+    return;
+  }
+  const cl = lensClustering();
+  const rep = cl.members.has(selection.id) ? selection.id : cl.rep.get(selection.id);
+  const st = rep !== undefined ? nfStats(cl, active().chain).get(rep) : undefined;
+  if (!st) {
+    box.innerHTML = "";
+    return;
+  }
+  const relPeak = st.feeRel.indexOf(Math.max(...st.feeRel));
+  const tPeak = st.temporal.indexOf(Math.max(...st.temporal));
+  box.innerHTML = st.spends === 0
+    ? `<span class="nshint">no spends on record — only receipt evidence</span>`
+    : `<span class="nshint">${st.spends} spend${st.spends === 1 ? "" : "s"} · bids ${NF_REL_LABELS[relPeak]} the day's rate · busiest in eighth ${tPeak + 1} of the timeline</span>`;
 }
 /** the paused-mode examination: two selected vertices, their score, and
  *  the decision — accept (it clears the threshold) or force (it does not) */
@@ -1149,6 +1256,63 @@ document.getElementById("nsundo")!.addEventListener("click", () => {
   nsSetPlaying(false);
   if (nsManual.length > 0) withNsRepartition(() => void nsManual.pop());
   else if (nsCursor > 0) withNsRepartition(() => { nsCursor -= 1; });
+});
+
+// --- ns-netflix controls: the same repartition tween; playback is the
+// greedy ranking landing best-first — no undo, matched vertices are
+// never revisited, so there is nothing to go back to
+function setNf(on: boolean): void {
+  if (nfOn === on) return;
+  withNsRepartition(() => {
+    nfOn = on;
+    if (on) nfCursor = nfRun().length; // enabling shows the finished run
+    else nfSetPlaying(false);
+  });
+}
+function nfSetPlaying(on: boolean): void {
+  nfPlaying = on;
+  if (nfPlayTimer !== null) {
+    clearTimeout(nfPlayTimer);
+    nfPlayTimer = null;
+  }
+  if (on) nfPlayTimer = window.setTimeout(nfStep, 100);
+  reflectOverlays();
+}
+function nfStep(): void {
+  nfPlayTimer = null;
+  if (!nfPlaying) return;
+  if (nfCursor >= nfRun().length) {
+    nfSetPlaying(false);
+    return;
+  }
+  withNsRepartition(() => { nfCursor += 1; });
+  nfPlayTimer = window.setTimeout(nfStep, 1100);
+}
+document.getElementById("nsnf")!.addEventListener("change", (e) => {
+  setNf((e.target as HTMLInputElement).checked);
+});
+// dragging the threshold re-runs the greedy matcher live; the cursor
+// stays pinned to the end (skip semantics), and the slider's top is
+// past cosine's ceiling — view-only, no matches applied
+document.getElementById("nsnfth")!.addEventListener("input", (e) => {
+  // read before nfSetPlaying: its reflectOverlays writes the old value back
+  const v = Number((e.target as HTMLInputElement).value);
+  nfSetPlaying(false);
+  withNsRepartition(() => {
+    nfThreshold = v / 100;
+    nfCursor = nfRun().length;
+  });
+});
+document.getElementById("nsnfplay")!.addEventListener("click", () => {
+  if (!nfPlaying && nfCursor >= nfRun().length) {
+    // replay from the top: matches retract, then land best-first
+    withNsRepartition(() => { nfCursor = 0; });
+  }
+  nfSetPlaying(!nfPlaying);
+});
+document.getElementById("nsnfskip")!.addEventListener("click", () => {
+  nfSetPlaying(false);
+  withNsRepartition(() => { nfCursor = nfRun().length; });
 });
 overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
@@ -1416,6 +1580,7 @@ function clearSelection(): void {
   selection = null;
   highlight = null;
   nsSecond = null;
+  if (nfOn) reflectOverlays(); // the fingerprint readout empties
 }
 function recomputeTrace(): void {
   if (!selection) {
@@ -1466,6 +1631,8 @@ function applySelection(hit: Hit): void {
     }
   }
   recomputeTrace();
+  // the fingerprint readout follows the selection
+  if (nfOn) reflectOverlays();
 }
 
 /** hit-test whatever the current view phase shows */
@@ -2087,6 +2254,9 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
         [e.a, e.b, Math.round(e.score * 1000), e.forced ? 1 : 0]);
     }
   }
+  if (lens === 1 && nfOn) {
+    state.nf = [1, Math.round(nfThreshold * 100), Math.min(nfCursor, nfRun().length)];
+  }
   if (forceLayout) state.fd = 1;
   if (scene === 1) {
     state.sc = 1;
@@ -2262,6 +2432,13 @@ async function init(): Promise<void> {
     }
     nsCursor = state.ns[3];
     nsRun(); // clamps the cursor against the actual run length
+    reflectOverlays();
+  }
+  if (state?.nf !== undefined && state.nf[0] === 1) {
+    nfOn = true;
+    nfThreshold = state.nf[1] / 100;
+    nfCursor = state.nf[2];
+    nfRun(); // clamps the cursor against the actual run length
     reflectOverlays();
   }
   if (state?.fd === 1) setForceLayout(true, false);

@@ -62,6 +62,9 @@ export interface FragmentState {
   /** ns-social manual matches, applied after the replay prefix:
    *  [repA, repB, score×1000, 1 = forced below the threshold] */
   nm?: [string, string, number, number][];
+  /** lens 1 only: ns-netflix statistical fingerprinting [1 = on,
+   *  threshold×100, replay cursor (greedy matches applied)] */
+  nf?: [number, number, number];
   /** economy day (scene 1 only) */
   n?: number;
   /** copy-reference: world position clicked + element selector under cursor */
@@ -229,6 +232,13 @@ export function sanitize(raw: unknown): FragmentState | null {
       }
     }
     if (nm.length) out.nm = nm;
+  }
+  if (Array.isArray(r.nf)) {
+    const on = num(r.nf[0], 0, 1, true), th = num(r.nf[1], 0, 101, true);
+    const cur = num(r.nf[2], 0, 10000, true);
+    if (on !== undefined && th !== undefined && cur !== undefined) {
+      out.nf = [on, th, cur];
+    }
   }
   const n = num(r.n, 0, MAX_DAY, true);
   if (n !== undefined) out.n = n;

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
 import { clusterObserver } from "../src/analysis/clusters";
-import { nfStats, nfSimilarity, nfRun, dayMedians, type NfStats } from "../src/analysis/nsnetflix";
+import { nfStats, nfSimilarity, nfRun, dayMedians, NF_MIN_SPENDS, type NfStats } from "../src/analysis/nsnetflix";
 import { nsApply } from "../src/analysis/nssocial";
 
 function golden(days: number) {
@@ -79,6 +79,21 @@ test("ns-netflix: the greedy run is deterministic, ranked, and never revisits", 
     seen.add(e.b);
     assert.ok(e.score >= 0.75);
   }
+});
+
+test("ns-netflix: thin records are never matched — no spends, no fingerprint", () => {
+  // most of the map is unspent singletons whose one-hot amount/temporal
+  // vectors collide by coincidence; the evidence gate keeps them out
+  // even with the threshold at the floor
+  const { eco, cl } = golden(80);
+  const stats = nfStats(cl, eco.chain);
+  const events = nfRun(cl, eco.chain, 0);
+  for (const e of events) {
+    assert.ok(stats.get(e.a)!.spends >= NF_MIN_SPENDS, `${e.a} matched on a thin record`);
+    assert.ok(stats.get(e.b)!.spends >= NF_MIN_SPENDS, `${e.b} matched on a thin record`);
+  }
+  const thin = [...cl.members.keys()].filter((r) => stats.get(r)!.spends < NF_MIN_SPENDS);
+  assert.ok(thin.length > 0, "expected thin-record clusters on the map");
 });
 
 test("ns-netflix: events apply through the same fusion as ns-social", () => {
