@@ -65,11 +65,12 @@ function routedEdge(
   wpsA: Pt[] | undefined,
   wpsB: Pt[] | undefined,
   t: number,
-): void {
+): [Pt, Pt] {
   const a = wpsA ?? [], b = wpsB ?? [];
   if (!a.length && !b.length) {
     bezier(ctx, from.x, from.y, to.x, to.y);
-    return;
+    // the S-curve lands horizontally: the arrow points along +x
+    return [{ x: to.x - 8, y: to.y }, to];
   }
   const n = Math.min(10, Math.max(6, 24 / (Math.max(a.length, b.length) + 1)));
   const pa = t >= 1 ? null : sampleSpline([from, ...a, to], n);
@@ -94,6 +95,7 @@ function routedEdge(
   ctx.beginPath();
   ctx.moveTo(pts[0]!.x, pts[0]!.y);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
+  return [pts[pts.length - 2] ?? pts[0]!, pts[pts.length - 1]!];
 }
 
 /** Where the ray from a rect's center toward (tx, ty) crosses its border —
@@ -209,6 +211,10 @@ export function drawMorph(
   };
   const coinAt = (id: string): Rect => coinRectAt(block, bip, id, t)!;
   const txAt = (id: string): Rect => txRectAt(block, bip, id, t)!;
+  // arrowheads are deferred to a final pass: in the card reading the edge
+  // end sits inside the card body, and the cards are painted over the edge
+  // pass — drawn last, the arrow stays visible in every reading
+  const arrows: { p: Pt; q: Pt; color: string; alpha: number }[] = [];
 
   // --- input edges: coin -> spending tx ---
   for (const tid of chain.order) {
@@ -238,7 +244,10 @@ export function drawMorph(
         ctx.lineTo(q.x, q.y);
         radialEnds = [p, q];
       } else {
-        routedEdge(
+        // the arrow rides the flow of funds — the coin funding the
+        // transaction — which is also time's direction, not the
+        // on-chain encoding (an input POINTING at the txo it spends)
+        radialEnds = routedEdge(
           ctx,
           { x: from.x + from.w, y: from.y + from.h / 2 },
           { x: to.x, y: to.y + to.h / 2 },
@@ -250,11 +259,7 @@ export function drawMorph(
       ctx.strokeStyle = color;
       ctx.lineWidth = emphasized ? 3.5 : 1.8;
       ctx.stroke();
-      if (radialEnds && t > 0.5) {
-        ctx.globalAlpha = coinAlpha(cid) * (2 * t - 1);
-        ctx.fillStyle = color;
-        arrowHead(ctx, radialEnds[0], radialEnds[1]);
-      }
+      if (radialEnds) arrows.push({ p: radialEnds[0], q: radialEnds[1], color, alpha: coinAlpha(cid) });
       ctx.globalAlpha = 1;
     }
   }
@@ -281,7 +286,7 @@ export function drawMorph(
           ctx.lineTo(q.x, q.y);
           radialEnds = [p, q];
         } else {
-          routedEdge(
+          radialEnds = routedEdge(
             ctx,
             { x: txr.x + txr.w, y: txr.y + txr.h / 2 },
             { x: to.x, y: to.y + to.h / 2 },
@@ -293,10 +298,7 @@ export function drawMorph(
         ctx.strokeStyle = color;
         ctx.lineWidth = emphasized ? 3.5 : 1.8;
         ctx.stroke();
-        if (radialEnds) {
-          ctx.fillStyle = color;
-          arrowHead(ctx, radialEnds[0], radialEnds[1]);
-        }
+        if (radialEnds) arrows.push({ p: radialEnds[0], q: radialEnds[1], color, alpha: t * coinAlpha(cid) });
       }
     }
     ctx.restore();
@@ -406,6 +408,11 @@ export function drawMorph(
       ctx.fillText(caption, rect.x + rect.w / 2, rect.y + rect.h + 12);
       ctx.textAlign = "left";
     }
+  }
+  for (const a of arrows) {
+    ctx.globalAlpha = a.alpha;
+    ctx.fillStyle = a.color;
+    arrowHead(ctx, a.p, a.q);
   }
   ctx.globalAlpha = 1;
 }

@@ -356,7 +356,7 @@ function crossingMinimizedOrder(cl: Clustering, chain: Chain, start: CoinId[]): 
   return order;
 }
 
-function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {
+function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): { tx: number; ty: number } {
   // bow transfer edges gently toward the ring's center so parallel edges
   // read — gently, so short rim-neighbor edges (the common case once the
   // ring is seriated by edge weight) hug the rim instead of all diving
@@ -365,6 +365,20 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
   ctx.beginPath();
   ctx.moveTo(x0, y0);
   ctx.quadraticCurveTo(mx, my, x1, y1);
+  // end tangent (from the control point), for the flow-of-funds arrow
+  return { tx: x1 - mx, ty: y1 - my };
+}
+
+/** a small arrowhead at (x1, y1) along the (tx, ty) direction */
+function arrowAt(ctx: CanvasRenderingContext2D, x1: number, y1: number, tx: number, ty: number, size = 7): void {
+  const d = Math.hypot(tx, ty) || 1;
+  const ux = tx / d, uy = ty / d;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - ux * size - uy * size * 0.55, y1 - uy * size + ux * size * 0.55);
+  ctx.lineTo(x1 - ux * size + uy * size * 0.55, y1 - uy * size - ux * size * 0.55);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /**
@@ -425,10 +439,18 @@ export function drawContraction(
       const to = nodeOf(out);
       if (to === from) continue; // self-transfer (same inferred cluster) contracts away
       const touched = hov !== undefined && (from.rep === hov || to.rep === hov);
-      bezier(ctx, from.x, from.y, to.x, to.y);
-      ctx.strokeStyle = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
+      const tan = bezier(ctx, from.x, from.y, to.x, to.y);
+      const color = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
+      ctx.strokeStyle = color;
       ctx.lineWidth = touched ? 2.6 : 1.6;
       ctx.stroke();
+      // flow-of-funds arrow, parked on the receiving disc's rim so the
+      // disc painted on top doesn't swallow it
+      const d = Math.hypot(tan.tx, tan.ty) || 1;
+      ctx.fillStyle = color;
+      arrowAt(ctx,
+        to.x - (tan.tx / d) * (to.r + 3), to.y - (tan.ty / d) * (to.r + 3),
+        tan.tx, tan.ty);
     }
   }
   ctx.restore();

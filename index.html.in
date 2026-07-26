@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>coins remember — a transaction graph privacy simulator</title>
+<title>transaction privacy vibes — a transaction graph privacy simulator</title>
 <style>
   html, body { margin: 0; height: 100%; background: #1c1e22; color: #d8dade;
                font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
@@ -11,7 +11,7 @@
   #view:active { cursor: grabbing; }
   #hud { position: fixed; left: 10px; bottom: 8px; opacity: 0.6; font-size: 12px;
          pointer-events: none; user-select: none; }
-  #tutorial { position: fixed; right: 16px; top: 16px; width: 340px; max-height: calc(100vh - 48px);
+  #tutorial { position: fixed; right: 16px; bottom: 16px; width: 340px; max-height: calc(100vh - 48px);
               overflow-y: auto; background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
               padding: 14px 16px; box-shadow: 0 6px 24px #0006; }
   .tut-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
@@ -36,9 +36,9 @@
   #clusterbtn { top: 96px; }
   #unclusterbtn { left: 104px; top: 96px; display: none; }
   #lens { top: 136px; }
-  #paramsbtn { top: 176px; }
+  #paramsbtn { bottom: 76px; }
   #viewtoggle:hover, #layoutbtn:hover, #clusterbtn:hover, #unclusterbtn:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
-  #params { position: fixed; left: 16px; top: 216px; display: none; width: 260px;
+  #params { position: fixed; left: 16px; bottom: 116px; display: none; width: 260px;
             background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
             padding: 12px 14px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
   #params label { display: block; margin: 8px 0 2px; opacity: 0.8; }
@@ -71,7 +71,7 @@
   #overlays .nsrow span { opacity: 0.6; font-size: 11px; }
   #overlays #nsproposal { margin: 0 0 6px 20px; display: flex; align-items: center; gap: 6px; }
   #overlays .nshint { opacity: 0.6; font-size: 11px; }
-  #decisions { position: fixed; right: 16px; bottom: 64px; display: none; width: 330px;
+  #decisions { position: fixed; right: 16px; top: 148px; display: none; width: 330px;
             max-height: 46vh; overflow-y: auto; background: #24262cf2;
             border: 1px solid #3a3e46; border-radius: 10px; padding: 10px 12px;
             box-shadow: 0 6px 24px #0006; font-size: 13px; }
@@ -87,14 +87,14 @@
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
   .toast.gone { opacity: 0; }
-  #stepday, #backday { position: fixed; bottom: 16px; display: none;
+  #stepday, #backday { position: fixed; display: none;
              background: #33363e; color: #edc948; border: 1px solid #4a4e57;
              border-radius: 6px; padding: 8px 14px; font: inherit; font-size: 13px;
              cursor: pointer; }
-  #stepday { right: 16px; bottom: 16px; }
-  #backday { right: 16px; bottom: 58px; color: #d8dade; }
+  #stepday { right: 16px; top: 16px; }
+  #backday { right: 16px; top: 58px; color: #d8dade; }
   #stepday:hover, #backday:hover { background: #3d414a; }
-  #timebar { position: fixed; right: 16px; bottom: 100px; display: none;
+  #timebar { position: fixed; right: 16px; top: 100px; display: none;
              align-items: center; gap: 8px; background: #33363e;
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 10px; }
   #timebar button { background: none; border: none; color: #d8dade; font: inherit;
@@ -107,7 +107,7 @@
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
              font: inherit; font-size: 13px; cursor: pointer; }
   #castbtn:hover { background: #3d414a; }
-  #cast { position: fixed; left: 16px; bottom: 76px; display: none; width: 210px;
+  #cast { position: fixed; left: 16px; bottom: 116px; display: none; width: 210px;
           max-height: 50vh; overflow-y: auto; background: #24262cf2;
           border: 1px solid #3a3e46; border-radius: 10px; padding: 8px;
           box-shadow: 0 6px 24px #0006; }
@@ -132,6 +132,18 @@
               border-radius: 8px; font-size: 11px; padding: 2px 8px; cursor: pointer;
               margin-left: 6px; }
   .chip-btn:hover { background: #3d414b; }
+  #ghlink { position: fixed; left: 16px; top: 178px; font-size: 12px; opacity: 0.55;
+            color: #d8dade; text-decoration: none; }
+  #ghlink:hover { opacity: 1; color: #edc948; }
+  #keys { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+          display: none; background: #24262cf2; border: 1px solid #3a3e46;
+          border-radius: 10px; padding: 14px 18px; box-shadow: 0 6px 24px #0006;
+          font-size: 13px; z-index: 10; pointer-events: none; }
+  #keys h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; opacity: 0.7;
+             text-transform: uppercase; letter-spacing: 0.04em; }
+  #keys dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  #keys dt { font-family: ui-monospace, monospace; color: #edc948; text-align: right; }
+  #keys dd { margin: 0; opacity: 0.85; }
 </style>
 </head>
 <body>
@@ -143,6 +155,19 @@
 <button id="unclusterbtn" title="drop to the bottom of the refinement lattice: every coin its own vertex, laid on the ring by time">unclustered</button>
 <button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
 <button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>
+<a id="ghlink" href="https://github.com/fungi-protocol/tx-graph-privacy-vibes/" target="_blank" rel="noopener" title="source, issues and README on GitHub">GitHub ↗</a>
+<div id="keys">
+  <h3>keys (hold ?)</h3>
+  <dl>
+    <dt>v</dt><dd>flip between the card and graph drawings (expands clusters first)</dd>
+    <dt>c</dt><dd>collapse into the cluster map / expand back</dd>
+    <dt>o</dt><dd>cycle the lens: all-seeing, observer, one wallet's</dd>
+    <dt>h</dt><dd>hide everything a trace dims</dd>
+    <dt>r</dt><dd>force layout: re-arrange with only the shown nodes</dd>
+    <dt>drag / wheel</dt><dd>pan and zoom</dd>
+    <dt>right-click</dt><dd>copy a shareable reference to what's under the cursor</dd>
+  </dl>
+</div>
 <div id="overlays"></div>
 <div id="params"></div>
 <div id="decisions"></div>

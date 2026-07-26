@@ -70,8 +70,11 @@ const session: {
 };
 /** graph-view arrangement (#44): false = layered timeline, true = force-directed */
 let forceLayout = false;
+/** force layout restricted to the hide filter's survivors ("r", #61);
+ *  null = the full graph */
+let forceShown: Set<string> | null = null;
 function bipFor(chain: Chain): BipLayout {
-  return forceLayout ? layoutForce(chain) : layoutBipartite(chain);
+  return forceLayout ? layoutForce(chain, forceShown ?? undefined) : layoutBipartite(chain);
 }
 let eco: Economy | null = null;
 const castList = (): Persona[] => eco ? eco.cast : PERSONAS;
@@ -865,6 +868,11 @@ function setForceLayout(on: boolean, animate = true): void {
     flyTo(clusterLayout().bounds);
     kick();
   }
+  relayoutGraph(animate);
+}
+/** recompute both scenes' graph arrangements and glide the nodes over —
+ *  shared by the layout button and the shown-only re-layout ("r") */
+function relayoutGraph(animate = true): void {
   const prevIntro = intro.bip;
   const prevEco = ecoScene;
   intro.bip = bipFor(intro.chain);
@@ -1330,6 +1338,7 @@ overlaysPanel.addEventListener("change", (e) => {
 
 window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target instanceof HTMLInputElement) return; // typing in the seed box
   if (e.key === "v") {
     if (collapsed) setCollapsed(false);
     else setView((1 - targetView) as 0 | 1);
@@ -1337,7 +1346,23 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "c") setCollapsed(!collapsed);
   if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
   if (e.key === "h") { hideDim = !hideDim; draw(); }
+  if (e.key === "r" && forceLayout && collapseT === 0) {
+    // re-layout with only the shown nodes: what the hide filter left on
+    // screen; with nothing hidden, r restores the full arrangement
+    forceShown = hideDim && highlight
+      ? new Set([
+          ...highlight.full.coins, ...highlight.partial.coins,
+          ...highlight.full.txs, ...highlight.partial.txs,
+        ])
+      : null;
+    relayoutGraph();
+  }
+  if (e.key === "?") keysPanel.style.display = "block";
 });
+window.addEventListener("keyup", (e) => {
+  if (e.key === "?" || e.key === "Shift") keysPanel.style.display = "none";
+});
+const keysPanel = document.getElementById("keys") as HTMLDivElement;
 
 // --- scene switching + day stepping ---
 const dayBtn = document.getElementById("stepday") as HTMLButtonElement;
@@ -2013,8 +2038,13 @@ const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
   onDone: () => readableHandoff(),
   // leaving the tour hands over the full toolbox: every heuristic on
-  // the panel and running, whatever chapter the story had reached
-  onSkip: () => setOverlays(OV_ALL),
+  // the panel and running, and the town itself — skipping from the
+  // intro must not leave the time controls hidden with the cards scene
+  onSkip: () => {
+    setScene(1, eco ? economy().day : 0);
+    setOverlays(OV_ALL);
+    readableHandoff();
+  },
   onStepChange: () => {
     // the hide filter ("h") outlives selections; combined with a step
     // that keeps the prior selection it can hide the very transaction

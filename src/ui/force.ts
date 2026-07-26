@@ -34,13 +34,25 @@ export function coinPillW(value: number): number {
   return Math.max(64, 22 + 7.4 * fmtSats(value).length);
 }
 
-export function layoutForce(chain: Chain): BipLayout {
+/**
+ * `shown` restricts the simulation to a sub-graph (the hide filter's
+ * survivors): only those nodes repel, spring and count toward the
+ * bounds. Everything else still gets a rect — hidden nodes are drawn
+ * at alpha 0, so the renderer must find them — parked at its hashed
+ * seed position outside the physics.
+ */
+export function layoutForce(chain: Chain, shown?: Set<string>): BipLayout {
   const ids: string[] = [];
   const isTx: boolean[] = [];
   const ws: number[] = [];
   const hs: number[] = [];
   const index = new Map<string, number>();
+  const parked: { id: string; tx: boolean; w: number; h: number }[] = [];
   const add = (id: string, tx: boolean, w: number, h: number): void => {
+    if (shown && !shown.has(id)) {
+      parked.push({ id, tx, w, h });
+      return;
+    }
     index.set(id, ids.length);
     ids.push(id);
     isTx.push(tx);
@@ -52,10 +64,17 @@ export function layoutForce(chain: Chain): BipLayout {
 
   const edges: [number, number][] = [];
   for (const tid of chain.order) {
-    const t = index.get(tid)!;
+    const t = index.get(tid);
+    if (t === undefined) continue;
     const tx = chain.txs.get(tid)!;
-    for (const cid of tx.inputs) edges.push([index.get(cid)!, t]);
-    for (const cid of tx.outputs) edges.push([t, index.get(cid)!]);
+    for (const cid of tx.inputs) {
+      const c = index.get(cid);
+      if (c !== undefined) edges.push([c, t]);
+    }
+    for (const cid of tx.outputs) {
+      const c = index.get(cid);
+      if (c !== undefined) edges.push([t, c]);
+    }
   }
 
   const n = ids.length;
@@ -173,6 +192,16 @@ export function layoutForce(chain: Chain): BipLayout {
     maxX = Math.max(maxX, rect.x + rect.w); maxY = Math.max(maxY, rect.y + rect.h);
     if (isTx[i]) txs.set(ids[i]!, rect);
     else coins.set(ids[i]!, rect);
+  }
+  // hidden nodes: positioned (the renderer looks every node up) but out
+  // of the physics and the bounds — the camera frames only the shown
+  for (const p of parked) {
+    const [h1, h2] = hashSeed(p.id);
+    const a = (h1 / 4294967296) * Math.PI * 2;
+    const r = R * Math.sqrt(h2 / 4294967296);
+    const rect: Rect = { x: Math.cos(a) * r - p.w / 2, y: Math.sin(a) * r - p.h / 2, w: p.w, h: p.h };
+    if (p.tx) txs.set(p.id as TxId, rect);
+    else coins.set(p.id as CoinId, rect);
   }
 
   // straight edges, anchored on whichever perimeter point faces the other

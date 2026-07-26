@@ -1,4 +1,4 @@
-# coins remember — a transaction graph privacy simulator
+# transaction privacy vibes — a transaction graph privacy simulator
 
 **A vibe-coded educational aid**, written by an AI agent (Claude) under
 human direction and review. It illustrates how bitcoin transaction-graph
