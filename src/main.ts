@@ -2054,6 +2054,35 @@ function kick(): void {
   requestAnimationFrame(frame);
 }
 
+/** the screen area the tutorial panel leaves unobscured: the largest of
+ * the four rectangles left by cutting the panel's box out of the canvas.
+ * A focus should center in what remains of the view area, not the view
+ * area as a whole — on a phone the panel can cover half the screen, and
+ * a focus centered under it is a focus the reader cannot see. */
+function visibleViewport(): { x: number; y: number; w: number; h: number } {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const full = { x: 0, y: 0, w, h };
+  const panel = document.getElementById("tutorial");
+  if (!panel || panel.style.display === "none") return full;
+  const cb = canvas.getBoundingClientRect();
+  const pb = panel.getBoundingClientRect();
+  const left = pb.left - cb.left, top = pb.top - cb.top;
+  const right = pb.right - cb.left, bottom = pb.bottom - cb.top;
+  const cuts = [
+    { x: 0, y: 0, w: Math.min(w, Math.max(0, left)), h },
+    { x: 0, y: 0, w, h: Math.min(h, Math.max(0, top)) },
+    { x: Math.min(w, Math.max(0, right)), y: 0, w: Math.max(0, w - right), h },
+    { x: 0, y: Math.min(h, Math.max(0, bottom)), w, h: Math.max(0, h - bottom) },
+  ];
+  let best = full, bestA = 0;
+  for (const r of cuts) {
+    const a = r.w * r.h;
+    if (a > bestA) { best = r; bestA = a; }
+  }
+  // squeezing the world into a sliver is worse than sharing space
+  return bestA < w * h * 0.25 ? full : best;
+}
+
 /** Animate the camera to frame a world rect with some margin. */
 let pendingFly: { rect: Rect; ms: number } | null = null;
 function flyTo(rect: Rect, ms = 700): void {
@@ -2062,10 +2091,14 @@ function flyTo(rect: Rect, ms = 700): void {
     pendingFly = { rect, ms };
     return;
   }
+  const vp = visibleViewport();
+  const scale = Math.min(80, Math.max(0.05, Math.min(vp.w / rect.w, vp.h / rect.h)));
   const target: Camera = {
-    x: rect.x + rect.w / 2,
-    y: rect.y + rect.h / 2,
-    scale: Math.min(80, Math.max(0.05, Math.min(w / rect.w, h / rect.h))),
+    // cam.x/y is the world point at CANVAS center; steer the rect's
+    // center to the unobscured region's center instead
+    x: rect.x + rect.w / 2 - (vp.x + vp.w / 2 - w / 2) / scale,
+    y: rect.y + rect.h / 2 - (vp.y + vp.h / 2 - h / 2) / scale,
+    scale,
   };
   const from = { ...cam };
   anim.add(ms, (t) => {

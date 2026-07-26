@@ -28,6 +28,16 @@
   .tut-nav button:hover:not(:disabled) { background: #3d414a; }
   .tut-nav button:disabled { opacity: 0.4; cursor: default; }
   .tut-skip { margin-left: auto; opacity: 0.7; }
+  /* on a phone the tour becomes a bottom sheet: slightly smaller type,
+     height clamped so the graph keeps most of the screen (the camera
+     centers each step's focus in the area the sheet leaves visible),
+     and the body scrolls when a step runs long */
+  @media (max-width: 640px), (max-height: 500px) {
+    #tutorial { left: 8px; right: 8px; bottom: 8px; width: auto;
+                max-height: 40vh; font-size: 13px; padding: 10px 12px; }
+    .tut-title { font-size: 14px; }
+    .tut-nav button { font-size: 12px; padding: 4px 8px; }
+  }
   #viewtoggle, #layoutbtn, #clusterbtn, #unclusterbtn, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
                 border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
                 font: inherit; font-size: 13px; cursor: pointer; }
