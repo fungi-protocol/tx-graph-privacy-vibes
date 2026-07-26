@@ -292,6 +292,30 @@ function lensClusterPaint(): ClusterPaint {
     ...base,
     label: (rep) => clusterLabel(cl, rep),
     center: (rep) => (clusterLabel(cl, rep) ? String(cl.rank.get(rep)) : ""),
+    // grade the apparent cluster against the town's truth: the largest
+    // same-owner subset is what the observer got right; everything else
+    // in the disc is error, and what that owner holds elsewhere is what
+    // the observer is missing. An adversary wants errors low and
+    // completeness high.
+    score: (rep) => {
+      const members = cl.members.get(rep) ?? [rep];
+      if (members.length < 2) return "";
+      const byOwner = new Map<number | null, number>();
+      for (const id of members) {
+        const o = chain.coins.get(id)!.owner;
+        byOwner.set(o, (byOwner.get(o) ?? 0) + 1);
+      }
+      let best: number | null = null;
+      let k = 0;
+      for (const [o, count] of byOwner) {
+        if (count > k) { k = count; best = o; }
+      }
+      let truth = 0;
+      for (const c of chain.coins.values()) if (c.owner === best) truth += 1;
+      const err = Math.round(((members.length - k) / members.length) * 100);
+      const comp = Math.round((k / truth) * 100);
+      return `errors ${err}% · complete ${comp}%`;
+    },
   };
 }
 function observerPaint(): Paint {
@@ -400,6 +424,65 @@ function resize(): void {
   draw();
 }
 
+/** While a trace is live under the observer, list the clusters the
+ *  traced paths touch along the bottom center of the view — the
+ *  intersection at full strength, the rest of the union dimmed.
+ *  Untouched clusters do not appear. Screen space, drawn over the
+ *  graph; the contracted view shows the discs themselves instead. */
+function drawClusterStrip(w: number, h: number): void {
+  const cl = clustering();
+  const repsOf = (coins: Set<string>): Set<string> => {
+    const out = new Set<string>();
+    for (const id of coins) {
+      const r = cl.rep.get(id);
+      if (r !== undefined) out.add(r);
+    }
+    return out;
+  };
+  const inter = repsOf(highlight!.full.coins);
+  const union = repsOf(highlight!.partial.coins);
+  for (const r of inter) union.add(r); // cluster expansion can reach beyond the cones
+  const clusters = [...union]
+    .filter((r) => cl.members.get(r)!.length >= 2)
+    .sort((a, b) =>
+      inter.has(a) === inter.has(b) ? cl.rank.get(a)! - cl.rank.get(b)! : inter.has(a) ? -1 : 1);
+  const singles = [...union].filter((r) => cl.members.get(r)!.length < 2);
+  const n = clusters.length + (singles.length > 0 ? 1 : 0);
+  if (n === 0) return;
+  const R = 13;
+  const gap = Math.min(48, Math.max(30, (w - 120) / n));
+  const y = h - 56;
+  let x = w / 2 - ((n - 1) * gap) / 2;
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const disc = (fill: string, center: string, caption: string, bright: boolean): void => {
+    ctx.globalAlpha = bright ? 1 : 0.3;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, 2 * Math.PI);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = "#111";
+    ctx.font = "600 11px system-ui, sans-serif";
+    ctx.fillText(center, x, y);
+    ctx.fillStyle = "#8b919c";
+    ctx.font = "9px system-ui, sans-serif";
+    ctx.fillText(caption, x, y + R + 9);
+    x += gap;
+  };
+  for (const rep of clusters) {
+    disc(clusterColor(cl, rep), String(cl.rank.get(rep)),
+      `${cl.members.get(rep)!.length} coins`, inter.has(rep));
+  }
+  if (singles.length > 0) {
+    disc(CLUSTER_MISC, `+${singles.length}`, "lone coins", singles.some((r) => inter.has(r)));
+  }
+  ctx.restore();
+}
+
 function draw(): void {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -413,7 +496,8 @@ function draw(): void {
   ctx.translate(-cam.x, -cam.y);
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
-      clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined);
+      clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
+      hover?.kind === "cluster" ? hover.id : undefined);
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -432,6 +516,8 @@ function draw(): void {
     ctx.stroke();
   }
   ctx.restore();
+
+  if (lens === 1 && highlight && collapseT === 0) drawClusterStrip(w, h);
 
   const hud = document.getElementById("hud")!;
   const dayPart = scene === 1
@@ -607,11 +693,18 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
   `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>`).join("") +
   `<h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
+// the panel grows with the story: the sub-transaction row stays off the
+// panel until the narrative (or the free-playing user) first runs it —
+// and once introduced it stays, even through the remove-one-clue rerun
+let subsumSeen = false;
 function reflectOverlays(): void {
   overlaysPanel.querySelectorAll("input[data-bit]").forEach((el) => {
     const input = el as HTMLInputElement;
     input.checked = (overlays & Number(input.dataset["bit"])) !== 0;
   });
+  const subRow = overlaysPanel.querySelector(`input[data-bit="${OV_SUBSUM}"]`)!
+    .closest("label") as HTMLElement;
+  subRow.style.display = subsumSeen || (overlays & OV_SUBSUM) !== 0 ? "" : "none";
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
 }
 reflectOverlays();
@@ -632,6 +725,7 @@ function setOverlays(mask: number): void {
   const before = collapsed && collapseT > 0.9 && collapseCache
     ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
   overlays = mask & OV_ALL;
+  if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
   simRev += 1; // the observer's map — and every lens seeded from it — changes
   reflectOverlays();
   if (before) {
@@ -652,6 +746,9 @@ function setOverlays(mask: number): void {
 }
 overlaysPanel.addEventListener("change", (e) => {
   if ((e.target as HTMLElement).id === "mistakes") return; // its own handler
+  // a hand on the panel keeps the sub-transaction row: unchecking a
+  // visible heuristic must not make it vanish from under the pointer
+  if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
   let mask = 0;
   overlaysPanel.querySelectorAll("input[data-bit]:checked").forEach((el) => {
     mask |= Number((el as HTMLInputElement).dataset["bit"]);
@@ -945,6 +1042,11 @@ function applySelection(hit: Hit): void {
     selection = null; // clicking the selected tx/cluster again deselects
   } else {
     selection = { kind: hit.kind, id: hit.id };
+    if (hit.kind === "cluster" && lens === 0) {
+      // under the all-seeing lens a cluster IS a person: open their profile
+      const o = active().chain.coins.get(hit.id)?.owner;
+      if (o !== null && o !== undefined) openInspector(o);
+    }
   }
   recomputeTrace();
 }
@@ -1326,6 +1428,9 @@ function readableHandoff(): void {
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
   onDone: () => readableHandoff(),
+  // leaving the tour hands over the full toolbox: every heuristic on
+  // the panel and running, whatever chapter the story had reached
+  onSkip: () => setOverlays(OV_ALL),
   onStepChange: () => {
     // the hide filter ("h") outlives selections; combined with a step
     // that keeps the prior selection it can hide the very transaction
@@ -1380,6 +1485,38 @@ castBtn.addEventListener("click", () => {
   if (open) inspector.style.display = "none";
 });
 const inspector = document.getElementById("inspector")!;
+/** the cast member the inspector currently profiles (for its buttons) */
+let inspectorUser: number | null = null;
+function openInspector(u: number): void {
+  inspectorUser = u;
+  const p = castList()[u]!;
+  const chain = active().chain;
+  // every coin this person ever held, newest first; the spent stay
+  // listed (dimmed) — a wallet's history, not just its present
+  const dayOf = (c: { producer: string | null; entered?: number }): number =>
+    c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+  const coins = [...chain.coins.values()]
+    .filter((c) => c.owner === u)
+    .sort((a, b) => dayOf(b) - dayOf(a) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+  const utxos = coins.filter((c) => c.dest === null);
+  const total = utxos.reduce((s, c) => s + c.value, 0);
+  inspector.innerHTML = `
+    <div class="tut-head"><span class="tut-title">
+      <span class="swatch" style="background:${ownerColor(u)}"></span> ${p.name}</span>
+      <span class="tut-progress">${p.role}${u === CARELESS ? " ⚠" : ""}</span></div>
+    <p>${p.concern}</p>
+    <p class="role">wallet: ${utxos.length} coin${utxos.length === 1 ? "" : "s"}, ${fmtSats(total)} sats
+      <button id="traceall" class="chip-btn">trace all coins</button></p>
+    <div class="coinlist">${coins.map((c) => {
+      const d = dayOf(c);
+      const when = d < 0 ? "savings" : `day ${d}`;
+      return `<div class="coinrow${c.dest ? " spentrow" : ""}" data-c="${c.id}">
+        <span class="coin-chip" style="background:${ownerColor(u)}">${fmtSats(c.value)}</span>
+        <span class="role">${when}${c.label ? ` · ${c.label}` : ""}${c.dest ? " · spent" : ""}</span>
+      </div>`;
+    }).join("")}</div>`;
+  inspector.style.display = "block";
+}
 castPanel.addEventListener("click", (e) => {
   const row = (e.target as HTMLElement).closest(".cast-row") as HTMLElement | null;
   if (!row) return;
@@ -1388,19 +1525,28 @@ castPanel.addEventListener("click", (e) => {
     lensAgent = u;
     setLens(2); // relabel the button, repaint through the new agent's eyes
   }
-  const p = castList()[u]!;
-  const chain = active().chain;
-  const utxos = chain.utxos().filter((c) => c.owner === u);
-  const total = utxos.reduce((s, c) => s + c.value, 0);
-  inspector.innerHTML = `
-    <div class="tut-head"><span class="tut-title">
-      <span class="swatch" style="background:${ownerColor(u)}"></span> ${p.name}</span>
-      <span class="tut-progress">${p.role}${u === CARELESS ? " ⚠" : ""}</span></div>
-    <p>${p.concern}</p>
-    <p class="role">wallet: ${utxos.length} coin${utxos.length === 1 ? "" : "s"}, ${fmtSats(total)} sats</p>
-    <div class="coins">${utxos.slice(0, 12).map((c) =>
-      `<span class="coin-chip" style="background:${ownerColor(u)}">${fmtSats(c.value)}</span>`).join(" ")}${utxos.length > 12 ? " …" : ""}</div>`;
-  inspector.style.display = "block";
+  openInspector(u);
+});
+inspector.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  if (t.id === "traceall" && inspectorUser !== null) {
+    // trace this person's whole cluster: every coin they ever held
+    const u = inspectorUser;
+    const ids = [...active().chain.coins.values()].filter((c) => c.owner === u).map((c) => c.id);
+    selection = ids.length > 0 ? { kind: "coins", ids } : null;
+    recomputeTrace();
+    draw();
+    return;
+  }
+  const row = t.closest(".coinrow") as HTMLElement | null;
+  if (!row) return;
+  const id = row.dataset["c"]!;
+  const s = active();
+  const r = coinRectAt(s.layout, s.bip, id, viewT);
+  if (!r) return;
+  if (collapsed) setCollapsed(false); // the coin lives in the graph, not the contraction
+  flyTo({ x: r.x - 260, y: r.y - 170, w: r.w + 520, h: r.h + 340 });
+  playPing(r.x + r.w / 2, r.y + r.h / 2);
 });
 
 // --- params panel: re-roll the world ---

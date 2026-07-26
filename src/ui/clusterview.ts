@@ -40,6 +40,9 @@ export interface ClusterPaint {
   label(rep: CoinId): string;
   /** short text inside the disc */
   center(rep: CoinId): string;
+  /** optional grading line under the caption — truth judging the
+   *  partition (shown to the learner, never fed to any analysis) */
+  score?(rep: CoinId): string;
 }
 
 /** the true-owner color mix of a cluster's members, largest share
@@ -100,20 +103,22 @@ export function transitionFragments(
   return out;
 }
 
-/** Ring layout: multi-coin clusters around an inner ellipse, the
- *  anonymous singletons — dust the partition resolved nothing about — a
- *  sparse outer halo instead of inflating the ring until the real
- *  clusters vanish. Placement follows the EDGES, not the rank: ring
- *  neighbors are chosen by transfer-edge weight (greedy seriation, so
- *  clusters that transact sit side by side and their edges hug the
- *  rim), and a connected singleton sits outside its busiest partner
- *  rather than at an arbitrary angle dragging a chord across the whole
+/** Ring layout: every partition vertex — multi-coin clusters and the
+ *  anonymous singletons alike — sits on ONE ellipse, spaced by kind:
+ *  clusters (>= 2 coins) claim wide arcs so they read apart, while the
+ *  singletons — dust the partition resolved nothing about — pack
+ *  tight. Placement follows the EDGES, not the rank: ring neighbors
+ *  are chosen by transfer-edge weight (greedy seriation, so clusters
+ *  that transact sit side by side and their edges hug the rim), and a
+ *  connected singleton rides just after its busiest partner rather
+ *  than at an arbitrary angle dragging a chord across the whole
  *  drawing. Without a chain the old rank order stands (tests, and the
  *  repartition tween's synthetic partitions). */
 export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout {
   const reps = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
   let inner = reps.filter((r) => cl.members.get(r)!.length >= 2);
   const halo = reps.filter((r) => cl.members.get(r)!.length < 2);
+  const innerSet = new Set(inner);
 
   // symmetric transfer-edge weights between partition vertices — one
   // count per tx output that crosses clusters, same rule the renderer
@@ -161,58 +166,54 @@ export function layoutClusterGraph(cl: Clustering, chain?: Chain): ClusterLayout
     }
   }
 
-  const n = Math.max(1, inner.length);
-  const R = Math.max(320, (n * 130) / (2 * Math.PI));
-  const nodes = new Map<CoinId, ClusterNode>();
-  const angleOf = new Map<CoinId, number>();
-  inner.forEach((rep, i) => {
-    const a = (i / n) * 2 * Math.PI - Math.PI / 2;
-    angleOf.set(rep, a);
-    const size = cl.members.get(rep)!.length;
-    nodes.set(rep, {
-      rep,
-      x: Math.cos(a) * R * 1.35,
-      y: Math.sin(a) * R,
-      r: 12 + 7 * Math.sqrt(size),
-      size,
-    });
-  });
-  const H = R * 1.45;
-  // each singleton wants the angle of its busiest ring partner: groups
-  // sharing an anchor fan out around it; the unconnected keep the even
-  // spread they always had
-  const spread = (i: number): number => (i / Math.max(1, halo.length)) * 2 * Math.PI - Math.PI / 2;
-  const anchored = new Map<number, CoinId[]>();
-  const loose: { rep: CoinId; i: number }[] = [];
-  halo.forEach((rep, i) => {
-    let a: number | undefined;
+  // each singleton rides just after its busiest ring partner; the
+  // unconnected trail at the end of the ring in rank order
+  const anchored = new Map<CoinId, CoinId[]>();
+  const loose: CoinId[] = [];
+  for (const rep of halo) {
+    let a: CoinId | undefined;
     let bw = 0;
     for (const [nb, wt] of w.get(rep) ?? []) {
-      const na = angleOf.get(nb);
-      if (na !== undefined && wt > bw) {
+      if (innerSet.has(nb) && wt > bw) {
         bw = wt;
-        a = na;
+        a = nb;
       }
     }
-    if (a === undefined) loose.push({ rep, i });
+    if (a === undefined) loose.push(rep);
     else {
       const g = anchored.get(a);
       if (g) g.push(rep);
       else anchored.set(a, [rep]);
     }
-  });
-  const place = (rep: CoinId, a: number): void => {
-    nodes.set(rep, { rep, x: Math.cos(a) * H * 1.35, y: Math.sin(a) * H, r: 5, size: 1 });
-  };
-  for (const [a, group] of anchored) {
-    group.sort();
-    group.forEach((rep, j) => place(rep, a + (j - (group.length - 1) / 2) * 0.11));
   }
-  for (const { rep, i } of loose) place(rep, spread(i));
-  const O = halo.length > 0 ? H : R;
+
+  // one ring, arc room by kind: a cluster's slot is its diameter plus a
+  // wide gap, a singleton's just its own footprint plus a sliver
+  const items: { rep: CoinId; r: number; size: number; width: number }[] = [];
+  const slot = (rep: CoinId): void => {
+    const size = cl.members.get(rep)!.length;
+    const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
+    items.push({ rep, r, size, width: 2 * r + (size >= 2 ? 90 : 12) });
+  };
+  for (const rep of inner) {
+    slot(rep);
+    for (const s of [...(anchored.get(rep) ?? [])].sort()) slot(s);
+  }
+  for (const rep of loose) slot(rep);
+
+  const nodes = new Map<CoinId, ClusterNode>();
+  const total = Math.max(1, items.reduce((s, it) => s + it.width, 0));
+  const R = Math.max(320, total / (2 * Math.PI));
+  let cum = 0;
+  for (const it of items) {
+    const a = ((cum + it.width / 2) / total) * 2 * Math.PI - Math.PI / 2;
+    cum += it.width;
+    nodes.set(it.rep, { rep: it.rep, x: Math.cos(a) * R * 1.35, y: Math.sin(a) * R, r: it.r, size: it.size });
+  }
+  const M = 50 + items.reduce((m, it) => Math.max(m, it.r), 0);
   return {
     nodes,
-    bounds: { x: -O * 1.35 - 80, y: -O - 80, w: 2 * O * 1.35 + 160, h: 2 * O + 160 },
+    bounds: { x: -R * 1.35 - M, y: -R - M, w: 2 * R * 1.35 + 2 * M, h: 2 * R + 2 * M },
   };
 }
 
@@ -232,6 +233,8 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
  * mix of block and bipartite the morph phase shows), t = 1 the contracted
  * cluster graph — one dimension flattened, the helix seen end-on. Coin
  * vertices glide into their cluster's disc and fade; transfer edges fade in.
+ * `hover` names a vertex under the pointer: its edges and neighbors hold
+ * full strength while the rest of the drawing recedes.
  */
 export function drawContraction(
   ctx: CanvasRenderingContext2D,
@@ -244,9 +247,24 @@ export function drawContraction(
   t: number,
   paint: ClusterPaint,
   trans?: ClusterTransition,
+  hover?: CoinId,
 ): void {
   const transT = trans ? trans.t : 1;
   const nodeOf = (id: CoinId): ClusterNode => clay.nodes.get(cl.rep.get(id)!)!;
+  const hov = hover !== undefined && clay.nodes.has(hover) ? hover : undefined;
+  const neighbors = new Set<CoinId>();
+  if (hov !== undefined) {
+    for (const tid of chain.order) {
+      const tx = chain.txs.get(tid)!;
+      const from = cl.rep.get(tx.inputs[0]!)!;
+      for (const out of tx.outputs) {
+        const to = cl.rep.get(out)!;
+        if (to === from) continue;
+        if (from === hov) neighbors.add(to);
+        else if (to === hov) neighbors.add(from);
+      }
+    }
+  }
 
   // residual transfer edges (one per tx output whose source differs);
   // during a repartition tween they fade in with the settling discs
@@ -258,9 +276,10 @@ export function drawContraction(
     for (const out of tx.outputs) {
       const to = nodeOf(out);
       if (to === from) continue; // self-transfer (same inferred cluster) contracts away
+      const touched = hov !== undefined && (from.rep === hov || to.rep === hov);
       bezier(ctx, from.x, from.y, to.x, to.y);
-      ctx.strokeStyle = paint.color(tx.inputs[0]!) + "70";
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
+      ctx.lineWidth = touched ? 2.6 : 1.6;
       ctx.stroke();
     }
   }
@@ -328,7 +347,9 @@ export function drawContraction(
     ctx.stroke();
   };
   for (const node of clay.nodes.values()) {
-    ctx.globalAlpha = Math.min(1, 0.25 + 0.75 * t);
+    const focus =
+      hov === undefined || node.rep === hov || neighbors.has(node.rep) ? 1 : 0.3;
+    ctx.globalAlpha = Math.min(1, 0.25 + 0.75 * t) * focus;
     const r = node.r * (0.4 + 0.6 * t);
     const slices = paint.slices(node.rep);
     const frags = transT < 1 ? trans!.fragments.get(node.rep) : undefined;
@@ -344,7 +365,7 @@ export function drawContraction(
     }
     const label = paint.label(node.rep);
     if (t > 0.6 && transT > 0.6 && label) {
-      ctx.globalAlpha = ((t - 0.6) / 0.4) * ((transT - 0.6) / 0.4);
+      ctx.globalAlpha = ((t - 0.6) / 0.4) * ((transT - 0.6) / 0.4) * focus;
       const total = cl.members.get(node.rep)!
         .map((id) => chain.coins.get(id)!)
         .filter((c) => c.dest === null)
@@ -360,6 +381,8 @@ export function drawContraction(
       // a cluster of only-spent coins holds nothing — say so by silence
       // rather than captioning most of the drawing "holds 0 sats"
       if (total > 0) ctx.fillText(`holds ${fmtSats(total)} sats`, node.x, node.y + node.r + 24);
+      const score = paint.score?.(node.rep);
+      if (score) ctx.fillText(score, node.x, node.y + node.r + (total > 0 ? 36 : 24));
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = "left";
     }
@@ -370,7 +393,9 @@ export function drawContraction(
 export function hitTestClusters(clay: ClusterLayout, wx: number, wy: number): CoinId | null {
   for (const node of clay.nodes.values()) {
     const dx = wx - node.x, dy = wy - node.y;
-    if (dx * dx + dy * dy <= node.r * node.r) return node.rep;
+    // singleton discs are tiny; give the pointer a little grace
+    const r = Math.max(node.r, 10);
+    if (dx * dx + dy * dy <= r * r) return node.rep;
   }
   return null;
 }
