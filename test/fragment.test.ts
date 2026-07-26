@@ -156,3 +156,16 @@ test("ns-netflix state round-trips; hostile entries clamp", async () => {
   // a malformed tuple drops rather than half-applies
   assert.equal(sanitize({ seed: "x", nf: [1, "no"] })?.nf, undefined);
 });
+
+test("freeze-frame cursor round-trips; hostile values clamp or drop", async () => {
+  const fragment = await encodeFragment({ seed: "welcome", sc: 1, n: 12, nt: 3 });
+  const state = await decodeFragment(fragment);
+  assert.deepEqual(state, { seed: "welcome", sc: 1, n: 12, nt: 3 });
+
+  // out of range clamps; fractional floors
+  assert.equal(sanitize({ seed: "x", n: 5, nt: -4 })?.nt, 0);
+  assert.equal(sanitize({ seed: "x", n: 5, nt: 1e9 })?.nt, 10000);
+  // a freeze-frame without a day to anchor to drops
+  assert.equal(sanitize({ seed: "x", nt: 3 })?.nt, undefined);
+  assert.equal(sanitize({ seed: "x", n: 5, nt: "no" })?.nt, undefined);
+});

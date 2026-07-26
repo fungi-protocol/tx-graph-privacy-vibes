@@ -46,6 +46,45 @@ test("through(day) hides later transactions and re-opens later spends", () => {
   assert.deepEqual(chain.order, ["t1", "t2", "t3"]);
 });
 
+test("through(day, txsIntoDay) freeze-frames a day one transaction at a time", () => {
+  const eco = new Economy("welcome");
+  eco.runTo(30);
+  // pick a recorded day with at least two transactions
+  const perDay = new Map<number, string[]>();
+  for (const tid of eco.chain.order) {
+    const d = eco.chain.txs.get(tid)!.timestep;
+    perDay.set(d, [...(perDay.get(d) ?? []), tid]);
+  }
+  const busy = [...perDay.entries()].find(([, tids]) => tids.length >= 2);
+  assert.ok(busy, "no day with two transactions in 30 days");
+  const [day, tids] = busy!;
+
+  // frame 0: the day holds nothing yet — identical to the previous day's
+  // close, plus whatever entered that morning
+  const start = eco.chain.through(day, 0);
+  for (const tid of tids) assert.ok(!start.txs.has(tid));
+
+  // each further frame reveals exactly one more of the day's transactions,
+  // in record order, leaving every earlier day whole
+  for (let k = 1; k <= tids.length; k++) {
+    const cut = eco.chain.through(day, k);
+    assert.deepEqual(
+      cut.order.filter((tid) => cut.txs.get(tid)!.timestep === day),
+      tids.slice(0, k),
+    );
+    assert.equal(
+      cut.order.filter((tid) => cut.txs.get(tid)!.timestep < day).length,
+      eco.chain.through(day - 1).order.length,
+    );
+    // a coin whose spend is still hidden reads as unspent
+    for (const coin of cut.coins.values()) {
+      if (coin.dest !== null) assert.ok(cut.txs.has(coin.dest), `${coin.id} spent by a hidden tx`);
+    }
+  }
+  // the full count is the plain day view
+  assert.equal(eco.chain.through(day, tids.length).describe(), eco.chain.through(day).describe());
+});
+
 test("through(day) at the frontier reproduces the whole record", () => {
   const chain = toyChain();
   assert.equal(chain.through(3).describe(), chain.describe());

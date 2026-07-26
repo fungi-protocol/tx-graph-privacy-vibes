@@ -87,22 +87,19 @@
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
   .toast.gone { opacity: 0; }
-  #stepday, #backday { position: fixed; display: none;
+  #stepday { position: fixed; display: none; right: 16px; top: 16px;
              background: #33363e; color: #edc948; border: 1px solid #4a4e57;
              border-radius: 6px; padding: 8px 14px; font: inherit; font-size: 13px;
              cursor: pointer; }
-  #stepday { right: 16px; top: 16px; }
-  #backday { right: 16px; top: 58px; color: #d8dade; }
-  #stepday:hover, #backday:hover { background: #3d414a; }
-  #timebar { position: fixed; right: 16px; top: 100px; display: none;
-             align-items: center; gap: 8px; background: #33363e;
-             border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 10px; }
+  #stepday:hover { background: #3d414a; }
+  #timebar { position: fixed; right: 16px; top: 58px; display: none;
+             align-items: center; gap: 2px; background: #33363e;
+             border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 8px; }
   #timebar button { background: none; border: none; color: #d8dade; font: inherit;
-             font-size: 13px; cursor: pointer; padding: 2px 4px; }
+             font-size: 13px; cursor: pointer; padding: 2px 4px; min-width: 22px; }
   #timebar button:hover { color: #edc948; }
-  #playbtn { min-width: 22px; }
+  #playbtn, #revbtn { color: #edc948; }
   #speedbtn { min-width: 30px; color: #9aa0ab; }
-  #dayslider { width: 160px; accent-color: #edc948; cursor: pointer; }
   #castbtn { position: fixed; left: 16px; bottom: 36px; background: #33363e; color: #d8dade;
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
              font: inherit; font-size: 13px; cursor: pointer; }
@@ -175,12 +172,16 @@
 <div id="cast"></div>
 <div id="inspector"></div>
 <div id="timebar">
+  <button id="rwbtn" title="rewind to the first day">⏮</button>
+  <button id="prevday" title="back a day — the record stays; stepping forward replays it">|◀</button>
+  <button id="framebk" title="freeze-frame: hide the most recent transaction">‹</button>
+  <button id="revbtn" title="play time backwards">◀</button>
   <button id="playbtn" title="auto-play: days pass on their own">▶</button>
-  <button id="speedbtn" title="auto-play speed (days per second)">2×</button>
-  <input id="dayslider" type="range" min="0" max="0" step="1" value="0"
-         title="skip to any recorded day — the record stays either way">
+  <button id="framefw" title="freeze-frame: reveal the next transaction">›</button>
+  <button id="nextday" title="skip to the next day">▶|</button>
+  <button id="ffbtn" title="fast-forward to the latest recorded day">⏭</button>
+  <button id="speedbtn" title="auto-play speed">2×</button>
 </div>
-<button id="backday" title="rewind the view one day — the record stays; stepping forward replays it">← back a day</button>
 <button id="stepday" title="advance the simulation by one day">next day →</button>
 <!--APP_JS-->
 </body>

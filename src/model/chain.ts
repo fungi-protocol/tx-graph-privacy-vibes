@@ -130,12 +130,18 @@ export class Chain {
    * are shared (not copied), so positions looked up by id in a
    * full-history layout still resolve: rewinding hides later data
    * without moving anything that stays visible.
+   *
+   * `txsIntoDay` is the freeze-frame cursor: only the first that many of
+   * `day`'s own transactions are included (earlier days stay whole), so
+   * the tape controller can step the record one transaction at a time.
    */
-  through(day: number): Chain {
+  through(day: number, txsIntoDay = Infinity): Chain {
     const c = new Chain();
+    let intoDay = 0;
     for (const tid of this.order) {
       const tx = this.txs.get(tid)!;
       if (tx.timestep > day) continue;
+      if (tx.timestep === day && ++intoDay > txsIntoDay) continue;
       c.txs.set(tid, tx);
       c.order.push(tid);
     }

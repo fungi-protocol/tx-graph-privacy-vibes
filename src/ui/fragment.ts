@@ -67,6 +67,8 @@ export interface FragmentState {
   nf?: [number, number, number];
   /** economy day (scene 1 only) */
   n?: number;
+  /** freeze-frame: transactions of day `n` revealed (tape controller) */
+  nt?: number;
   /** copy-reference: world position clicked + element selector under cursor */
   ref?: { wx: number; wy: number; sel?: string };
 }
@@ -242,6 +244,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   }
   const n = num(r.n, 0, MAX_DAY, true);
   if (n !== undefined) out.n = n;
+  const nt = num(r.nt, 0, 10000, true);
+  if (nt !== undefined && n !== undefined) out.nt = nt;
   if (typeof r.ref === "object" && r.ref !== null) {
     const ref = r.ref as Record<string, unknown>;
     const wx = num(ref.wx, -1e7, 1e7), wy = num(ref.wy, -1e7, 1e7);

@@ -35,7 +35,7 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
         obligations — rent, invoices, repairs, bike parts — and everyone
         pays the only way this world knows yet: a plain transaction,
         <b>payment out, change back</b>.</p>
-        <p>Press <b>next day</b> (bottom right) to move time yourself and
+        <p>Press <b>next day</b> (top right) to move time yourself and
         watch the graph grow.</p>`,
       focus,
       view: 1,
