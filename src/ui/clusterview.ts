@@ -170,6 +170,139 @@ export function layoutClusterGraph(
   };
 }
 
+/** Column layout for the ns-social partition: each column is one of the
+ *  ring's circles cut open into a vertical line segment, side by side,
+ *  with a correspondence between them. A vertex sits in the lane of its
+ *  column; a vertex the matching fused across columns spans them —
+ *  placed at the mean of the slots it holds in each, which is exactly
+ *  the "merged horizontally" reading of an accepted match. Within a
+ *  lane the order follows the layout button's usual rule: "time" is the
+ *  timeline (earliest coin first), "force" runs linear-barycenter
+ *  sweeps pulling transfer neighbors toward each other so the mapping
+ *  edges run shorter. `lanes` names each vertex's columns (from the
+ *  base partition, BEFORE matching fused anything). */
+export function layoutClusterColumns(
+  cl: Clustering,
+  chain: Chain,
+  lanes: Map<CoinId, number[]>,
+  parts: number,
+  mode: "time" | "force" = "time",
+): ClusterLayout {
+  const day = (id: CoinId): number => {
+    const c = chain.coins.get(id)!;
+    return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+  };
+  const earliest = new Map<CoinId, number>();
+  for (const [rep, members] of cl.members) {
+    let e = Infinity;
+    for (const id of members) e = Math.min(e, day(id));
+    earliest.set(rep, e);
+  }
+  const reps = [...cl.members.keys()]
+    .sort((a, b) => earliest.get(a)! - earliest.get(b)! || (a < b ? -1 : 1));
+
+  const slotH = (rep: CoinId): number => {
+    const size = cl.members.get(rep)!.length;
+    const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
+    return 2 * r + (size >= 2 ? 64 : 14);
+  };
+  const LANE_W = 620;
+  const laneX = (i: number): number => (i - (parts - 1) / 2) * LANE_W;
+
+  // per-lane vertical packing, every lane centered on y = 0
+  const laneOrder: CoinId[][] = Array.from({ length: parts }, () => []);
+  for (const rep of reps) {
+    for (const lane of lanes.get(rep) ?? [0]) laneOrder[Math.min(lane, parts - 1)]!.push(rep);
+  }
+  if (mode === "force") {
+    // linear-barycenter sweeps: within each lane, re-sort by the mean
+    // current y of a vertex's transfer neighbors (wherever they sit)
+    const adj = new Map<CoinId, Map<CoinId, number>>();
+    const bump = (a: CoinId, b: CoinId): void => {
+      let m = adj.get(a);
+      if (!m) adj.set(a, (m = new Map()));
+      m.set(b, (m.get(b) ?? 0) + 1);
+    };
+    for (const tid of chain.order) {
+      const tx = chain.txs.get(tid)!;
+      const from = cl.rep.get(tx.inputs[0]!)!;
+      for (const out of tx.outputs) {
+        const to = cl.rep.get(out)!;
+        if (to === from) continue;
+        bump(from, to);
+        bump(to, from);
+      }
+    }
+    for (let sweep = 0; sweep < 8; sweep++) {
+      // a fused vertex's working position is its mean index over lanes
+      const pos = new Map<CoinId, { s: number; n: number }>();
+      for (const order of laneOrder) {
+        order.forEach((rep, i) => {
+          const p = pos.get(rep) ?? { s: 0, n: 0 };
+          p.s += i;
+          p.n += 1;
+          pos.set(rep, p);
+        });
+      }
+      const y = new Map<CoinId, number>();
+      for (const [rep, p] of pos) y.set(rep, p.s / p.n);
+      for (const order of laneOrder) {
+        const key = new Map<CoinId, number>();
+        for (const rep of order) {
+          const nbrs = adj.get(rep);
+          if (!nbrs || nbrs.size === 0) {
+            key.set(rep, y.get(rep)!);
+            continue;
+          }
+          let sum = 0, w = 0;
+          for (const [o, ww] of nbrs) {
+            if (y.get(o) === undefined) continue;
+            sum += y.get(o)! * ww;
+            w += ww;
+          }
+          key.set(rep, w > 0 ? sum / w : y.get(rep)!);
+        }
+        order.sort((a, b) => key.get(a)! - key.get(b)! || (a < b ? -1 : 1));
+      }
+    }
+  }
+
+  // a fused vertex holds a slot in every lane it spans; its drawn
+  // position is the mean of those slots
+  const acc = new Map<CoinId, { sx: number; sy: number; n: number }>();
+  for (let lane = 0; lane < parts; lane++) {
+    const order = laneOrder[lane]!;
+    const total = order.reduce((s, rep) => s + slotH(rep), 0);
+    let cum = -total / 2;
+    for (const rep of order) {
+      const h = slotH(rep);
+      const y = cum + h / 2;
+      cum += h;
+      const a = acc.get(rep) ?? { sx: 0, sy: 0, n: 0 };
+      a.sx += laneX(lane);
+      a.sy += y;
+      a.n += 1;
+      acc.set(rep, a);
+    }
+  }
+  const nodes = new Map<CoinId, ClusterNode>();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const rep of reps) {
+    const size = cl.members.get(rep)!.length;
+    const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
+    const a = acc.get(rep) ?? { sx: 0, sy: 0, n: 1 };
+    const x = a.sx / Math.max(1, a.n), y = a.sy / Math.max(1, a.n);
+    nodes.set(rep, { rep, x, y, r, size });
+    minX = Math.min(minX, x - r); maxX = Math.max(maxX, x + r);
+    minY = Math.min(minY, y - r); maxY = Math.max(maxY, y + r);
+  }
+  const M = 80;
+  return {
+    nodes,
+    bounds: { x: minX - M, y: minY - M, w: maxX - minX + 2 * M, h: maxY - minY + 2 * M },
+  };
+}
+
 /** the "force" ring order: iterative circular-barycenter sweeps.
  *  Neighbors on the transfer multigraph attract; each sweep re-sorts
  *  the ring by the weighted mean angle of every vertex's neighbors

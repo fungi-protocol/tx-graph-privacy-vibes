@@ -6,6 +6,7 @@ import {
   partitionColumns, clusterAdjacency, nsSimilarity, nsSocialRun, nsApply,
   matchComponents, matchState, activePairs, type NsEvent,
 } from "../src/analysis/nssocial";
+import { layoutClusterColumns } from "../src/ui/clusterview";
 
 function golden(days: number) {
   const eco = new Economy("golden");
@@ -125,4 +126,63 @@ test("ns-social: a split retracts the merge in the applied clustering", () => {
   ]);
   assert.notEqual(split.rep.get(a), split.rep.get(b));
   assert.equal(split.members.size, cl.members.size);
+});
+
+test("ns-social: the partitioned circle opens into columns, matches span lanes", () => {
+  const { eco, cl } = golden(80);
+  const col = partitionColumns(cl, eco.chain, 2);
+  const reps = [...cl.members.keys()];
+  const a = reps.find((r) => col.get(r) === 0)!;
+  const b = reps.find((r) => col.get(r) === 1)!;
+  const events: NsEvent[] = [{ kind: "merge", a, b, score: 0.9 }];
+  const applied = nsApply(cl, events);
+  const lanes = new Map<string, number[]>();
+  for (const rep of applied.members.keys()) lanes.set(rep, []);
+  for (const [baseRep, lane] of col) {
+    const leader = applied.rep.get(baseRep)!;
+    const l = lanes.get(leader)!;
+    if (!l.includes(lane)) l.push(lane);
+  }
+  for (const l of lanes.values()) l.sort((x, y) => x - y);
+  const clay = layoutClusterColumns(applied, eco.chain, lanes, 2);
+  // unmatched vertices sit on their lane's x; the fused pair between them
+  const xs = new Set<number>();
+  const fused = applied.rep.get(a)!;
+  for (const node of clay.nodes.values()) {
+    if (node.rep === fused) continue;
+    xs.add(node.x);
+  }
+  assert.equal(xs.size, 2, `expected two lanes, got x values ${[...xs].join(", ")}`);
+  const [x0, x1] = [...xs].sort((p, q) => p - q);
+  assert.ok(x0! < x1!);
+  const mid = clay.nodes.get(fused)!;
+  assert.ok(Math.abs(mid.x - (x0! + x1!) / 2) < 1e-6,
+    `fused vertex at ${mid.x}, lanes at ${x0} and ${x1}`);
+  // deterministic
+  const again = layoutClusterColumns(applied, eco.chain, lanes, 2);
+  for (const [rep, n] of clay.nodes) {
+    const m = again.nodes.get(rep)!;
+    assert.deepEqual({ x: n.x, y: n.y }, { x: m.x, y: m.y }, `${rep} moved`);
+  }
+});
+
+test("ns-social: within a lane no two vertices share a slot", () => {
+  const { eco, cl } = golden(60);
+  const col = partitionColumns(cl, eco.chain, 2);
+  const lanes = new Map<string, number[]>();
+  for (const [rep, lane] of col) lanes.set(rep, [lane]);
+  const clay = layoutClusterColumns(cl, eco.chain, lanes, 2);
+  const byLane = new Map<number, { y: number; r: number }[]>();
+  for (const node of clay.nodes.values()) {
+    const g = byLane.get(node.x) ?? [];
+    g.push({ y: node.y, r: node.r });
+    byLane.set(node.x, g);
+  }
+  for (const g of byLane.values()) {
+    g.sort((p, q) => p.y - q.y);
+    for (let i = 1; i < g.length; i++) {
+      assert.ok(g[i]!.y - g[i]!.r >= g[i - 1]!.y + g[i - 1]!.r,
+        `vertices overlap vertically at y=${g[i]!.y}`);
+    }
+  }
 });

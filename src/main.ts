@@ -14,8 +14,8 @@ import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
-import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, type NsEvent } from "./analysis/nssocial";
-import { layoutClusterGraph, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
+import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
+import { layoutClusterGraph, layoutClusterColumns, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
@@ -272,6 +272,21 @@ function nsEvents(): NsEvent[] {
 function nsActive(): boolean {
   return nsSocial && lens === 1 && !unclustered;
 }
+/** which columns each APPLIED vertex spans: the columns of the base
+ *  vertices the matching fused into it (one lane before any match) */
+function nsLanes(base: Clustering, applied: Clustering): Map<string, number[]> {
+  const col = partitionColumns(base, active().chain, nsParts);
+  const out = new Map<string, number[]>();
+  for (const rep of applied.members.keys()) out.set(rep, []);
+  for (const [baseRep, lane] of col) {
+    const leader = applied.rep.get(baseRep);
+    if (leader === undefined) continue;
+    const lanes = out.get(leader);
+    if (lanes && !lanes.includes(lane)) lanes.push(lane);
+  }
+  for (const lanes of out.values()) lanes.sort((a, b) => a - b);
+  return out;
+}
 
 // The contracted graph is not one fixed flattening: the partition — and
 // with it the layout — follows the active lens. All-seeing contracts to
@@ -303,9 +318,13 @@ function lensClustering(): Clustering {
     // clusters fuse into one vertex at the current replay position
     const cl = nsActive() ? nsApply(base, nsEvents()) : base;
     // the layout button generalizes to the ring: layered orders it by
-    // time, force reorders it to minimize edge crossings
+    // time, force reorders it to minimize edge crossings. Under the
+    // ns-social partition the circle opens into columns — one vertical
+    // segment per epoch, matched vertices spanning the lanes they fused
     const mode = forceLayout ? "force" as const : "time" as const;
-    const clay = layoutClusterGraph(cl, active().chain, mode);
+    const clay = nsActive()
+      ? layoutClusterColumns(cl, active().chain, nsLanes(base, cl), nsParts, mode)
+      : layoutClusterGraph(cl, active().chain, mode);
     // the singleton ring is the collapse morph's waypoint: coins land on
     // it before stacking into discs, and unstack onto it on the way out
     const ring = unclustered ? clay
@@ -582,25 +601,35 @@ function draw(): void {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
       clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
       hover?.kind === "cluster" ? hover.id : undefined, singletonRing());
-    // the pair under examination: a bright mapping edge between the two
-    // vertices, the score riding its midpoint (the panel holds the verdict)
-    const pair = nsProposalPair();
-    if (pair && collapseT > 0.9) {
+    // ns-social mapping edges across the columns: the pair under manual
+    // examination draws bright (the panel holds the verdict); paused
+    // mid-replay, the next match the algorithm would accept draws dim —
+    // press play or skip to take it
+    const mapEdge = (a: string, b: string, alpha: number): void => {
       const clay = clusterLayout();
-      const na = clay.nodes.get(pair[0]), nb = clay.nodes.get(pair[1]);
-      if (na && nb) {
-        ctx.save();
-        ctx.setLineDash([7, 5]);
-        ctx.beginPath();
-        ctx.moveTo(na.x, na.y);
-        ctx.lineTo(nb.x, nb.y);
-        ctx.strokeStyle = "#edc948";
-        ctx.lineWidth = 2.2;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
+      const na = clay.nodes.get(a), nb = clay.nodes.get(b);
+      if (!na || !nb) return;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.moveTo(na.x, na.y);
+      ctx.lineTo(nb.x, nb.y);
+      ctx.strokeStyle = "#edc948";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    };
+    if (collapseT > 0.9 && nsActive() && !nsPlaying) {
+      const next = nsRun()[nsCursor];
+      if (next && next.kind === "merge") {
+        const cl = lensClustering();
+        mapEdge(cl.rep.get(next.a) ?? next.a, cl.rep.get(next.b) ?? next.b, 0.35);
       }
     }
+    const pair = nsProposalPair();
+    if (pair && collapseT > 0.9) mapEdge(pair[0], pair[1], 1);
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -1089,16 +1118,19 @@ document.getElementById("nssoc")!.addEventListener("change", (e) => {
 // dragging the threshold re-runs the propagation live, discs re-welding
 // under the pointer; the cursor stays pinned to the end (skip semantics)
 document.getElementById("nsth")!.addEventListener("input", (e) => {
+  // read before nsSetPlaying: its reflectOverlays writes the old value back
+  const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
   withNsRepartition(() => {
-    nsThreshold = Number((e.target as HTMLInputElement).value) / 100;
+    nsThreshold = v / 100;
     nsCursor = nsRun().length;
   });
 });
 document.getElementById("nsparts")!.addEventListener("input", (e) => {
+  const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
   withNsRepartition(() => {
-    nsParts = Number((e.target as HTMLInputElement).value);
+    nsParts = v;
     nsCursor = nsRun().length;
   });
 });
