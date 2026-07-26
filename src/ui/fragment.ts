@@ -56,6 +56,12 @@ export interface FragmentState {
   mi?: number;
   /** graph-view layout: 0 = layered left-to-right (default), 1 = force-directed */
   fd?: number;
+  /** lens 1 only: ns-social propagation [1 = on, threshold×100, columns,
+   *  replay cursor (algorithmic events applied)] */
+  ns?: [number, number, number, number];
+  /** ns-social manual matches, applied after the replay prefix:
+   *  [repA, repB, score×1000, 1 = forced below the threshold] */
+  nm?: [string, string, number, number][];
   /** economy day (scene 1 only) */
   n?: number;
   /** copy-reference: world position clicked + element selector under cursor */
@@ -205,6 +211,25 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (mi !== undefined) out.mi = mi;
   const fd = num(r.fd, 0, 1, true);
   if (fd !== undefined) out.fd = fd;
+  if (Array.isArray(r.ns)) {
+    const on = num(r.ns[0], 0, 1, true), th = num(r.ns[1], 0, 101, true);
+    const parts = num(r.ns[2], 2, 4, true), cur = num(r.ns[3], 0, 10000, true);
+    if (on !== undefined && th !== undefined && parts !== undefined && cur !== undefined) {
+      out.ns = [on, th, parts, cur];
+    }
+  }
+  if (Array.isArray(r.nm)) {
+    const nm: [string, string, number, number][] = [];
+    for (const it of (r.nm as unknown[]).slice(0, 200)) {
+      if (!Array.isArray(it)) continue;
+      const a = str(it[0], 24), b = str(it[1], 24);
+      const s = num(it[2], 0, 1000, true), f = num(it[3], 0, 1, true);
+      if (a !== undefined && b !== undefined && s !== undefined && f !== undefined) {
+        nm.push([a, b, s, f]);
+      }
+    }
+    if (nm.length) out.nm = nm;
+  }
   const n = num(r.n, 0, MAX_DAY, true);
   if (n !== undefined) out.n = n;
   if (typeof r.ref === "object" && r.ref !== null) {

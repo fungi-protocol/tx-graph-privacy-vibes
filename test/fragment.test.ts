@@ -116,3 +116,26 @@ test("dated parameter patches round-trip and are clamped like the base params", 
   });
   assert.deepEqual(hostile?.pt, [[1, { f: 2 }], [40, { o: 0, f: 4 }]]);
 });
+
+test("ns-social state round-trips; hostile entries clamp or drop", async () => {
+  const fragment = await encodeFragment({
+    seed: "welcome",
+    ns: [1, 62, 2, 5],
+    nm: [["c12", "c40", 310, 1], ["c3", "c7", 990, 0]],
+  });
+  const state = await decodeFragment(fragment);
+  assert.deepEqual(state, {
+    seed: "welcome",
+    ns: [1, 62, 2, 5],
+    nm: [["c12", "c40", 310, 1], ["c3", "c7", 990, 0]],
+  });
+
+  const hostile = sanitize({
+    seed: "x",
+    ns: [1, 5000, 99, -3],           // clamped into slider/cursor bounds
+    nm: [["a".repeat(99), "b", 1, 0], // over-long id: entry dropped
+      ["ok", "also", 12345, 7]],      // score and flag clamped
+  });
+  assert.deepEqual(hostile?.ns, [1, 101, 4, 0]);
+  assert.deepEqual(hostile?.nm, [["ok", "also", 1000, 1]]);
+});

@@ -14,6 +14,7 @@ import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge } from "./analysis/knowledge";
+import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, type NsEvent } from "./analysis/nssocial";
 import { layoutClusterGraph, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
@@ -227,6 +228,51 @@ function clustering(): Clustering {
   return clCache.cl;
 }
 
+// --- ns-social (#59): Narayanan–Shmatikov propagation over the cluster
+// graph. A layer ON TOP of the observer's map: the base heuristics weld
+// coins into clusters, this matches clusters to each other by graph
+// structure. The checkbox controls both whether it is applied and
+// whether it is in view; to only look without applying, push the
+// threshold past cosine's ceiling — nothing clears it.
+let nsSocial = false;
+let nsThreshold = 0.5;
+let nsParts = 2;
+/** replay cursor: how many of the algorithmic run's events are applied */
+let nsCursor = 0;
+/** user decisions from the paused examination — accepted proposals and
+ *  forced below-threshold entries — applied after the replay prefix */
+let nsManual: NsEvent[] = [];
+let nsPlaying = false;
+let nsPlayTimer: number | null = null;
+/** the second vertex of a paused-mode proposal (the first is the
+ *  selected cluster); examined in the panel, accepted or dismissed */
+let nsSecond: string | null = null;
+let nsRunCache: { rev: number; th: number; parts: number; base: Clustering; events: NsEvent[] } | null = null;
+function nsRun(): NsEvent[] {
+  const base = clustering();
+  if (!nsRunCache || nsRunCache.rev !== simRev || nsRunCache.th !== nsThreshold ||
+      nsRunCache.parts !== nsParts || nsRunCache.base !== base) {
+    nsRunCache = {
+      rev: simRev, th: nsThreshold, parts: nsParts, base,
+      events: nsSocialRun(base, active().chain, nsThreshold, nsParts),
+    };
+    nsCursor = Math.min(nsCursor, nsRunCache.events.length);
+  }
+  return nsRunCache.events;
+}
+/** the events in force at the current replay position: the algorithmic
+ *  prefix, then the user's own entries (stale ones — naming vertices the
+ *  base map no longer has — drop out silently) */
+function nsEvents(): NsEvent[] {
+  const run = nsRun();
+  const base = clustering();
+  const live = nsManual.filter((e) => base.members.has(e.a) && base.members.has(e.b));
+  return [...run.slice(0, Math.min(nsCursor, run.length)), ...live];
+}
+function nsActive(): boolean {
+  return nsSocial && lens === 1 && !unclustered;
+}
+
 // The contracted graph is not one fixed flattening: the partition — and
 // with it the layout — follows the active lens. All-seeing contracts to
 // the true user graph (every vertex a named wallet); the observer to its
@@ -237,16 +283,25 @@ function clustering(): Clustering {
 // coin its own vertex, the coin graph laid on the ring by time. A view
 // of the raw material every lens's partition is built from.
 let unclustered = false;
-let collapseCache: { rev: number; lens: number; agent: number; un: boolean; fd: boolean; cl: Clustering; clay: ClusterLayout; ring: ClusterLayout } | null = null;
+let collapseCache: { rev: number; lens: number; agent: number; un: boolean; fd: boolean; ns: string; cl: Clustering; clay: ClusterLayout; ring: ClusterLayout } | null = null;
+/** cache signature of the ns-social replay position; "" = not applied */
+function nsSig(): string {
+  return nsActive()
+    ? `${nsThreshold}|${nsParts}|${nsCursor}|${nsManual.map((e) => `${e.a}+${e.b}`).join(",")}`
+    : "";
+}
 function lensClustering(): Clustering {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
   if (!collapseCache || collapseCache.rev !== simRev || collapseCache.lens !== lens ||
       collapseCache.agent !== agent || collapseCache.un !== unclustered ||
-      collapseCache.fd !== forceLayout) {
-    const cl = unclustered ? clusterSingletons(active().chain)
+      collapseCache.fd !== forceLayout || collapseCache.ns !== nsSig()) {
+    const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : clustering();
+    // the ns-social matches sit on top of the observer's welds: matched
+    // clusters fuse into one vertex at the current replay position
+    const cl = nsActive() ? nsApply(base, nsEvents()) : base;
     // the layout button generalizes to the ring: layered orders it by
     // time, force reorders it to minimize edge crossings
     const mode = forceLayout ? "force" as const : "time" as const;
@@ -255,7 +310,7 @@ function lensClustering(): Clustering {
     // it before stacking into discs, and unstack onto it on the way out
     const ring = unclustered ? clay
       : layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode);
-    collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, cl, clay, ring };
+    collapseCache = { rev: simRev, lens, agent, un: unclustered, fd: forceLayout, ns: nsSig(), cl, clay, ring };
   }
   return collapseCache.cl;
 }
@@ -527,6 +582,25 @@ function draw(): void {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
       clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
       hover?.kind === "cluster" ? hover.id : undefined, singletonRing());
+    // the pair under examination: a bright mapping edge between the two
+    // vertices, the score riding its midpoint (the panel holds the verdict)
+    const pair = nsProposalPair();
+    if (pair && collapseT > 0.9) {
+      const clay = clusterLayout();
+      const na = clay.nodes.get(pair[0]), nb = clay.nodes.get(pair[1]);
+      if (na && nb) {
+        ctx.save();
+        ctx.setLineDash([7, 5]);
+        ctx.beginPath();
+        ctx.moveTo(na.x, na.y);
+        ctx.lineTo(nb.x, nb.y);
+        ctx.strokeStyle = "#edc948";
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -629,6 +703,7 @@ function setUnclustered(on: boolean, animate = true): void {
   unclustered = on;
   unclusterBtn.textContent = on ? "clustered" : "unclustered";
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
+  nsSecond = null;
   if (before) {
     const tr: ClusterTransition = {
       t: 0,
@@ -753,6 +828,7 @@ function setLens(l: 0 | 1 | 2): void {
   // drop a selection that named a vertex of the old one
   if (collapsed) {
     if (selection?.kind === "cluster") { selection = null; highlight = null; }
+    nsSecond = null;
     if (before) {
       const tr: ClusterTransition = {
         t: 0,
@@ -789,7 +865,27 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
         <output id="ciohmaxv">off</output>
       </div>`
     : "")).join("") +
-  `<h3>grading</h3>
+  `<label title="Narayanan–Shmatikov social-network analysis: split the cluster graph into columns (epochs of the timeline) and match vertices across them by the shape of their neighborhoods — a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nssoc"> social-network analysis</label>
+  <div id="nssoccontrols" style="display:none">
+    <div class="ovslider" title="similarity a pair must clear to be matched (cosine of the two neighborhoods); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
+      <span>threshold</span>
+      <input type="range" id="nsth" min="0" max="101" step="1" value="50">
+      <output id="nsthv">0.50</output>
+    </div>
+    <div class="ovslider" title="the partition strategy: how many contiguous epochs the timeline splits into">
+      <span>columns</span>
+      <input type="range" id="nsparts" min="2" max="4" step="1" value="2">
+      <output id="nspartsv">2</output>
+    </div>
+    <div class="nsrow">
+      <button id="nsplay" title="animate the propagation match by match">play</button>
+      <button id="nsskip" title="jump to where the algorithm terminates">skip</button>
+      <button id="nsundo" title="retract the last match">undo</button>
+      <span id="nspos"></span>
+    </div>
+    <div id="nsproposal"></div>
+  </div>
+  <h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 // the panel grows with the story: the sub-transaction row stays off the
 // panel until the narrative (or the free-playing user) first runs it —
@@ -814,6 +910,48 @@ function reflectOverlays(): void {
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
     ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
+  (document.getElementById("nssoc") as HTMLInputElement).checked = nsSocial;
+  (document.getElementById("nssoccontrols") as HTMLElement).style.display = nsSocial ? "block" : "none";
+  if (nsSocial) {
+    (document.getElementById("nsth") as HTMLInputElement).value = String(Math.round(nsThreshold * 100));
+    (document.getElementById("nsthv") as HTMLOutputElement).textContent =
+      nsThreshold > 1 ? "none" : nsThreshold.toFixed(2);
+    (document.getElementById("nsparts") as HTMLInputElement).value = String(nsParts);
+    (document.getElementById("nspartsv") as HTMLOutputElement).textContent = String(nsParts);
+    (document.getElementById("nsplay") as HTMLButtonElement).textContent = nsPlaying ? "pause" : "play";
+    const run = nsRun();
+    const matches = activePairs(nsEvents()).length;
+    (document.getElementById("nspos") as HTMLElement).textContent =
+      `${Math.min(nsCursor, run.length)}/${run.length} · ${matches} match${matches === 1 ? "" : "es"}`;
+    reflectNsProposal();
+  }
+}
+/** the paused-mode examination: two selected vertices, their score, and
+ *  the decision — accept (it clears the threshold) or force (it does not) */
+function reflectNsProposal(): void {
+  const box = document.getElementById("nsproposal") as HTMLElement;
+  const pair = nsProposalPair();
+  if (!pair) {
+    box.innerHTML = nsSocial && collapsed
+      ? `<span class="nshint">select two vertices to examine a pair</span>` : "";
+    return;
+  }
+  const [a, b] = pair;
+  const cl = clustering();
+  const { comp, membersOf } = matchState(cl, nsEvents());
+  if (comp.get(a) === comp.get(b)) {
+    box.innerHTML = `<span class="nshint">already one vertex — undo to part them</span>`;
+    return;
+  }
+  const score = nsSimilarity(clusterAdjacency(cl, active().chain), comp, membersOf,
+    comp.get(a)!, comp.get(b)!);
+  const clears = score >= nsThreshold;
+  box.innerHTML =
+    `<span class="nshint">score ${score.toFixed(2)} ${clears ? "≥" : "<"} ${nsThreshold > 1 ? "ceiling" : nsThreshold.toFixed(2)}</span>
+     <button id="nsaccept">${clears ? "accept" : "force"}</button>`;
+  document.getElementById("nsaccept")!.addEventListener("click", () => {
+    nsMerge(comp.get(a)!, comp.get(b)!, score, !clears);
+  });
 }
 reflectOverlays();
 function setMistakes(on: boolean): void {
@@ -863,9 +1001,127 @@ document.getElementById("ciohmax")!.addEventListener("input", (e) => {
   draw();
   syncFragmentSoon();
 });
+
+// --- ns-social controls. Every state change while the map is contracted
+// rides the same repartition tween as a heuristic toggle: matched discs
+// glide together, a retracted match pulls back apart.
+function withNsRepartition(mutate: () => void): void {
+  const before = collapsed && collapseT > 0.9 && collapseCache
+    ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  mutate();
+  // a merge can absorb the vertex a selection named
+  if (selection?.kind === "cluster" && !lensClustering().members.has(selection.id)) {
+    selection = null;
+    highlight = null;
+  }
+  if (nsSecond !== null && !lensClustering().members.has(nsSecond)) nsSecond = null;
+  if (before) {
+    const tr: ClusterTransition = {
+      t: 0,
+      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+    };
+    clusterTrans = tr;
+    anim.add(900, (t) => { tr.t = t; }, {
+      done: () => { if (clusterTrans === tr) clusterTrans = null; },
+    });
+    if (collapsed) flyTo(clusterLayout().bounds);
+    kick();
+  }
+  recomputeTrace();
+  reflectOverlays();
+  draw();
+  syncFragmentSoon();
+}
+function setNsSocial(on: boolean): void {
+  if (nsSocial === on) return;
+  withNsRepartition(() => {
+    nsSocial = on;
+    if (on) nsCursor = nsRun().length; // enabling shows the finished analysis
+    else nsSetPlaying(false);
+    nsSecond = null;
+  });
+}
+function nsSetPlaying(on: boolean): void {
+  nsPlaying = on;
+  if (nsPlayTimer !== null) {
+    clearTimeout(nsPlayTimer);
+    nsPlayTimer = null;
+  }
+  if (on) nsPlayTimer = window.setTimeout(nsStep, 100);
+  reflectOverlays();
+}
+function nsStep(): void {
+  nsPlayTimer = null;
+  if (!nsPlaying) return;
+  if (nsCursor >= nsRun().length) {
+    nsSetPlaying(false);
+    return;
+  }
+  withNsRepartition(() => { nsCursor += 1; });
+  nsPlayTimer = window.setTimeout(nsStep, 1100);
+}
+/** a decision from the paused examination: merge the two components —
+ *  `forced` marks a pair the threshold alone would not admit */
+function nsMerge(a: string, b: string, score: number, forced: boolean): void {
+  withNsRepartition(() => {
+    nsManual.push({ kind: "merge", a, b, score, ...(forced ? { forced: true } : {}) });
+    nsSecond = null;
+  });
+}
+/** the pair under manual examination: the selected cluster and the
+ *  second-clicked one, or the last two selected coins' vertices */
+function nsProposalPair(): [string, string] | null {
+  if (!nsActive()) return null;
+  if (selection?.kind === "cluster" && nsSecond !== null && nsSecond !== selection.id) {
+    return [selection.id, nsSecond];
+  }
+  if (selection?.kind === "coins" && selection.ids.length >= 2) {
+    const cl = lensClustering();
+    const a = cl.rep.get(selection.ids[selection.ids.length - 2]!);
+    const b = cl.rep.get(selection.ids[selection.ids.length - 1]!);
+    if (a !== undefined && b !== undefined && a !== b) return [a, b];
+  }
+  return null;
+}
+document.getElementById("nssoc")!.addEventListener("change", (e) => {
+  setNsSocial((e.target as HTMLInputElement).checked);
+});
+// dragging the threshold re-runs the propagation live, discs re-welding
+// under the pointer; the cursor stays pinned to the end (skip semantics)
+document.getElementById("nsth")!.addEventListener("input", (e) => {
+  nsSetPlaying(false);
+  withNsRepartition(() => {
+    nsThreshold = Number((e.target as HTMLInputElement).value) / 100;
+    nsCursor = nsRun().length;
+  });
+});
+document.getElementById("nsparts")!.addEventListener("input", (e) => {
+  nsSetPlaying(false);
+  withNsRepartition(() => {
+    nsParts = Number((e.target as HTMLInputElement).value);
+    nsCursor = nsRun().length;
+  });
+});
+document.getElementById("nsplay")!.addEventListener("click", () => {
+  if (!nsPlaying && nsCursor >= nsRun().length) {
+    // replay from the top: matches retract, then land one by one
+    withNsRepartition(() => { nsCursor = 0; });
+  }
+  nsSetPlaying(!nsPlaying);
+});
+document.getElementById("nsskip")!.addEventListener("click", () => {
+  nsSetPlaying(false);
+  withNsRepartition(() => { nsCursor = nsRun().length; });
+});
+document.getElementById("nsundo")!.addEventListener("click", () => {
+  nsSetPlaying(false);
+  if (nsManual.length > 0) withNsRepartition(() => void nsManual.pop());
+  else if (nsCursor > 0) withNsRepartition(() => { nsCursor -= 1; });
+});
 overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
-  if (id === "mistakes" || id === "ciohmax") return; // their own handlers
+  // their own handlers
+  if (id === "mistakes" || id === "ciohmax" || id.startsWith("ns")) return;
   // a hand on the panel keeps the sub-transaction row: unchecking a
   // visible heuristic must not make it vanish from under the pointer
   if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
@@ -1127,6 +1383,7 @@ function harvestChoices(): void {
 function clearSelection(): void {
   selection = null;
   highlight = null;
+  nsSecond = null;
 }
 function recomputeTrace(): void {
   if (!selection) {
@@ -1158,10 +1415,18 @@ function applySelection(hit: Hit): void {
     if (at >= 0) ids.splice(at, 1);
     else ids.push(hit.id);
     selection = ids.length > 0 ? { kind: "coins", ids } : null;
+  } else if (hit.kind === "cluster" && nsActive() && collapsed &&
+      selection?.kind === "cluster" && selection.id !== hit.id) {
+    // ns-social paused examination: the second vertex completes a
+    // proposal (clicking the same second vertex again withdraws it)
+    nsSecond = nsSecond === hit.id ? null : hit.id;
+    reflectOverlays();
   } else if (selection?.kind === hit.kind && selection.id === hit.id) {
     selection = null; // clicking the selected tx/cluster again deselects
+    nsSecond = null;
   } else {
     selection = { kind: hit.kind, id: hit.id };
+    nsSecond = null;
     if (hit.kind === "cluster" && lens === 0) {
       // under the all-seeing lens a cluster IS a person: open their profile
       const o = active().chain.coins.get(hit.id)?.owner;
@@ -1781,6 +2046,13 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
   if (lens === 1 && ciohMax < CIOH_MAX_OFF) state.cm = ciohMax;
   if (lens === 1 && showMistakes) state.mi = 1;
+  if (lens === 1 && nsSocial) {
+    state.ns = [1, Math.round(nsThreshold * 100), nsParts, Math.min(nsCursor, nsRun().length)];
+    if (nsManual.length > 0) {
+      state.nm = nsManual.map((e) =>
+        [e.a, e.b, Math.round(e.score * 1000), e.forced ? 1 : 0]);
+    }
+  }
   if (forceLayout) state.fd = 1;
   if (scene === 1) {
     state.sc = 1;
@@ -1942,6 +2214,20 @@ async function init(): Promise<void> {
   }
   if (state?.mi === 1) {
     showMistakes = true;
+    reflectOverlays();
+  }
+  if (state?.ns !== undefined && state.ns[0] === 1) {
+    nsSocial = true;
+    nsThreshold = state.ns[1] / 100;
+    nsParts = state.ns[2];
+    // the manual entries restore before the cursor clamps against the run
+    if (state.nm !== undefined) {
+      nsManual = state.nm.map(([a, b, s, f]) => ({
+        kind: "merge" as const, a, b, score: s / 1000, ...(f === 1 ? { forced: true } : {}),
+      }));
+    }
+    nsCursor = state.ns[3];
+    nsRun(); // clamps the cursor against the actual run length
     reflectOverlays();
   }
   if (state?.fd === 1) setForceLayout(true, false);

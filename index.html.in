@@ -63,6 +63,14 @@
             font-size: 12px; opacity: 0.75; }
   #overlays .ovslider input[type="range"] { flex: 1; margin: 0; min-width: 0; }
   #overlays .ovslider output { min-width: 22px; text-align: right; }
+  #overlays .nsrow { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px 20px; }
+  #overlays .nsrow button, #overlays #nsproposal button { background: #33363e; color: #d8dade;
+    border: 1px solid #4a4e57; border-radius: 5px; padding: 1px 8px; cursor: pointer;
+    font: inherit; font-size: 11px; }
+  #overlays .nsrow button:hover, #overlays #nsproposal button:hover { background: #3d414a; }
+  #overlays .nsrow span { opacity: 0.6; font-size: 11px; }
+  #overlays #nsproposal { margin: 0 0 6px 20px; display: flex; align-items: center; gap: 6px; }
+  #overlays .nshint { opacity: 0.6; font-size: 11px; }
   #decisions { position: fixed; right: 16px; bottom: 64px; display: none; width: 330px;
             max-height: 46vh; overflow-y: auto; background: #24262cf2;
             border: 1px solid #3a3e46; border-radius: 10px; padding: 10px 12px;
