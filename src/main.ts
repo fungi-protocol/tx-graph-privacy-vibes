@@ -581,8 +581,11 @@ function lensClusterPaint(): ClusterPaint {
     // same-owner subset is what the observer got right; everything else
     // in the disc is error, and what that owner holds elsewhere is what
     // the observer is missing. An adversary wants errors low and
-    // completeness high.
+    // completeness high. Grading is the storyteller's, not the
+    // observer's — it only shows when the learner asked to be shown
+    // mistakes, the same gate every other truth-graded display uses.
     score: (rep) => {
+      if (!showMistakes) return "";
       const members = cl.members.get(rep) ?? [rep];
       if (members.length < 2) return "";
       const byOwner = new Map<number | null, number>();
