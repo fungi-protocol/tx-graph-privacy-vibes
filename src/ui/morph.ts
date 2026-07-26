@@ -340,7 +340,7 @@ export function drawMorph(
       ctx.fillText(`${tid} — ${paint.txMemo(tx) ?? "transaction"}`, frame.x + 10, frame.y + 17);
       ctx.fillStyle = "#6d727d";
       ctx.font = "10px system-ui, sans-serif";
-      ctx.fillText(`fee ${fmtSats(tx.fee)} sats @ ${tx.feerate} sat/vb`, frame.x + 10, frame.y + 33);
+      ctx.fillText(`fee ${fmtSats(tx.fee)} sats @ ${tx.feerate} sat/vb${lockText(tx)}`, frame.x + 10, frame.y + 33);
       ctx.restore();
     } else {
       // square node: bare id; memo and fee move to the caption below so
@@ -356,7 +356,7 @@ export function drawMorph(
       const memo = paint.txMemo(tx);
       if (memo) ctx.fillText(memo, frame.x + frame.w / 2, frame.y + frame.h + 12);
       ctx.fillStyle = "#6d727d";
-      ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 24 : 12));
+      ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb${lockText(tx)}`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 24 : 12));
       if (flag) {
         ctx.fillStyle = "#e15759";
         ctx.fillText(`✗ ${flag}`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 36 : 24));
@@ -419,6 +419,14 @@ export function drawMorph(
   ctx.globalAlpha = 1;
 }
 
+/** the transaction's nLockTime, as the record shows it (#93): wallets
+ *  that anti-fee-snipe set it to the current tip height, others leave
+ *  it zero — public on the face of every transaction, so shown beside
+ *  the fee in both views. Absent where no wallet was named. */
+function lockText(tx: { locktime?: "tip" | "zero" }): string {
+  return tx.locktime === undefined ? "" : ` · nLockTime ${tx.locktime === "tip" ? "tip" : "0"}`;
+}
+
 function drawCoinBox(
   ctx: CanvasRenderingContext2D,
   coin: Coin,
@@ -438,7 +446,18 @@ function drawCoinBox(
   ctx.font = unspent ? "700 12px system-ui, sans-serif" : "400 12px system-ui, sans-serif";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
-  ctx.fillText(fmtSats(coin.value), rect.x + rect.w / 2, rect.y + rect.h / 2);
+  // the script family is public record on the face of the output (#93):
+  // shown under the amount, small enough to need a zoom, like the chain
+  if (coin.addr?.script !== undefined) {
+    ctx.fillText(fmtSats(coin.value), rect.x + rect.w / 2, rect.y + rect.h / 2 - 3);
+    ctx.save();
+    ctx.globalAlpha *= 0.7;
+    ctx.font = "7px system-ui, sans-serif";
+    ctx.fillText(coin.addr.script, rect.x + rect.w / 2, rect.y + rect.h / 2 + 9);
+    ctx.restore();
+  } else {
+    ctx.fillText(fmtSats(coin.value), rect.x + rect.w / 2, rect.y + rect.h / 2);
+  }
   ctx.textAlign = "left";
 }
 
