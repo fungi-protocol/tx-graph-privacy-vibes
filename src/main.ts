@@ -1256,7 +1256,8 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
 // stays, even through the remove-one-clue rerun. A step can also unhide
 // a row it only points at (TutorialStep.reveals), and leaving the tour
 // — done or skip — or arriving on a tourless link reveals everything.
-type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "nssoc" | "nsnf" | "kyc" | "aux" | "grading";
+type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "nssoc" | "nsnf" | "kyc" | "aux" | "grading"
+  | "chusd" | "chbtc" | "chscript" | "chaux";
 const seenRows = new Set<PanelRow>();
 let allRowsSeen = false;
 function rowsOnNow(): Record<PanelRow, boolean> {
@@ -1274,6 +1275,13 @@ function rowsOnNow(): Record<PanelRow, boolean> {
     kyc: kycObs || auxFrac > 0,
     aux: auxFrac > 0,
     grading: showMistakes,
+    // the change heuristic's family members stage one at a time: a
+    // member counts as introduced only when it RUNS under a live
+    // change row — mirroring the walked-path staging of the rows
+    chusd: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_USD) !== 0,
+    chbtc: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_BTC) !== 0,
+    chscript: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_SCRIPT) !== 0,
+    chaux: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_AUX) !== 0,
   };
 }
 // the elements a row owns: its label plus any nested controls, and the
@@ -1292,17 +1300,23 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     case "nssoc": return [byId("nssoc")];
     case "nsnf": return [byId("nsnf")];
     case "kyc": return [h3[1] ?? null, byId("kycobs")];
+    case "chusd": return [byId("chusd")];
+    case "chbtc": return [byId("chbtc")];
+    case "chscript": return [byId("chscript")];
+    case "chaux": return [byId("chaux")];
     case "aux": return [document.getElementById("auxfrac")?.closest(".ovslider") ?? null, document.getElementById("auxhint")];
     case "grading": return [h3[2] ?? null, byId("mistakes")];
   }
 }
 function reflectOverlays(): void {
-  // marks are taken only with the observer panel in view: the cards
-  // chapter's walked-path overlays must not pre-reveal rows the
-  // observer chapter means to introduce one at a time
+  // no marks are taken here: the live knobs pass through transient
+  // mixes while a tutorial step's changes route through the worker as
+  // separate commits (the observer lens landing before its overlays
+  // would read the cards chapter's defaults and reveal every row at
+  // once) — the tutorial's onStepChange marks rows off the walked
+  // path's declared values instead
   const rowOn = rowsOnNow();
   const rowKeys = Object.keys(rowOn) as PanelRow[];
-  if (lens === 1) for (const k of rowKeys) { if (rowOn[k]) seenRows.add(k); }
   let anyHeuristic = false;
   for (const k of rowKeys) {
     const show = allRowsSeen || seenRows.has(k) || rowOn[k];
@@ -1680,6 +1694,18 @@ document.getElementById("mistakes")!.addEventListener("change", (e) => {
 // partitions, and the tween feeds nothing)
 function setOverlays(mask: number): void {
   commitKnobs(() => { overlays = mask & OV_ALL; }, () => {
+    const before = repartitionStart();
+    reflectOverlays();
+    startRepartitionTween(before);
+    recomputeTrace();
+    draw();
+    void syncFragment();
+  });
+}
+/** tutorial-driven staging of the change/payment identification's
+ *  heuristics — the same repartition tween as a checkbox toggle */
+function setChangeTells(mask: number): void {
+  commitKnobs(() => { changeTells = mask & TELL_ALL; }, () => {
     const before = repartitionStart();
     reflectOverlays();
     startRepartitionTween(before);
@@ -2747,14 +2773,40 @@ const tutorial = new Tutorial(steps, {
     allRowsSeen = true;
     setScene(1, eco ? economy().day : 0);
     setOverlays(OV_ALL);
+    if (changeTells !== TELL_ALL) setChangeTells(TELL_ALL);
     if (grantsOn()) setGrants(false, 0); // the dial is the player's to turn
     readableHandoff();
   },
   onStepChange: (index) => {
-    // a step that only points at a panel row (rather than running it)
-    // unhides it for every step at or after it — walked-path rule
+    // walked-path row marks, computed from the steps themselves: every
+    // row a lens-1 step up to here ran (or `reveals`) stays visible
+    // from then on. The marks cannot be read off the live knobs — a
+    // step's changes route through the analysis worker as separate
+    // commits, so mid-flight one commit's value pairs with another's
+    // still pending and rows the story has not introduced yet would
+    // read as running
+    let ov = 3, ct = TELL_ALL, kyc = 0, aux = 0;
     for (let i = 0; i <= index; i++) {
-      for (const r of steps[i]?.reveals ?? []) seenRows.add(r as PanelRow);
+      const s = steps[i];
+      if (!s) continue;
+      if (s.overlays !== undefined) ov = s.overlays;
+      if (s.changeTells !== undefined) ct = s.changeTells;
+      if (s.grants !== undefined) [kyc, aux] = s.grants;
+      for (const r of s.reveals ?? []) seenRows.add(r as PanelRow);
+      if (s.lens !== 1) continue;
+      const eo = (ov & OV_SUBSUM) !== 0 ? ov | OV_CIOH : ov;
+      if ((eo & OV_REUSE) !== 0) seenRows.add("reuse");
+      if ((eo & OV_CIOH) !== 0) seenRows.add("cioh");
+      if ((eo & OV_SUBSUM) !== 0) seenRows.add("subsum");
+      if ((eo & OV_CHANGE) !== 0) {
+        seenRows.add("change");
+        if ((ct & TELL_USD) !== 0) seenRows.add("chusd");
+        if ((ct & TELL_BTC) !== 0) seenRows.add("chbtc");
+        if ((ct & TELL_SCRIPT) !== 0) seenRows.add("chscript");
+        if ((ct & TELL_AUX) !== 0) seenRows.add("chaux");
+      }
+      if (kyc !== 0 || aux > 0) seenRows.add("kyc");
+      if (aux > 0) seenRows.add("aux");
     }
     reflectOverlays();
     // the hide filter ("h") outlives selections; combined with a step
@@ -2776,6 +2828,9 @@ const tutorial = new Tutorial(steps, {
   },
   onOverlays: (ov) => {
     if (ov !== overlays) setOverlays(ov);
+  },
+  onChangeTells: (ct) => {
+    if (ct !== changeTells) setChangeTells(ct);
   },
   onGrants: (kyc, aux) => {
     if ((kyc === 1) !== kycObs || aux / 100 !== auxFrac) setGrants(kyc === 1, aux / 100);

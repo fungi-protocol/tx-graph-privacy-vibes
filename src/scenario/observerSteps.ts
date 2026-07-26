@@ -42,11 +42,8 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         stories — only what the chain itself records. Amounts, fees, and
         which output feeds which input.</p>
         <p>This bare structure is the observer's raw material — public,
-        permanent, and downloadable by anyone. Everything the observer
-        will ever claim about it is an <b>inference</b> laid on top. The
-        next steps switch those inferences on, one at a time — each lands
-        on a <b>heuristics</b> panel on the left as it arrives, yours to
-        flip from then on.</p>`,
+        permanent, and downloadable by anyone. This chapter is about
+        what an observer can make of it.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
@@ -110,9 +107,14 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
     {
       id: "coins-spent-together",
       title: "Coins spent together",
-      html: `<p>The first inference: a transaction that spends
-        <b>several coins at once</b> is evidence that one entity owns them
-        all — whoever signed it could spend each of them. This is the
+      html: `<p>Everything so far was <i>read</i> off the record or off a
+        ledger. From here the observer starts <b>guessing</b>: a
+        <b>heuristic</b> is a rule of thumb laid over the record — usually
+        right, never guaranteed. Each one lands on the panel on the left
+        as it is introduced, yours to flip from then on.</p>
+        <p>The first: a transaction that spends <b>several coins at
+        once</b> is evidence that one entity owns them all — whoever
+        signed it could spend each of them. This is the
         <b>common-input-ownership heuristic</b> (CIOH), and it is as old
         as Bitcoin: the same whitepaper paragraph that urged a fresh key
         per transaction admits that multi-input spends "necessarily reveal
@@ -156,6 +158,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       view: 1,
       lens: 1,
       overlays: 11,
+      changeTells: 3,
       scene: 1,
       minDay: 21,
     },
@@ -189,6 +192,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       view: 1,
       lens: 1,
       overlays: 11,
+      changeTells: 11,
       scene: 1,
       minDay: 21,
     },
@@ -275,6 +279,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       view: 2,
       lens: 1,
       overlays: 11,
+      changeTells: 15,
       grants: [1, 0],
       scene: 1,
       minDay: 21,

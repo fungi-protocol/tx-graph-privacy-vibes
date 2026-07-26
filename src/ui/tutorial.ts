@@ -23,6 +23,11 @@ export interface TutorialStep {
    * introduces it switches it on (a jump to any step lands on the same
    * value the walked path would) */
   overlays?: number;
+  /** lens 1: which of the change/payment identification's heuristics
+   * run (TELL_* bitmask); undefined = inherit from the last step that
+   * set it (default all), same walked-path rule as `overlays`, so the
+   * chapter can introduce the family one member at a time */
+  changeTells?: number;
   /** lens 1: the observer's knowledge grant [1 = KYC records held,
    * auxiliary reveals as % of coins]; undefined = inherit from the last
    * step that set it (default none — the plain observer), same rule as
@@ -50,6 +55,8 @@ export interface TutorialCallbacks {
   onLens?: (lens: 0 | 1 | 2, agent?: number) => void;
   /** observer-lens steps set which heuristics run, after lens */
   onOverlays?: (overlays: number) => void;
+  /** observer-lens steps stage the change/payment heuristics too */
+  onChangeTells?: (mask: number) => void;
   /** observer-lens steps set the knowledge grant, after overlays */
   onGrants?: (kyc: number, aux: number) => void;
   /** scene change + fast-forward requirement, fired before focus */
@@ -115,6 +122,12 @@ export class Tutorial {
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
+    // the family mask lands before the change row turns on: the two
+    // route through the analysis worker as separate commits, and the
+    // overlays commit must not surface with last step's wider mask
+    // still in effect (that transient would mark the not-yet-introduced
+    // family members as seen and unhide them early)
+    if (animate) this.cb.onChangeTells?.(this.changeTellsAt(this.index));
     if (animate) this.cb.onOverlays?.(this.overlaysAt(this.index));
     if (animate) {
       const [kyc, aux] = this.grantsAt(this.index);
@@ -141,6 +154,16 @@ export class Tutorial {
       if (o !== undefined) return o;
     }
     return 3;
+  }
+
+  /** effective change/payment heuristics at a step, same walked-path
+   *  rule as overlaysAt; before any step declares one, all of them */
+  private changeTellsAt(index: number): number {
+    for (let i = index; i >= 0; i--) {
+      const t = this.steps[i]!.changeTells;
+      if (t !== undefined) return t;
+    }
+    return 15;
   }
 
   /** effective knowledge grant at a step, same walked-path rule as
