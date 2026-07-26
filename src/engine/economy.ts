@@ -351,8 +351,10 @@ export class Economy {
     this.txn += 1;
     const tid = `t${this.txn}`;
     this.chain.addTx(tid, this.day, [...inputs, contributed.id], [
-      { owner: payee, value: value + contributed.value, label: `${memo} + own coin` },
-      { owner: payer, value: inValue - value - fee, label: "change" },
+      // the payment output carries both parties' funds: the payer's payment
+      // plus the coin the payee contributed; the change is the payer's alone
+      { owner: payee, value: value + contributed.value, label: `${memo} + own coin`, funders: [payer, payee] },
+      { owner: payer, value: inValue - value - fee, label: "change", funders: [payer] },
     ], feerate, `${this.cast[payer]!.name} pays ${this.cast[payee]!.name} — ${memo} (payjoin)`);
     this.events.push({
       tid, day: this.day, payer, payee, memo, form: "payjoin",
@@ -454,6 +456,9 @@ export class Economy {
         owner: u,
         value: inValue(u) + net.get(u)! - shareOf(u),
         label: "after settling up",
+        // whose funds flow into u's output: u's own coins plus everyone
+        // who owed u — their payment arrives inside this very transaction
+        funders: [u, ...new Set(obls.filter((o) => o.payee === u && o.payer !== u).map((o) => o.payer))],
       })),
       feerate, `${names.join(", ")} settle up — ${obls.length} obligations (net settlement)`);
     // honest, shape-aware rationale: a pair hides nothing from its two
@@ -612,15 +617,17 @@ export class Economy {
     const gross = coins.map((cs) => cs[0]!.value + cs[1]!.value);
     const fee = txfee(4, 4, feerate);
     const share = [fee - Math.floor(fee / 2), Math.floor(fee / 2)];
-    const outs: { owner: number; value: number; label: string }[] = [];
+    const outs: { owner: number; value: number; label: string; funders: number[] }[] = [];
     for (let i = 0; i < 2; i++) {
       const usd = (gross[i]! * this.price) / 1e8;
       const round = this.sats(Math.max(10, Math.floor((usd * 0.45) / 10) * 10));
       const change = gross[i]! - round - share[i]!;
       if (round < DUST || change < DUST) return;
+      // no payment between them: each participant's outputs carry only
+      // that participant's own funds
       outs.push(
-        { owner: parts[i]!, value: round, label: "own funds, a round figure" },
-        { owner: parts[i]!, value: change, label: "own funds, the rest" },
+        { owner: parts[i]!, value: round, label: "own funds, a round figure", funders: [parts[i]!] },
+        { owner: parts[i]!, value: change, label: "own funds, the rest", funders: [parts[i]!] },
       );
     }
     this.txn += 1;
@@ -817,15 +824,17 @@ export class Economy {
     const share = Math.floor(fee / n);
     const biggest = parts.reduce((a, b) => (totalOf(a) >= totalOf(b) ? a : b));
     const shareOf = (u: number): number => share + (u === biggest ? fee - share * n : 0);
-    const outs: { owner: number; value: number; label: string }[] = [];
+    const outs: { owner: number; value: number; label: string; funders: number[] }[] = [];
     for (const u of parts) {
       const denoms = ds.get(u)!;
       const change = target(u, shareOf(u)) - denoms.reduce((s, d) => s + d, 0);
       if (change < DUST) return false;
-      for (const d of denoms) outs.push({ owner: u, value: d, label: "denominated" });
-      outs.push({ owner: u, value: change, label: "coinjoin change" });
+      // each participant's outputs carry that participant's own funds;
+      // the inline payment outputs carry the payer's
+      for (const d of denoms) outs.push({ owner: u, value: d, label: "denominated", funders: [u] });
+      outs.push({ owner: u, value: change, label: "coinjoin change", funders: [u] });
     }
-    if (pay) outs.push(...pay.outs);
+    if (pay) outs.push(...pay.outs.map((o) => ({ ...o, funders: [pay!.obl.payer] })));
 
     this.txn += 1;
     const tid = `t${this.txn}`;
