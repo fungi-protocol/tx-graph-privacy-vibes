@@ -249,10 +249,14 @@ export function drawMorph(
     }
     const hovered = hover?.kind === "tx" && hover.id === tid;
     const picked = sel?.txs.has(tid) ?? false;
+    const flag = txMuted(tid) ? null : paint.txFlag?.(tx) ?? null;
     ctx.strokeStyle = hovered ? "#d8dade" : picked ? "#ffffff" :
+      flag ? "#e15759" :
       attributed ? attributed : txMuted(tid) ? "#3f434b" : "#4a4e57";
-    ctx.lineWidth = hovered ? 2 : picked ? 2.5 : attributed ? 1.6 : 1.2;
+    ctx.lineWidth = hovered ? 2 : picked ? 2.5 : flag ? 2 : attributed ? 1.6 : 1.2;
+    if (flag) ctx.setLineDash([6, 4]);
     ctx.stroke();
+    ctx.setLineDash([]);
     ctx.textBaseline = "middle";
     if (t < 0.5) {
       // card header: memo and fee
@@ -280,8 +284,21 @@ export function drawMorph(
       if (memo) ctx.fillText(memo, frame.x + frame.w / 2, frame.y + frame.h + 12);
       ctx.fillStyle = "#6d727d";
       ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 24 : 12));
+      if (flag) {
+        ctx.fillStyle = "#e15759";
+        ctx.fillText(`✗ ${flag}`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 36 : 24));
+      }
       ctx.restore();
       ctx.textAlign = "left";
+    }
+    if (flag && t < 0.5) {
+      // card view: the grading line hangs under the card
+      ctx.save();
+      ctx.globalAlpha = (1 - 2 * t) * txAlpha(tid);
+      ctx.fillStyle = "#e15759";
+      ctx.font = "10px system-ui, sans-serif";
+      ctx.fillText(`✗ ${flag}`, frame.x + 10, frame.y + frame.h + 12);
+      ctx.restore();
     }
   }
   ctx.globalAlpha = 1;

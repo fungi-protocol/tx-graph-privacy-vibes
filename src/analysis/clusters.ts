@@ -190,6 +190,45 @@ export function clusterObserver(
   return { rep, members, rank, changeGuess, welds };
 }
 
+/** one graded error in the observer's map: a weld whose coins do NOT in
+ *  truth share an owner — an incorrect local inference, named by the
+ *  heuristic that made it */
+export interface Mistake {
+  tx: TxId;
+  method: Weld["method"];
+  /** short display line for the learner */
+  note: string;
+}
+
+/**
+ * GRADING, not analysis: judge every weld in the observer's ledger
+ * against the town's hidden truth. A weld is a mistake when the coins
+ * it claims share an owner actually belong to different users — the
+ * change guess picked the payment output and welded the payee's coin
+ * into the payer's cluster, CIOH read a multi-party spend as one
+ * owner, or a balanced sub-transaction part mixed two users' coins.
+ * Truth flows only toward the learner's display (the latent-truth
+ * rule): no heuristic reads this, and the observer could never draw
+ * this list themselves.
+ */
+export function gradeWelds(chain: Chain, welds: Weld[]): Map<TxId, Mistake[]> {
+  const out = new Map<TxId, Mistake[]>();
+  for (const w of welds) {
+    const owners = new Set(w.coins.map((c) => chain.coins.get(c)!.owner));
+    if (owners.size < 2) continue;
+    const note =
+      w.method === "change"
+        ? "the change guess picked another user's payment"
+        : w.method === "cioh"
+          ? `CIOH read ${owners.size} users' inputs as one owner`
+          : "a balanced part mixes different users' coins";
+    const l = out.get(w.tx);
+    if (l) l.push({ tx: w.tx, method: w.method, note });
+    else out.set(w.tx, [{ tx: w.tx, method: w.method, note }]);
+  }
+  return out;
+}
+
 /** assemble a Clustering from a coin -> group assignment; coins keyed
  *  null stay singletons. Rank is by size, as in the observer's map. */
 function partitionBy(chain: Chain, keyOf: (id: CoinId) => string | null): Clustering {

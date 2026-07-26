@@ -13,6 +13,11 @@ export interface Paint {
   /** when every input belongs to one cluster/owner under this lens, the
    *  transaction itself is attributable — tint it that color */
   txAttribution?(tx: Tx, chain: Chain): string | null;
+  /** storyteller's grading of this lens's own inferences: a short line
+   *  marking a transaction where a local inference is wrong against the
+   *  hidden truth (e.g. the change guess picked the payment output).
+   *  Rendered as a warning on the transaction; null = no mistake */
+  txFlag?(tx: Tx): string | null;
 }
 
 /**
