@@ -39,6 +39,31 @@ test("truthSlices: a pure cluster is one slice, a mixed one lists every owner la
   assert.deepEqual(pure[0], { color: "#ccc", frac: 1 });
 });
 
+// #108: when "point out mistakes" is off, the discs wear the observer's
+// own bookkeeping — the same color function drives disc fill and slices,
+// so a coloring that is constant per cluster (the observer's palette)
+// collapses every disc to a single slice, and only a genuinely mixed
+// attribution (disclosed grants naming different people inside one
+// cluster) renders a divided disc. Truth pies are the mistakes-mode
+// grading, not the default.
+test("truthSlices under a per-cluster color function: one slice per disc; grant mixes still show (#108)", () => {
+  const cl = partition([["a1", "a2", "b1"], ["c1"]]);
+  // the observer's palette: every member of a cluster shares its rep's color
+  const palette = (id: string): string => (cl.rep.get(id) === "a1" ? "#e5726c" : "#565b64");
+  for (const rep of ["a1", "c1"]) {
+    const s = truthSlices(cl, rep, palette);
+    assert.equal(s.length, 1, `${rep}: the observer's own reading is undivided`);
+    assert.equal(s[0]!.frac, 1);
+    assert.equal(s[0]!.color, palette(rep));
+  }
+  // a grant attributing b1 to someone else honestly divides the disc
+  const granted = (id: string): string => (id === "b1" ? "#7ab648" : palette(id));
+  const mixed = truthSlices(cl, "a1", granted);
+  assert.equal(mixed.length, 2);
+  assert.deepEqual(mixed[0], { color: "#e5726c", frac: 2 / 3 });
+  assert.deepEqual(mixed[1], { color: "#7ab648", frac: 1 / 3 });
+});
+
 test("fitClusterLayout: a similarity map into the target rect — centered, aspect kept, radii scaled", () => {
   const cl = partition([["a1", "a2"], ["b1", "b2"], ["c1"]]);
   const lay = layoutClusterGraph(cl);

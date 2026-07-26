@@ -574,13 +574,18 @@ function singletonRing(): ClusterLayout {
   return collapseState().ring;
 }
 // In the contracted view the TOPOLOGY carries the lens's information
-// (its partition shapes the vertices), so paint is freed to be the
-// town's ground truth on every lens: each vertex wears the true owners
-// of its member coins, and a vertex the lens wrongly merged renders as
-// a multi-color disc — cluster collapse made visible. This is the
-// grading direction of the latent-truth rule (truth judging the
-// partition, drawn for the learner); no analysis reads it, and the
-// coin-graph views keep each lens's own bookkeeping palette.
+// (its partition shapes the vertices). Paint follows the lens's own
+// bookkeeping — the observer's discs wear the observer's palette and
+// grant attributions, exactly like its coin-graph view, because the
+// observer cannot see its own mislabelings. Only when the learner asks
+// to be shown mistakes does paint switch to the town's ground truth:
+// each vertex then wears the true owners of its member coins, and a
+// vertex the lens wrongly merged renders as a multi-color disc —
+// cluster collapse made visible. That is the grading direction of the
+// latent-truth rule (truth judging the partition, drawn for the
+// learner), behind the same gate as every other truth-graded display.
+// The omniscient and agent lenses keep truth paint always — their
+// partitions ARE their knowledge, so nothing is leaked.
 function lensClusterPaint(): ClusterPaint {
   const chain = active().chain;
   const cl = lensClustering();
@@ -588,9 +593,19 @@ function lensClusterPaint(): ClusterPaint {
     const o = chain.coins.get(id)!.owner;
     return o === null ? "#e8e5da" : ownerColor(o);
   };
+  // the observer's own reading of a coin, mirroring observerPaint's
+  // coinFill: a granted coin is disclosed (or propagated) attribution,
+  // anything else wears the observer's cluster palette — gray where its
+  // map says nothing
+  const attr = lens === 1 && grantsOn() ? grantState().attr : null;
+  const obsColor = (id: string): string => {
+    const a = attr?.get(id);
+    return a ? (a.owner === null ? "#e8e5da" : ownerColor(a.owner)) : clusterColor(cl, id);
+  };
+  const paintColor = lens === 1 && !showMistakes ? obsColor : truthColor;
   const base = {
-    color: truthColor,
-    slices: (rep: string) => truthSlices(cl, rep, truthColor),
+    color: paintColor,
+    slices: (rep: string) => truthSlices(cl, rep, paintColor),
   };
   if (unclustered) {
     // the lattice bottom carries no partition information to caption:

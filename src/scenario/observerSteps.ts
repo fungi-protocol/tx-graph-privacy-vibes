@@ -247,8 +247,9 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         the layout changed.</p>
         <p>Nothing is merged yet. The ring is the raw material every
         clustering starts from: each dot a coin the observer has, so far,
-        no opinion about. Its color is the coin's true owner — the town's
-        truth, not the observer's knowledge — so you can watch what the
+        no opinion about — which is why they all wear the same
+        noncommittal gray. This drawing shows only what the observer
+        believes, and right now it believes nothing. Watch what the
         guesses do to it next.</p>`,
       focus: () => pad(clusterBounds()),
       view: 3,
@@ -269,13 +270,13 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         <b>social graph</b>. With complete clustering it would be the user
         network itself; incomplete, it is a <b>pseudonym graph</b> — several
         vertices may still be one person.</p>
-        <p>One honest trick in this drawing: the vertices' <b>shape</b> is
-        the observer's partition, but the <b>paint</b> is the town's truth
-        — each coin keeps its true owner's color, which the observer
-        cannot see. A one-color stack holds one person's coins; a stack
-        mixing colors merged different people together — a <b>cluster
-        collapse</b> you can spot at a glance. Flip the heuristics on the
-        left and watch the stacks merge and split.</p>`,
+        <p>Both the <b>shape</b> and the <b>paint</b> here are the
+        observer's own bookkeeping: each stack wears its cluster's color,
+        and coins the map says nothing about stay gray. If a cluster
+        wrongly merges two people, the stack looks as confident as any
+        other — the observer cannot see its own mistakes, or it would not
+        make them. Flip the heuristics on the left and watch the stacks
+        merge and split.</p>`,
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,
