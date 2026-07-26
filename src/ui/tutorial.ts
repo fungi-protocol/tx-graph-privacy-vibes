@@ -11,8 +11,10 @@ export interface TutorialStep {
   html: string | (() => string);
   /** world rect to frame when the step becomes active (function = resolved late) */
   focus?: Rect | (() => Rect);
-  /** which view this step wants: 0 = block explorer, 1 = bipartite, 2 = clusters */
-  view?: 0 | 1 | 2;
+  /** which view this step wants: 0 = block explorer, 1 = bipartite,
+   *  2 = clusters, 3 = the singleton ring (clusters view, unclustered —
+   *  the coin graph laid on the time circle, nothing stacked) */
+  view?: 0 | 1 | 2 | 3;
   /** which lens this step wants: 0 = all-seeing, 1 = observer, 2 = agent */
   lens?: 0 | 1 | 2;
   /** lens 2: whose eyes (function = resolved late; undefined = app default) */
@@ -58,7 +60,7 @@ export interface Rect { x: number; y: number; w: number; h: number }
 export interface TutorialCallbacks {
   onFocus: (focus: Rect) => void;
   onStepChange?: (index: number) => void;
-  onView?: (view: 0 | 1 | 2) => void;
+  onView?: (view: 0 | 1 | 2 | 3) => void;
   onLens?: (lens: 0 | 1 | 2, agent?: number) => void;
   /** observer-lens steps set which heuristics run, after lens */
   onOverlays?: (overlays: number) => void;

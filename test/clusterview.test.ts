@@ -7,7 +7,7 @@
 // the whole cluster, and every fragment must come from a real old disc.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout } from "../src/ui/clusterview";
+import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout, pileOffset } from "../src/ui/clusterview";
 import { type Clustering } from "../src/analysis/clusters";
 import { clusterObserver } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
@@ -87,6 +87,31 @@ test("transitionFragments: a merge starts as both old discs, a split starts as o
   assert.equal(fa[0]!.y, fb[0]!.y);
   const whole = wideClay.nodes.get("a1")!;
   assert.ok(fa[0]!.r < whole.r, "a piece is smaller than the disc it leaves");
+});
+
+test("transitionFragments carry their member coins: the pieces partition the new cluster (#95)", () => {
+  const oldCl = partition([["a1", "a2"], ["b1", "b2"]]);
+  const oldClay = layoutClusterGraph(oldCl);
+  const merged = partition([["a1", "a2", "b1", "b2"]]);
+  const mf = transitionFragments(oldCl, oldClay, merged).get("a1")!;
+  const all = mf.flatMap((f) => f.coins).sort();
+  assert.deepEqual(all, ["a1", "a2", "b1", "b2"]);
+  for (const f of mf) {
+    const from = oldCl.rep.get(f.coins[0]!);
+    assert.ok(f.coins.every((id) => oldCl.rep.get(id) === from),
+      "each piece's coins all come from one old cluster");
+  }
+});
+
+test("pileOffset: a cluster's stack of coin dots packs inside its layout radius (#95)", () => {
+  for (const n of [1, 2, 5, 10, 50, 200, 1000]) {
+    const rim = n >= 2 ? 12 + 7 * Math.sqrt(n) : 5;
+    for (let i = 0; i < n; i++) {
+      const o = pileOffset(i);
+      assert.ok(Math.hypot(o.dx, o.dy) + 5 <= rim + 1e-9,
+        `dot ${i} of ${n} stays inside the rim`);
+    }
+  }
 });
 
 test("truth paint stays honest on a real run: every observer vertex's slices sum to 1 and mixed vertices exist to expose", () => {

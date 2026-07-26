@@ -234,22 +234,46 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       minDay: 21,
     },
     {
+      id: "a-timeline-on-a-circle",
+      title: "A timeline on a circle",
+      html: `<p>Before the clusters pay off, change how the record is
+        drawn. Watch: every coin shrinks from its labeled pill to a bare
+        <b>dot</b>, the dots line up by <b>time</b> — the same
+        left-to-right order the graph already had — and the line wraps
+        around a <b>circle</b>. The transfers travel with them: this is
+        the <b>same graph</b> as before, every coin still its own vertex,
+        every payment still an edge. Only the layout changed.</p>
+        <p>Nothing is merged yet. The ring is the raw material every
+        clustering starts from: each dot a coin the observer has, so far,
+        no opinion about. Its color is the coin's true owner — the town's
+        truth, not the observer's knowledge — so you can watch what the
+        guesses do to it next.</p>`,
+      focus: () => pad(clusterBounds()),
+      view: 3,
+      lens: 1,
+      overlays: 11,
+      scene: 1,
+      minDay: 21,
+    },
+    {
       id: "shrinking-the-map",
       title: "Shrinking the map",
-      html: `<p>Now <b>contract</b> the graph: fuse each cluster's coins
-        into a single vertex. What remains is a map of <b>transfers between
-        pseudonyms</b> — who pays whom, and how often.</p>
+      html: `<p>Now <b>contract</b> the graph: the dots the heuristics
+        cluster together slide around the ring and <b>stack</b> into a
+        single vertex — a stack of coins claimed to share an owner. What
+        remains is a map of <b>transfers between pseudonyms</b> — who pays
+        whom, and how often.</p>
         <p>This is the observer's real product. Not a pile of coins: a
         <b>social graph</b>. With complete clustering it would be the user
         network itself; incomplete, it is a <b>pseudonym graph</b> — several
         vertices may still be one person.</p>
         <p>One honest trick in this drawing: the vertices' <b>shape</b> is
         the observer's partition, but the <b>paint</b> is the town's truth
-        — each vertex wears its coins' true owners, which the observer
-        cannot see. A one-color vertex holds one person's coins; a vertex
-        wearing several colors merged different people together — a
-        <b>cluster collapse</b> you can spot at a glance. Flip the
-        heuristics on the left and watch the vertices merge and split.</p>`,
+        — each coin keeps its true owner's color, which the observer
+        cannot see. A one-color stack holds one person's coins; a stack
+        mixing colors merged different people together — a <b>cluster
+        collapse</b> you can spot at a glance. Flip the heuristics on the
+        left and watch the stacks merge and split.</p>`,
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,

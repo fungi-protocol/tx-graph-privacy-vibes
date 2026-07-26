@@ -100,34 +100,50 @@ export function truthSlices(
  *  partitions; the tween never feeds anything. */
 export interface ClusterTransition {
   t: number; // 0 = old discs, 1 = settled new layout
-  fragments: Map<CoinId, { x: number; y: number; r: number }[]>;
+  fragments: Map<CoinId, { x: number; y: number; r: number; coins: CoinId[] }[]>;
 }
 
 /** start-state fragments for animating oldCl/oldClay -> newCl: for each
  *  new cluster, one fragment per old disc its members came from, sized
- *  by the share of that old disc it takes with it */
+ *  by the share of that old disc it takes with it and carrying the
+ *  member coins it brings — a vertex is a stack of coins, so the tween
+ *  glides the coins themselves rather than crossfading discs */
 export function transitionFragments(
   oldCl: Clustering,
   oldClay: ClusterLayout,
   newCl: Clustering,
-): Map<CoinId, { x: number; y: number; r: number }[]> {
-  const out = new Map<CoinId, { x: number; y: number; r: number }[]>();
+): Map<CoinId, { x: number; y: number; r: number; coins: CoinId[] }[]> {
+  const out = new Map<CoinId, { x: number; y: number; r: number; coins: CoinId[] }[]>();
   for (const [rep, members] of newCl.members) {
-    const byOld = new Map<CoinId, number>();
+    const byOld = new Map<CoinId, CoinId[]>();
     for (const id of members) {
       const o = oldCl.rep.get(id);
-      if (o !== undefined) byOld.set(o, (byOld.get(o) ?? 0) + 1);
+      if (o === undefined) continue;
+      const l = byOld.get(o);
+      if (l) l.push(id); else byOld.set(o, [id]);
     }
-    const frags: { x: number; y: number; r: number }[] = [];
-    for (const [o, n] of byOld) {
+    const frags: { x: number; y: number; r: number; coins: CoinId[] }[] = [];
+    for (const [o, ids] of byOld) {
       const node = oldClay.nodes.get(o);
       if (!node) continue;
-      const share = n / oldCl.members.get(o)!.length;
-      frags.push({ x: node.x, y: node.y, r: Math.max(5, node.r * Math.sqrt(share)) });
+      const share = ids.length / oldCl.members.get(o)!.length;
+      frags.push({ x: node.x, y: node.y, r: Math.max(5, node.r * Math.sqrt(share)), coins: ids });
     }
     if (frags.length > 0) out.set(rep, frags);
   }
   return out;
+}
+
+/** where the i-th coin of a cluster sits inside its vertex: a sunflower
+ *  packing (golden-angle spiral) — a cluster is drawn as a STACK of its
+ *  member coins, dots packed inside the vertex's rim, not an abstract
+ *  disc. The spiral stays well inside the layout radius (12 + 7·sqrt n)
+ *  for any size. */
+export function pileOffset(i: number): { dx: number; dy: number } {
+  if (i === 0) return { dx: 0, dy: 0 };
+  const a = i * 2.399963229728653;
+  const r = 5.6 * Math.sqrt(i);
+  return { dx: Math.cos(a) * r, dy: Math.sin(a) * r };
 }
 
 /** Ring layout: every partition vertex — multi-coin clusters and the
@@ -446,12 +462,16 @@ function arrowAt(ctx: CanvasRenderingContext2D, x1: number, y1: number, tx: numb
  * mix of block and bipartite the morph phase shows), t = 1 the contracted
  * cluster graph — one dimension flattened, the helix seen end-on. With a
  * `ring` (the singleton layout) the morph passes THROUGH the bottom of the
- * refinement lattice: each coin first flies to its own slot on the time
- * ring — the layered timeline wrapping around the circle — and only then
- * stacks into its cluster's disc; expanding unstacks first. Transfer edges
- * fade in with the discs. `hover` names a vertex under the pointer: its
- * edges and neighbors hold full strength while the rest of the drawing
- * recedes.
+ * refinement lattice, in three legs (#95): the coin pills first shrink in
+ * place to bare dots, the dots then flatten into the timeline wrapped
+ * around the circle — the same graph in a different layout, its transfer
+ * edges riding the moving dots — and only once every coin is in position
+ * does the stacking run, each dot sliding along the perimeter into its
+ * cluster's stack, eased out so the ending lands gently. Nothing fades: a
+ * cluster vertex IS a stack of its member coins (a sunflower pile inside
+ * the rim), so the coins that flew are the coins that stack. Expanding
+ * unstacks first. `hover` names a vertex under the pointer: its edges and
+ * neighbors hold full strength while the rest of the drawing recedes.
  */
 export function drawContraction(
   ctx: CanvasRenderingContext2D,
@@ -468,11 +488,16 @@ export function drawContraction(
   ring?: ClusterLayout,
 ): void {
   const transT = trans ? trans.t : 1;
-  // with a ring waypoint the disc-side of the morph compresses into the
-  // second leg: nothing stacks until the coins have reached the ring
-  const RING_PHASE = 0.55;
-  const discT = ring ? Math.max(0, (t - RING_PHASE) / (1 - RING_PHASE)) : t;
+  // three legs (#95): shrink in place, flatten onto the ring, stack.
+  // The stacking leg eases out — the movement used to end too fast.
+  const DOT_PHASE = 0.16;
+  const RING_PHASE = 0.6;
+  const stackRaw = ring ? Math.max(0, (t - RING_PHASE) / (1 - RING_PHASE)) : t;
+  const discT = 1 - Math.pow(1 - Math.min(1, stackRaw), 3);
   const nodeOf = (id: CoinId): ClusterNode => clay.nodes.get(cl.rep.get(id)!)!;
+  // each coin's slot inside its cluster's stack
+  const pileIdx = new Map<CoinId, number>();
+  for (const members of cl.members.values()) members.forEach((id, i) => pileIdx.set(id, i));
   const hov = hover !== undefined && clay.nodes.has(hover) ? hover : undefined;
   const neighbors = new Set<CoinId>();
   if (hov !== undefined) {
@@ -518,6 +543,85 @@ export function drawContraction(
     }
   }
 
+  // the stacking leg slides each dot along the circle's perimeter into
+  // its stack, not straight across the middle: interpolate around the
+  // ring's center in polar coordinates
+  const pb = (ring ?? clay).bounds;
+  const pcx = pb.x + pb.w / 2, pcy = pb.y + pb.h / 2;
+  const arcLerp = (x0: number, y0: number, x1: number, y1: number, s: number): { x: number; y: number } => {
+    const a0 = Math.atan2(y0 - pcy, x0 - pcx), r0 = Math.hypot(x0 - pcx, y0 - pcy);
+    const a1 = Math.atan2(y1 - pcy, x1 - pcx), r1 = Math.hypot(x1 - pcx, y1 - pcy);
+    let da = a1 - a0;
+    if (da > Math.PI) da -= 2 * Math.PI;
+    else if (da < -Math.PI) da += 2 * Math.PI;
+    const a = a0 + da * s, rr = r0 + (r1 - r0) * s;
+    return { x: pcx + Math.cos(a) * rr, y: pcy + Math.sin(a) * rr };
+  };
+  // where a coin is DRAWN right now, through the three legs; the edge
+  // pass and the dot pass must agree, so it is memoized per frame
+  const DOT = 10;
+  const posMemo = new Map<CoinId, { x: number; y: number; w: number; h: number }>();
+  const coinPos = (id: CoinId): { x: number; y: number; w: number; h: number } => {
+    const memo = posMemo.get(id);
+    if (memo) return memo;
+    const from = coinRectAt(block, bip, id, morphT)!;
+    const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
+    const node = nodeOf(id);
+    const off = pileOffset(pileIdx.get(id) ?? 0);
+    const px = node.x + off.dx, py = node.y + off.dy;
+    const slot = ring?.nodes.get(id);
+    let out: { x: number; y: number; w: number; h: number };
+    if (slot) {
+      if (t < DOT_PHASE) {
+        const s = t / DOT_PHASE;
+        out = { x: cx0, y: cy0, w: from.w + (DOT - from.w) * s, h: from.h + (DOT - from.h) * s };
+      } else if (t < RING_PHASE) {
+        const s0 = (t - DOT_PHASE) / (RING_PHASE - DOT_PHASE);
+        const s = s0 * s0 * (3 - 2 * s0);
+        out = { x: cx0 + (slot.x - cx0) * s, y: cy0 + (slot.y - cy0) * s, w: DOT, h: DOT };
+      } else {
+        const p = columns
+          ? { x: slot.x + (px - slot.x) * discT, y: slot.y + (py - slot.y) * discT }
+          : arcLerp(slot.x, slot.y, px, py, discT);
+        out = { x: p.x, y: p.y, w: DOT, h: DOT };
+      }
+    } else {
+      out = {
+        x: cx0 + (px - cx0) * t, y: cy0 + (py - cy0) * t,
+        w: from.w + (DOT - from.w) * t, h: from.h + (DOT - from.h) * t,
+      };
+    }
+    posMemo.set(id, out);
+    return out;
+  };
+
+  // the graph's own transfer edges ride the flying coins (#95): from the
+  // first frame of the morph each transaction draws as direct coin-to-
+  // coin edges between wherever its coins are right now — the layout
+  // changes, the graph doesn't. They hand over to the contracted edges
+  // as the stacking runs.
+  if (ring && t < 0.98) {
+    const coinEdgeA = 0.55 * Math.min(1, t * 8) * (1 - discT);
+    if (coinEdgeA > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = coinEdgeA;
+      ctx.lineWidth = 1.2;
+      for (const tid of chain.order) {
+        const tx = chain.txs.get(tid)!;
+        const p0 = coinPos(tx.inputs[0]!);
+        ctx.strokeStyle = paint.color(tx.inputs[0]!);
+        for (const out of tx.outputs) {
+          const p1 = coinPos(out);
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
   // residual transfer edges (one per tx output whose source differs);
   // during a repartition tween they ride the discs, dimming only a
   // little while everything is in flight
@@ -552,49 +656,26 @@ export function drawContraction(
   }
   ctx.restore();
 
-  // coins gliding into their cluster's disc — with a ring, via their own
-  // slot on it: fly to the timeline-on-a-circle first, stack second
+  // the coins themselves, through all three legs — never fading (#95):
+  // the pills that shrink are the dots that fly are the stacks that
+  // settle. The node pass takes over drawing them at the very end.
   if (t < 0.98) {
     ctx.save();
+    ctx.globalAlpha = 1;
     for (const coin of chain.coins.values()) {
-      const from = coinRectAt(block, bip, coin.id, morphT)!;
-      const node = nodeOf(coin.id);
-      const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
-      const slot = ring?.nodes.get(coin.id);
-      let cx: number, cy: number, k: number, alpha: number;
-      if (slot) {
-        if (t < RING_PHASE) {
-          const s = t / RING_PHASE;
-          cx = cx0 + (slot.x - cx0) * s;
-          cy = cy0 + (slot.y - cy0) * s;
-          k = 1 - 0.5 * s;
-          alpha = 1;
-        } else {
-          const s = discT;
-          cx = slot.x + (node.x - slot.x) * s;
-          cy = slot.y + (node.y - slot.y) * s;
-          k = 0.5 - 0.3 * s;
-          alpha = 1 - s;
-        }
-      } else {
-        cx = cx0 + (node.x - cx0) * t;
-        cy = cy0 + (node.y - cy0) * t;
-        k = 1 - 0.8 * t;
-        alpha = 1 - t;
-      }
-      const w = from.w * k, h = from.h * k;
-      ctx.globalAlpha = alpha;
+      const p = coinPos(coin.id);
       ctx.beginPath();
-      ctx.roundRect(cx - w / 2, cy - h / 2, w, h, 12);
+      ctx.roundRect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h, Math.min(12, Math.min(p.w, p.h) / 2));
       ctx.fillStyle = paint.color(coin.id);
       ctx.fill();
     }
-    // tx squares fade toward the midpoint of their transfer
+    // tx squares fade toward the midpoint of their (moving) endpoints —
+    // a transaction is not a coin, so it alone contracts away
     ctx.globalAlpha = 1 - t;
     for (const tid of chain.order) {
       const tx = chain.txs.get(tid)!;
       const from = txRectAt(block, bip, tid, morphT)!;
-      const a = nodeOf(tx.inputs[0]!), b = nodeOf(tx.outputs[0]!);
+      const a = coinPos(tx.inputs[0]!), b = coinPos(tx.outputs[0]!);
       const tx2 = (a.x + b.x) / 2, ty2 = (a.y + b.y) / 2;
       const x = from.x + (tx2 - (from.x + from.w / 2)) * t;
       const y = from.y + (ty2 - (from.y + from.h / 2)) * t;
@@ -609,50 +690,57 @@ export function drawContraction(
     ctx.restore();
   }
 
-  // cluster discs: paint is the ground truth — a pure cluster is one
-  // color, a wrongly-merged one shows every true owner as a pie slice
-  const disc = (x: number, y: number, r: number, slices: { color: string; frac: number }[]): void => {
-    if (slices.length <= 1) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, 2 * Math.PI);
-      ctx.fillStyle = slices[0]?.color ?? "#e8e5da";
-      ctx.fill();
-    } else {
-      let a = -Math.PI / 2;
-      for (const s of slices) {
-        const a1 = a + s.frac * 2 * Math.PI;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.arc(x, y, r, a, a1);
-        ctx.closePath();
-        ctx.fillStyle = s.color;
-        ctx.fill();
-        a = a1;
-      }
-    }
+  // cluster vertices: each one a STACK of its member coins — dots in a
+  // sunflower pile inside a rim that marks the partition (#95). Paint is
+  // the ground truth per coin, so a wrongly-merged cluster shows mixed
+  // colors dot by dot.
+  const dot = (x: number, y: number, color: string): void => {
     ctx.beginPath();
-    ctx.arc(x, y, r, 0, 2 * Math.PI);
-    ctx.strokeStyle = "#111";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    ctx.arc(x, y, 5, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
   };
   for (const node of clay.nodes.values()) {
     const focus =
       hov === undefined || node.rep === hov || neighbors.has(node.rep) ? 1 : 0.3;
-    ctx.globalAlpha = (ring ? discT : Math.min(1, 0.25 + 0.75 * t)) * focus;
-    if (ctx.globalAlpha <= 0) continue;
-    const r = node.r * (0.4 + 0.6 * discT);
-    const slices = paint.slices(node.rep);
+    const nodeA = (ring ? discT : Math.min(1, 0.25 + 0.75 * t)) * focus;
+    if (nodeA <= 0) continue;
+    const members = cl.members.get(node.rep) ?? [node.rep];
     const frags = transT < 1 ? trans!.fragments.get(node.rep) : undefined;
-    if (frags && frags.length > 0) {
-      // repartition in flight: the old discs' pieces glide and grow
-      // into this vertex (merges converge, splits pull apart)
-      for (const f of frags) {
-        disc(f.x + (node.x - f.x) * transT, f.y + (node.y - f.y) * transT,
-          f.r + (r - f.r) * transT, slices);
+    // the stack itself: drawn here once the flight pass hands over, or
+    // through a repartition tween — each old piece's coins glide from
+    // their old pile slots to their new ones, stacks in motion, nothing
+    // fading in or out of existence
+    if (t >= 0.98) {
+      ctx.globalAlpha = focus;
+      if (frags && frags.length > 0) {
+        for (const f of frags) {
+          f.coins.forEach((id, i) => {
+            const o0 = pileOffset(i);
+            const o1 = pileOffset(pileIdx.get(id) ?? 0);
+            const x0 = f.x + o0.dx, y0 = f.y + o0.dy;
+            const x1 = node.x + o1.dx, y1 = node.y + o1.dy;
+            const p = columns ? { x: x0 + (x1 - x0) * transT, y: y0 + (y1 - y0) * transT }
+              : arcLerp(x0, y0, x1, y1, transT);
+            dot(p.x, p.y, paint.color(id));
+          });
+        }
+      } else {
+        for (const id of members) {
+          const o = pileOffset(pileIdx.get(id) ?? 0);
+          dot(node.x + o.dx, node.y + o.dy, paint.color(id));
+        }
       }
-    } else {
-      disc(node.x, node.y, r, slices);
+    }
+    // the rim marks the partition around the stack
+    ctx.globalAlpha = nodeA * transT;
+    const r = node.r * (0.4 + 0.6 * discT);
+    if (node.size >= 2) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+      ctx.strokeStyle = "#565b64";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
     const label = paint.label(node.rep);
     if (discT > 0.6 && transT > 0.6 && label) {
@@ -661,11 +749,20 @@ export function drawContraction(
         .map((id) => chain.coins.get(id)!)
         .filter((c) => c.dest === null)
         .reduce((s, c) => s + c.value, 0);
-      ctx.fillStyle = "#111";
+      // a small dark plate keeps the initial legible over the stack's
+      // speckle of coin dots
+      const center = paint.center(node.rep);
+      if (center) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 8.5, 0, 2 * Math.PI);
+        ctx.fillStyle = "#1b1d22e0";
+        ctx.fill();
+      }
+      ctx.fillStyle = "#d8dade";
       ctx.font = "600 12px system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(paint.center(node.rep), node.x, node.y);
+      ctx.fillText(center, node.x, node.y);
       ctx.fillStyle = "#8b919c";
       ctx.font = "10px system-ui, sans-serif";
       ctx.fillText(`${label} · ${node.size} coin${node.size === 1 ? "" : "s"}`, node.x, node.y + node.r + 12);

@@ -1129,7 +1129,8 @@ function setCollapsed(on: boolean, animate = true): void {
   }
   const from = collapseT;
   const to = on ? 1 : 0;
-  anim.add(80 + 1500 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
+  // three legs need room: shrink, flatten, stack (#95)
+  anim.add(80 + 2100 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
     { done: () => void syncFragment() });
   kick();
 }
@@ -2975,10 +2976,16 @@ const tutorial = new Tutorial(steps, {
     void syncFragment();
   },
   onView: (view) => {
-    // step "view 2" means: the graph flattened into clusters
-    const flat = view === 2;
+    // step "view 2" means the graph flattened into clusters; "view 3"
+    // the same flattening held at the lattice bottom — the singleton
+    // ring, nothing stacked (#95). Unclustering is set before the
+    // collapse so the morph flies straight to the ring; re-clustering
+    // on a later step runs the stacking as a repartition tween.
+    const flat = view >= 2;
     const base = (flat ? 1 : view) as 0 | 1;
     if (base !== targetView) setView(base);
+    const uc = view === 3;
+    if (uc !== unclustered) setUnclustered(uc, collapsed);
     if (flat !== collapsed) setCollapsed(flat);
   },
   onLens: (l, a) => {
