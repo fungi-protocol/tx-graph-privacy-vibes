@@ -114,15 +114,16 @@ export function coinjoinSteps(
       id: "even-insiders-are-blinded",
       title: "Even insiders are blinded",
       html: `<p>Here is what the earlier forms could not offer. A payjoin
-        counterparty knew exactly whose coins were whose; a settlement
-        insider could solve the edge they were not on. A coinjoin
-        participant eliminates their own coins and faces the same puzzle as
-        everyone else: <b>several strangers, and no reading they can
-        single out</b>. That takes arranging — these sessions are set up so
-        nobody learns whose outputs are whose, the strongest honest
-        version of the idea. Both are <b>protocol choices</b>: this town
-        coordinates its settlements in the open among the people involved,
-        and arranges its coinjoins blind.</p>
+        counterparty knew exactly whose coins were whose — two parties,
+        no protocol can help. A settlement insider's knowledge depends
+        on the protocol used to construct the transaction (a design
+        space this story does not model). A coinjoin makes the
+        guarantee explicit: a participant eliminates their own coins
+        and faces the same puzzle as everyone else — <b>several
+        strangers, and no reading they can single out</b>. That takes
+        arranging: these sessions are set up so nobody learns whose
+        outputs are whose, the strongest honest version of the idea, a
+        <b>protocol choice</b> this town discloses.</p>
         <p>You are looking through a participant's eyes: their own coins,
         the session they took part in — and gray where even an insider has
         nothing. Only a payment made through the session is known to its

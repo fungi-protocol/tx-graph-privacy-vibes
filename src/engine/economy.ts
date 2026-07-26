@@ -475,11 +475,13 @@ export class Economy {
           ? `${names.join(", ")} settle a full cycle of obligations in a single ` +
             "transaction. Only their net balances touch the chain; none of the " +
             "obligation amounts appear anywhere. Outsiders see one transaction; " +
-            "each insider can still work out the edge they are not on."
+            "what each insider learns beyond their own obligations depends on " +
+            "the protocol that built it — an exchange this simulation does not model."
           : `${names.join(", ")} settle ${obls.length} obligations in a single ` +
             "transaction. Only net balances touch the chain — though the " +
-            "endpoints' nets stay close to what they owed — and each insider " +
-            "can still work out the edge they are not on.";
+            "endpoints' nets stay close to what they owed. What each insider " +
+            "learns beyond their own obligations depends on the protocol that " +
+            "built it — an exchange this simulation does not model.";
     for (const o of obls) {
       this.events.push({ tid, day: this.day, payer: o.payer, payee: o.payee, memo: o.memo, form: "settlement", oblIds: [o.id], why });
     }

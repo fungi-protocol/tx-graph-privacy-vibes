@@ -1,7 +1,8 @@
 // Chapter 5: net settlement — the most general form of multiparty
 // payjoin. Several obligations, one transaction; only the net balances
-// touch the chain. Honest limits stay in frame: insiders can solve the
-// edge they are not on, and the graph keeps its community structure.
+// touch the chain. Honest limits stay in frame: what participants
+// learn depends on the protocol used to construct the transaction
+// (not modeled here), and the graph keeps its community structure.
 // The chapter DISPLAYS the computed sub-transaction verdict for its
 // selected settlement rather than asserting one — the same
 // verdict-conditional rule the coinjoin chapter follows.
@@ -112,21 +113,19 @@ export function settlementSteps(
       minDay: 60,
     },
     {
-      id: "insiders-do-the-math",
-      title: "Insiders can still do the math",
-      html: `<p>Hidden from outsiders — but what an <b>insider</b> learns
-        depends on the protocol the participants use to construct the
-        transaction. This town's settlements are coordinated in the
-        open: the room sees every contribution, and each participant
-        knows the obligations they are on — in this settlement, two of
-        the three. That is enough to <b>solve the edge they are not
-        on</b>: two knowns and the nets leave one unknown.</p>
-        <p>A protocol can be built to show each participant less — that
-        design space is outside this story. The town's open version
-        marks its simple end.</p>
-        <p>You are looking through one participant's eyes. Same rule as the
-        payjoin, more of it: every settlement adds to what its insiders
-        hold.</p>`,
+      id: "insiders-and-the-protocol",
+      title: "What an insider learns",
+      html: `<p>Hidden from outsiders — but what about the people
+        <i>inside</i> the transaction? Each participant knows the
+        obligations they are on, and, when only two people settle,
+        arithmetic alone hands each the rest — a pair hides nothing
+        from its two insiders. Beyond that, <b>what participants learn
+        depends on the protocol used to construct the transaction;
+        this simulation does not model that information
+        exchange</b>.</p>
+        <p>You are looking through one participant's eyes: their own
+        coins, the payments they were a party to — and gray where the
+        record alone, plus what this story models, says nothing.</p>`,
       focus: () => pad(settleFocus()),
       view: 0,
       lens: 2,

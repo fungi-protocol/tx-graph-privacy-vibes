@@ -65,12 +65,15 @@ export function gameSteps(
         full, yet no transaction anywhere says "$850, Judy to Heidi" — the
         amounts are hidden from every outsider.</p>
         <p>The win has a boundary, and it is worth knowing exactly where:
-        Heidi is an <b>insider</b>, so she still learns the coins Judy
-        contributed, and can solve the one edge she is not on. What
-        vanishes is the <b>public</b> trail — no monthly wallet-to-wallet
-        payment, no change output welding next month's rent to this one,
-        and only a net, smaller than the gross, on chain. Outsiders lose
-        the thread; Heidi merely has to do the math.</p>`,
+        Heidi is an <b>insider</b>, so she knows the obligation she is
+        on — the rent, owed and now settled. Whether she learns more —
+        which coins Judy contributed, what the others owed each other —
+        depends on the <b>protocol the three used to construct the
+        settlement</b>, an exchange this story does not model. What
+        vanishes for certain is the <b>public</b> trail — no monthly
+        wallet-to-wallet payment, no change output welding next month's
+        rent to this one, and only a net, smaller than the gross, on
+        chain.</p>`,
       focus: () => {
         const g = gameSettlement();
         return g ? g.rect : pad(bipBounds());

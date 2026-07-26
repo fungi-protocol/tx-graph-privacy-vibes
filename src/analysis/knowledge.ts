@@ -1,16 +1,16 @@
 // What one participant actually knows about the graph. Two sources:
 //   - their own wallet: every coin they ever owned, with its story;
-//   - every payment they took part in: a counterparty can eliminate
-//     their own inputs and outputs, so in a two-party transaction
-//     everything else is attributable to the other party; in a net
-//     settlement the participants coordinate openly, and a three-party
-//     insider can in any case solve the edge they are not on. Coinjoins
-//     are different: among several strangers, elimination leaves the
-//     rest ambiguous — an insider is nearly as blind as an outsider.
-//     (A protocol assumption, not a law of nature: sessions here are
-//     arranged so nobody learns whose outputs are whose — the strongest
-//     honest arrangement; a careless one leaks the mapping to whoever
-//     coordinates it.)
+//   - every payment they took part in: in a TWO-PARTY transaction a
+//     counterparty can eliminate their own inputs and outputs, and
+//     everything else is attributable to the other party — no protocol
+//     can prevent that. Multiparty forms are different: what a
+//     participant learns about the others depends on the protocol used
+//     to construct the transaction, and this simulation does not model
+//     that information exchange — so settlement participation records
+//     the transaction and the participant's own coins only, and a
+//     coinjoin insider (sessions here are arranged so nobody learns
+//     whose outputs are whose) only learns where their own payment
+//     went.
 // These are fixed points — they compound with every payment and never
 // decay. And they seed the same public heuristics an outsider runs: a
 // cluster that contains a coin the agent can attribute is attributed
@@ -50,18 +50,45 @@ export function agentKnowledge(
     if (c.owner === u) coins.set(c.id, { owner: u, direct: true });
   }
 
-  // payments taken part in: eliminating one's own coins attributes the
-  // rest — to the sole counterparty in a two-party form, and in a
-  // settlement to whoever contributed it (coordination plus arithmetic
-  // leave an insider no mystery about who signed what). A coinjoin is
-  // the exception: with several strangers in the room, eliminating
-  // one's own coins leaves everything else ambiguous among the rest —
-  // an insider only learns where their own payment went.
+  // payments taken part in: in a two-party form (unilateral payment,
+  // payjoin) eliminating one's own coins attributes the rest to the
+  // sole counterparty — protocol-independent. In the multiparty forms
+  // what a participant learns about the others depends on the protocol
+  // that constructed the transaction, and this simulation does not
+  // model that information exchange: a settlement records only the
+  // transaction itself (the participant knows the obligations they are
+  // on), and a coinjoin insider only learns where their own payment
+  // went (sessions are arranged so nobody learns whose outputs are
+  // whose).
   for (const ev of events) {
     if (ev.payer !== u && ev.payee !== u) continue;
     const tx = chain.txs.get(ev.tid);
     if (!tx) continue;
     txs.add(ev.tid);
+    if (ev.form === "settlement") {
+      // a settlement between exactly two people leaves nothing to a
+      // protocol: each side eliminates their own coins and the rest is
+      // the other's — the payjoin's arithmetic. With three or more,
+      // what an insider learns about the others depends on the
+      // protocol that constructed the transaction, and this simulation
+      // does not model that information exchange: only the transaction
+      // itself is recorded.
+      const parts = new Set<number>();
+      for (const e of events) {
+        if (e.tid !== ev.tid || e.form !== "settlement") continue;
+        parts.add(e.payer);
+        if (e.payee !== null) parts.add(e.payee);
+      }
+      if (parts.size === 2) {
+        for (const id of [...tx.inputs, ...tx.outputs]) {
+          const c = chain.coins.get(id)!;
+          if (c.owner !== u && parts.has(c.owner as number)) {
+            coins.set(id, { owner: c.owner, direct: true });
+          }
+        }
+      }
+      continue;
+    }
     if (ev.form === "coinjoin") {
       if (ev.payer === u && ev.payee !== null) {
         for (const id of tx.outputs) {

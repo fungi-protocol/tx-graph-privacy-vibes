@@ -99,17 +99,51 @@ test("whoever sees no privacy benefit is never a settlement party", () => {
   }
 });
 
-test("a settlement insider can attribute the whole transaction", () => {
+test("a settlement insider knows the transaction; what they learn beyond it follows the party count", () => {
   const eco = ecoAt(100);
-  const ev = eco.events.find((e) => e.form === "settlement")!;
-  const tx = eco.chain.txs.get(ev.tid)!;
-  const k = agentKnowledge(eco.chain, eco.events, ev.payer);
-  for (const id of [...tx.inputs, ...tx.outputs]) {
-    const a = k.coins.get(id)!;
-    assert.ok(a?.direct, `insider is blind to ${id}`);
-    assert.equal(a.owner, eco.chain.coins.get(id)!.owner);
+  const parties = (tid: string): Set<number> => {
+    const p = new Set<number>();
+    for (const e of eco.events) {
+      if (e.tid !== tid || e.form !== "settlement") continue;
+      p.add(e.payer);
+      p.add(e.payee!);
+    }
+    return p;
+  };
+  const tids = [...new Set(eco.events.filter((e) => e.form === "settlement").map((e) => e.tid))];
+  const multi = tids.find((t) => parties(t).size >= 3);
+  assert.ok(multi, "no 3+-party settlement by day 100");
+  // 3+ parties: what an insider learns about the others depends on the
+  // protocol that constructed the transaction — unmodeled, so the
+  // insider records the transaction and nothing else. Compare against
+  // a history WITHOUT the settlement: a coin can be directly known
+  // through some other payment, so the honest claim is that the
+  // settlement itself added no attributions.
+  {
+    const without = eco.events.filter((e) => e.tid !== multi);
+    for (const u of parties(multi!)) {
+      const kAll = agentKnowledge(eco.chain, eco.events, u);
+      const kSans = agentKnowledge(eco.chain, without, u);
+      assert.deepEqual(kAll.coins, kSans.coins,
+        `settlement ${multi} added attributions for insider ${u}`);
+      assert.ok(kAll.txs.has(multi!));
+      assert.ok(!kSans.txs.has(multi!));
+      assert.equal(kAll.txs.size, kSans.txs.size + 1);
+    }
   }
-  assert.ok(k.txs.has(ev.tid));
+  // exactly 2 parties: elimination is protocol-independent — each side
+  // strips their own coins and the rest is the other's
+  const pair = tids.find((t) => parties(t).size === 2);
+  if (pair) {
+    const tx = eco.chain.txs.get(pair)!;
+    const u = [...parties(pair)][0]!;
+    const k = agentKnowledge(eco.chain, eco.events, u);
+    for (const id of [...tx.inputs, ...tx.outputs]) {
+      const a = k.coins.get(id)!;
+      assert.ok(a?.direct, `pair insider is blind to ${id}`);
+      assert.equal(a.owner, eco.chain.coins.get(id)!.owner);
+    }
+  }
 });
 
 test("the chapter's exhibit settlement yields the narrated verdict on every tutorial seed", () => {
