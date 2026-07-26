@@ -1183,7 +1183,7 @@ const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_REUSE, label: "address reuse", title: "coins paid to the same address — one key controls both, on the face of the record; no inference involved" },
   { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
   { bit: OV_CHANGE, label: "change/payment identification", title: "two steps: identify the payment outputs first (a round dollar or BTC amount, or a disclosed owner), then read what remains — exactly one unidentified output is suspected change and linked to the spender; several read as a batch payment and the observer abstains; repeated menu denominations invert the presumption, reading as self-spends" },
-  { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition links each sub-transaction's coins together" },
+  { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition links each sub-transaction's coins together; even when several partitions balance, an output larger than the rest of the inputs combined is linked to the one input that could fund it" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
   `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>` +

@@ -51,24 +51,30 @@ export function clusterOwner(
   return owner;
 }
 
-/** the `n` largest PURE clusters, as seed mappings rep -> agent id
- *  (as a string, matching auxGraph's node names). Distinct owners:
- *  seeding two clusters to one agent would itself assert a weld the
- *  observer never made. */
+/** the `n` largest PURE clusters after passing over the `skip`
+ *  largest, as seed mappings rep -> agent id (as a string, matching
+ *  auxGraph's node names). Distinct owners: seeding two clusters to
+ *  one agent would itself assert a weld the observer never made.
+ *  `skip` is a staging dial with the same license as `n`: WHICH pure
+ *  clusters an analyst happens to hold out-of-band names for is
+ *  arbitrary, so the exhibit may pick among them. */
 export function pureClusterSeeds(
   cl: Clustering,
   ownerOf: (id: CoinId) => number | null,
   n: number,
+  skip = 0,
 ): Map<string, string> {
   const seeds = new Map<string, string>();
   const used = new Set<number>();
   const bySize = [...cl.members.entries()]
     .filter(([, m]) => m.length >= 2)
     .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
+  let passed = 0;
   for (const [rep] of bySize) {
     if (seeds.size >= n) break;
     const owner = clusterOwner(cl, rep, ownerOf);
     if (owner === null || used.has(owner)) continue;
+    if (passed < skip) { passed += 1; continue; }
     seeds.set(rep, String(owner));
     used.add(owner);
   }
@@ -93,7 +99,8 @@ export function gradeAcceptances(
 }
 
 /** everything the narrated-sweep step needs, staged deterministically:
- *  scan seed counts (2..8) and pick the first whose single sweep
+ *  scan seed choices (counts 2..8, passing over up to 4 of the largest
+ *  pure clusters) and pick the first whose single sweep
  *  produces a FALSE-graded acceptance — a pure cluster accepted for
  *  the wrong owner, the outcome accuracy's ruling asks the chapter to
  *  foreground ("the gate passed and the answer is wrong"). Grading
@@ -120,8 +127,9 @@ export function synthesisSweepExhibit(
   const tg = targetGraph(chain, cl);
   const aux = auxGraph(outsiderEdges(edges, 300), agents);
   let fallback: SweepExhibit | null = null;
+  for (let skip = 0; skip <= 4; skip++)
   for (let n = 2; n <= 8; n++) {
-    const seeds = pureClusterSeeds(cl, ownerOf, n);
+    const seeds = pureClusterSeeds(cl, ownerOf, n, skip);
     if (seeds.size < 2) continue;
     const result = propagationStep(tg, aux, seeds);
     const grades = gradeAcceptances(cl, result.accepted, ownerOf);

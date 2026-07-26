@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { subsetSums, sumsetUpTo, ambiguity, subTransactionMapping } from "../src/analysis/subsetsum";
+import { subsetSums, sumsetUpTo, ambiguity, subTransactionMapping, forcedLinks } from "../src/analysis/subsetsum";
 import { bruteDecomps } from "../src/denom/denominations";
 import { Rng } from "../src/core/prng";
 
@@ -171,4 +171,38 @@ test("ambiguity: meet-in-the-middle matches a naive reference exactly", () => {
       `round ${round}: ivs=${ivs} ovs=${ovs} tol=${tol}`,
     );
   }
+});
+
+test("forcedLinks: an output larger than the rest of the inputs pairs with the one input that could fund it", () => {
+  // the reported session's shape (t98, seed "welcome" day 91): eight
+  // inputs, the 10,000,000 output exceeds every input but the
+  // 10,040,172 one — the mapping is ambiguous, the pairing is not
+  const ivs = [1_250_000, 267_008, 3_800_429, 335_541, 979_314, 10_040_172, 1_278_206, 2_045_577];
+  const ovs = [1_048_576, 262_144, 200_000, 4_096, 1_421, 2_097_152, 2_000_000, 32_768, 5_279,
+    500_000, 354_294, 118_098, 5_000, 1_151, 10_000_000, 3_188_646, 131_072, 43_463];
+  assert.equal(subTransactionMapping(ivs, ovs, 3_087).kind, "ambiguous");
+  const links = forcedLinks(ivs, ovs, 3_087);
+  assert.deepEqual(links, [{ in: 5, out: 14 }]);
+});
+
+test("forcedLinks: symmetric bound — an input larger than the rest of the outputs pairs with the one output that could absorb it", () => {
+  // input 0 (900k) exceeds the sum of every output but the 880k one
+  const fee = 1_000;
+  const ivs = [900_000, 50_000, 40_000];
+  const ovs = [880_000, 30_000, 25_000, 24_000, 30_000];
+  const links = forcedLinks(ivs, ovs, fee);
+  assert.ok(links.some((l) => l.in === 0 && l.out === 0), `links=${JSON.stringify(links)}`);
+});
+
+test("forcedLinks: an evenly denominated session forces nothing", () => {
+  const ivs = [1_000_000, 1_000_000, 1_000_000, 1_000_000];
+  const ovs = [500_000, 500_000, 500_000, 500_000, 500_000, 500_000, 500_000, 499_000];
+  assert.deepEqual(forcedLinks(ivs, ovs, 1_000), []);
+});
+
+test("forcedLinks: the tolerance keeps near-boundary pairs out", () => {
+  // others sum to exactly the output value: coverable within tol, no link
+  const ivs = [600_000, 250_000, 250_000];
+  const ovs = [500_000, 599_000, 500];
+  assert.deepEqual(forcedLinks(ivs, ovs, 0, 500).filter((l) => l.out === 0), []);
 });

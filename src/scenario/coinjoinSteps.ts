@@ -95,8 +95,11 @@ export function coinjoinSteps(
         values — and there is always more than one. (A session too tangled
         even for that earns only an abstention, and abstention alone proves
         nothing.) Either way a careful analyst <b>declines to link
-        anything</b> — where the earlier forms fed CIOH lies, this one
-        starves it. Starves it <i>inside the join</i>, that is: the clusters
+        anything the readings disagree on</b> — a pairing every reading
+        shares is still taken (an output larger than the rest of the
+        inputs combined can only have come from the one input big
+        enough to fund it), but where the earlier forms fed CIOH lies,
+        this one starves it. Starves it <i>inside the join</i>, that is: the clusters
         on either side remain, still matched to the town's relationships.</p>
         <p>Be precise about what happened. No history was erased: every
         coin's trace still runs back through the join to real origins. What

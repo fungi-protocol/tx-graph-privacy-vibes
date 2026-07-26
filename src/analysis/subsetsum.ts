@@ -97,6 +97,40 @@ export function ambiguity(ivs: Sats[], ovs: Sats[], tol = 500): number {
   return good / isums.length;
 }
 
+/**
+ * Input–output pairs every balanced partition is forced to place in
+ * the same part, by a sum bound that needs no enumeration at all: the
+ * part containing output o has inputs summing to at least ovs[o] − tol
+ * (its outputs cover o, and a part's inputs cover its outputs up to
+ * tol), so if every OTHER input together sums to less than that,
+ * input i must be in it. Symmetrically, the part containing input i
+ * has outputs summing to at least ivs[i] − fee − tol, so if every
+ * other output together falls short of that, output o must be in it.
+ * Sound under the same premise as the partition search — parts
+ * balance within [−tol, fee + tol] — even when the full mapping is
+ * ambiguous or too large to enumerate: the bound holds in EVERY
+ * balanced reading, so an observer may link the pair while still
+ * abstaining from the rest.
+ */
+export function forcedLinks(
+  ivs: Sats[],
+  ovs: Sats[],
+  fee: Sats,
+  tol = 500,
+): { in: number; out: number }[] {
+  const inTotal = ivs.reduce((a, b) => a + b, 0);
+  const outTotal = ovs.reduce((a, b) => a + b, 0);
+  const pairs: { in: number; out: number }[] = [];
+  for (let i = 0; i < ivs.length; i++) {
+    for (let o = 0; o < ovs.length; o++) {
+      const inForced = inTotal - ivs[i]! < ovs[o]! - tol;
+      const outForced = outTotal - ovs[o]! < ivs[i]! - fee - tol;
+      if (inForced || outForced) pairs.push({ in: i, out: o });
+    }
+  }
+  return pairs;
+}
+
 export interface SubPart {
   /** indices into the transaction's input list */
   ins: number[];

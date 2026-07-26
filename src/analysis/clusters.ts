@@ -56,7 +56,7 @@
 import { type Chain, type CoinId, type TxId, type Owner, addrKey, addrText } from "../model/chain";
 import { type Sats } from "../core/sats";
 import { isDenomination } from "../denom/denominations";
-import { subTransactionMapping } from "./subsetsum";
+import { subTransactionMapping, forcedLinks } from "./subsetsum";
 
 /** one observation the observer's map rests on: a method applied to a
  *  transaction welded these coins together.
@@ -88,8 +88,12 @@ export interface Weld {
   assumption?: "one-owner-per-part";
   /** what a change weld rests on: "residue" = the sole non-payment
    *  output left after payment identification; "radix" = a repeated
-   *  denomination whose null hypothesis is a self-spend */
-  basis?: "residue" | "radix";
+   *  denomination whose null hypothesis is a self-spend. On a subtx
+   *  weld, "bound" marks a forced pairing extracted from a mapping
+   *  the analysis otherwise abstains on: an output larger than the
+   *  rest of the inputs combined (or an input larger than the rest of
+   *  the outputs) pairs the same way in every balanced reading */
+  basis?: "residue" | "radix" | "bound";
 }
 
 export interface Clustering {
@@ -425,11 +429,20 @@ export function clusterObserver(
       }
       // proven ambiguous or merely inconclusive: either way the observer
       // has no partition to justify a link, so it abstains from welding
-      // anything — but step one's payment identifications are per coin
+      // anything — with one exception: a pairing FORCED by the sums
+      // holds in every balanced reading (an output larger than the rest
+      // of the inputs combined can only have been funded by the one
+      // input big enough), so those pairs weld even while the mapping
+      // stays open. Step one's payment identifications are per coin
       // and presume nothing about the split, so they are still recorded
       // (an auxiliary attribution can name a payment inside a session
       // whose mapping the amounts leave open)
       if (map.kind === "ambiguous" || map.kind === "inconclusive") {
+        for (const f of forcedLinks(tx.inputs.map(value), tx.outputs.map(value), tx.fee)) {
+          const a = tx.inputs[f.in]!, b = tx.outputs[f.out]!;
+          union(b, a);
+          welds.push({ method: "subtx", tx: tid, coins: [a, b], assumption: "one-owner-per-part", basis: "bound" });
+        }
         if (change) identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, false);
         continue;
       }
@@ -509,7 +522,9 @@ export function gradeWelds(chain: Chain, welds: Weld[]): Map<TxId, Mistake[]> {
           : "the change guess picked another user's payment")
         : w.method === "cioh"
           ? `CIOH read ${owners.size} users' inputs as one owner`
-          : "a balanced part combines different users' coins";
+          : w.basis === "bound"
+            ? "an output only one input could fund was that input's owner paying someone else"
+            : "a balanced part combines different users' coins";
     const l = out.get(w.tx);
     if (l) l.push({ tx: w.tx, method: w.method, note });
     else out.set(w.tx, [{ tx: w.tx, method: w.method, note }]);

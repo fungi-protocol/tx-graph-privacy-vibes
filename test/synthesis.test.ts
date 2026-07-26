@@ -43,8 +43,10 @@ test("the narrated sweep features a pure-cluster FALSE acceptance on every tutor
     assert.ok(Number.isFinite(ex.featured!.eccentricity) && ex.featured!.eccentricity >= 1.5);
     // and abstention dominates: the sweep is a trickle, not a flood
     // (the bound moved 2 -> 3 when address-reuse welds joined the map:
-    // Carol's fused pseudonym gives the sweep one more solid anchor)
-    assert.ok(ex.result.accepted.size <= 3, `${seed}: ${ex.result.accepted.size} acceptances`);
+    // Carol's fused pseudonym gives the sweep one more solid anchor;
+    // 3 -> 4 when the sum-bound welds joined — outsized coinjoin
+    // outputs consolidate their funders' pseudonyms the same way)
+    assert.ok(ex.result.accepted.size <= 4, `${seed}: ${ex.result.accepted.size} acceptances`);
   }
 });
 
