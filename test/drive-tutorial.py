@@ -52,7 +52,7 @@ def main() -> None:
         hud = page.locator("#hud").inner_text()
         assert "seed " in hud and "day " in hud, hud
         day_before = int(hud.split("day ")[1].split(" ")[0].strip("·").strip())
-        page.locator("#stepday").click()
+        page.locator("#nextday").click()
         page.wait_for_timeout(800)
         hud = page.locator("#hud").inner_text()
         day_after = int(hud.split("day ")[1].split(" ")[0].strip("·").strip())

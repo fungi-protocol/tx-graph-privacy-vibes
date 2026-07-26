@@ -113,7 +113,6 @@ function rebuildEconomy(toDay: number): void {
   renderCast(); // population (and with it the cast panel) may have changed
   recomputeTrace();
   renderDecisions();
-  if (scene === 1) dayBtn.textContent = dayLabel();
   syncTimebar();
   draw();
   void syncFragment();
@@ -164,7 +163,6 @@ function rideDays(from: number, to: number): void {
     viewTx = null;
     simRev += 1;
     recomputeTrace();
-    dayBtn.textContent = dayLabel();
     syncTimebar();
   };
   anim.add(ms, (t) => {
@@ -202,7 +200,6 @@ function setViewDay(d: number | null, tx: number | null = null): void {
   simRev += 1; // the visible chain changed, even though the record didn't
   recomputeTrace(); // a selection may have slipped beyond the cursor
   renderCast(); // the town roster follows the displayed day
-  dayBtn.textContent = dayLabel();
   syncTimebar();
   draw();
   void syncFragment();
@@ -1559,15 +1556,16 @@ window.addEventListener("keyup", (e) => {
 const keysPanel = document.getElementById("keys") as HTMLDivElement;
 
 // --- scene switching + day stepping ---
-const dayBtn = document.getElementById("stepday") as HTMLButtonElement;
+// the tape's readout, not a control: stepping lives on the transport
+// buttons (▶| is "next day" — and "end turn", when a fragment restores
+// a played agent)
+const dayBtn = document.getElementById("daylabel") as HTMLSpanElement;
 function dayLabel(): string {
   if (viewTx !== null) {
-    return `day ${cursorDay()} · tx ${viewTx}/${dayTxCount(cursorDay())} · replay →`;
+    return `day ${cursorDay()} · tx ${viewTx}/${dayTxCount(cursorDay())}`;
   }
-  if (rewound()) return `day ${cursorDay()} of ${economy().day} · replay →`;
-  return session.manual !== null
-    ? `day ${economy().day} · end turn →`
-    : `day ${economy().day} · next day →`;
+  if (rewound()) return `day ${cursorDay()} of ${economy().day}`;
+  return `day ${economy().day}`;
 }
 function setScene(s: 0 | 1, minDay = 0, ride = false): void {
   let rideFrom = -1;
@@ -1589,8 +1587,6 @@ function setScene(s: 0 | 1, minDay = 0, ride = false): void {
     clearSelection();
   }
   if (rideFrom >= 0) rideDays(rideFrom, minDay);
-  dayBtn.style.display = s === 1 ? "block" : "none";
-  if (s === 1) dayBtn.textContent = dayLabel();
   syncTimebar();
   renderDecisions();
   draw();
@@ -1658,46 +1654,66 @@ function stepDay(): void {
   } else {
     holdCam();
   }
-  dayBtn.textContent = dayLabel();
   syncTimebar();
   renderCast(); // someone may have moved to town today
   renderDecisions();
   draw();
   void syncFragment();
 }
-dayBtn.addEventListener("click", () => { pausePlay(); stepDay(); });
 
-// --- the tape controller (#65): play/pause both directions, freeze-frame
-// transaction stepping, track-skip = a day, and rewind/fast-forward to
-// the ends of the record ---
+// --- the tape controller (#65, reworked per #74): play/pause both
+// directions, track-skip = a day, rewind/fast-forward to the ends of the
+// record, and a seek slider. Freeze-frame transaction stepping has no
+// buttons of its own any more: slow playback reveals the record one
+// transaction at a time by itself ---
 const timebar = document.getElementById("timebar") as HTMLDivElement;
 const playBtn = document.getElementById("playbtn") as HTMLButtonElement;
 const revBtn = document.getElementById("revbtn") as HTMLButtonElement;
 const speedBtn = document.getElementById("speedbtn") as HTMLButtonElement;
+const daySlider = document.getElementById("dayslider") as HTMLInputElement;
 // 1× runs at half a day per second — slow enough to watch the graph grow
 const SPEEDS = [0.5, 1, 2, 4]; // days per second
 const SPEED_LABELS = ["1×", "2×", "4×", "8×"];
 let speedIx = 1;
 let playDir: 1 | -1 = 1;
 let playTimer: ReturnType<typeof setTimeout> | null = null;
+/** keep the slider spanning the recorded days with the cursor on it */
 function syncTimebar(): void {
   timebar.style.display = scene === 1 && eco ? "flex" : "none";
+  if (!eco) return;
+  daySlider.max = String(eco.day);
+  daySlider.value = String(cursorDay());
+  dayBtn.textContent = dayLabel();
 }
 function pausePlay(): void {
   if (playTimer !== null) { clearTimeout(playTimer); playTimer = null; }
   playBtn.textContent = "▶";
   revBtn.textContent = "◀";
 }
+/** at the two slow speeds playback is a freeze-frame film — the record
+ *  reveals (or hides) one transaction per tick, a day's transactions
+ *  sharing the day's screen time; the fast speeds jump whole days */
+function slowPlayback(): boolean {
+  return SPEEDS[speedIx]! <= 1;
+}
+function tickDelay(): number {
+  const perDay = 1000 / SPEEDS[speedIx]!;
+  return slowPlayback() ? perDay / Math.max(1, dayTxCount(cursorDay())) : perDay;
+}
 function playTick(): void {
   if (scene !== 1) { pausePlay(); return; }
+  const before = `${cursorDay()}/${viewTx}`;
   if (playDir === 1) {
-    stepDay();
+    if (slowPlayback()) frameForward();
+    else stepDay();
   } else {
-    if (cursorDay() <= 0) { pausePlay(); return; }
-    setViewDay(cursorDay() - 1);
-    if (cursorDay() <= 0) { pausePlay(); return; }
+    if (slowPlayback()) frameBack();
+    else if (cursorDay() > 0) setViewDay(cursorDay() - 1);
   }
-  playTimer = setTimeout(playTick, 1000 / SPEEDS[speedIx]!);
+  // reverse play stops at the head of the tape (forward always advances:
+  // at the frontier it grows the record)
+  if (playDir === -1 && `${cursorDay()}/${viewTx}` === before) { pausePlay(); return; }
+  playTimer = setTimeout(playTick, tickDelay());
 }
 function startPlay(dir: 1 | -1): void {
   pausePlay();
@@ -1717,12 +1733,12 @@ revBtn.addEventListener("click", () => {
 speedBtn.addEventListener("click", () => {
   speedIx = (speedIx + 1) % SPEEDS.length;
   speedBtn.textContent = SPEED_LABELS[speedIx]!;
-  if (playTimer !== null) { clearTimeout(playTimer); playTimer = setTimeout(playTick, 1000 / SPEEDS[speedIx]!); }
+  if (playTimer !== null) { clearTimeout(playTimer); playTimer = setTimeout(playTick, tickDelay()); }
 });
 // freeze-frame: reveal (or hide) the record one transaction at a time;
-// crossing a day boundary lands on the neighbor day's nearest frame
+// crossing a day boundary lands on the neighbor day's nearest frame.
+// No buttons of their own — these are slow playback's tick handlers.
 function frameForward(): void {
-  pausePlay();
   if (scene !== 1 || !eco) return;
   const d = cursorDay();
   const n = dayTxCount(d);
@@ -1739,7 +1755,6 @@ function frameForward(): void {
   }
 }
 function frameBack(): void {
-  pausePlay();
   if (scene !== 1 || !eco) return;
   const d = cursorDay();
   const cur = viewTx ?? dayTxCount(d);
@@ -1751,8 +1766,6 @@ function frameBack(): void {
     setViewDay(prev, m > 0 ? m - 1 : null);
   }
 }
-document.getElementById("framefw")!.addEventListener("click", frameForward);
-document.getElementById("framebk")!.addEventListener("click", frameBack);
 document.getElementById("nextday")!.addEventListener("click", () => { pausePlay(); stepDay(); });
 document.getElementById("prevday")!.addEventListener("click", () => {
   pausePlay();
@@ -1768,6 +1781,11 @@ document.getElementById("ffbtn")!.addEventListener("click", () => {
   pausePlay();
   if (scene !== 1 || !eco) return;
   setViewDay(null);
+});
+daySlider.addEventListener("input", () => {
+  pausePlay(); // a hand on the dial takes over
+  if (scene !== 1 || !eco) return;
+  setViewDay(Number(daySlider.value));
 });
 
 // --- manual play: the decision panel and the played agent. No UI offers
@@ -1786,7 +1804,6 @@ function setManual(u: number | null, from?: number): void {
       eco.manualFrom = session.manualFrom;
     }
   }
-  if (scene === 1) dayBtn.textContent = dayLabel();
   renderDecisions();
   draw(); // the HUD names the played agent
   void syncFragment();

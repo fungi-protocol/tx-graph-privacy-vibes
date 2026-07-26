@@ -87,12 +87,7 @@
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
   .toast.gone { opacity: 0; }
-  #stepday { position: fixed; display: none; right: 16px; top: 16px;
-             background: #33363e; color: #edc948; border: 1px solid #4a4e57;
-             border-radius: 6px; padding: 8px 14px; font: inherit; font-size: 13px;
-             cursor: pointer; }
-  #stepday:hover { background: #3d414a; }
-  #timebar { position: fixed; right: 16px; top: 58px; display: none;
+  #timebar { position: fixed; right: 16px; top: 16px; display: none;
              align-items: center; gap: 2px; background: #33363e;
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 8px; }
   #timebar button { background: none; border: none; color: #d8dade; font: inherit;
@@ -100,6 +95,8 @@
   #timebar button:hover { color: #edc948; }
   #playbtn, #revbtn { color: #edc948; }
   #speedbtn { min-width: 30px; color: #9aa0ab; }
+  #daylabel { color: #edc948; font-size: 13px; padding: 2px 6px 2px 2px; white-space: nowrap; }
+  #dayslider { width: 130px; accent-color: #edc948; cursor: pointer; margin-left: 4px; }
   #castbtn { position: fixed; left: 16px; bottom: 36px; background: #33363e; color: #d8dade;
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
              font: inherit; font-size: 13px; cursor: pointer; }
@@ -172,17 +169,17 @@
 <div id="cast"></div>
 <div id="inspector"></div>
 <div id="timebar">
+  <span id="daylabel">day 0</span>
   <button id="rwbtn" title="rewind to the first day">⏮</button>
   <button id="prevday" title="back a day — the record stays; stepping forward replays it">|◀</button>
-  <button id="framebk" title="freeze-frame: hide the most recent transaction">‹</button>
   <button id="revbtn" title="play time backwards">◀</button>
-  <button id="playbtn" title="auto-play: days pass on their own">▶</button>
-  <button id="framefw" title="freeze-frame: reveal the next transaction">›</button>
-  <button id="nextday" title="skip to the next day">▶|</button>
+  <button id="playbtn" title="auto-play: days pass on their own — slow speeds reveal the record one transaction at a time">▶</button>
+  <button id="nextday" title="skip to the next day (advances the simulation at the frontier)">▶|</button>
   <button id="ffbtn" title="fast-forward to the latest recorded day">⏭</button>
   <button id="speedbtn" title="auto-play speed">2×</button>
+  <input id="dayslider" type="range" min="0" max="0" step="1" value="0"
+         title="seek to any recorded day — the record stays either way">
 </div>
-<button id="stepday" title="advance the simulation by one day">next day →</button>
 <!--APP_JS-->
 </body>
 </html>
