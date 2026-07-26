@@ -16,6 +16,13 @@ export interface ClusterNode {
   y: number;
   r: number;
   size: number;
+  /** column-layout only: the epochs (lanes) this vertex holds a slot
+   *  in — one entry for a vertex living in its own epoch, several for
+   *  a vertex the matching fused across epochs. Absent on the ring.
+   *  The renderer reads it to pick an edge's shape: an edge inside one
+   *  lane threads like an arc diagram, an edge between lanes runs
+   *  straight, the bipartite reading. */
+  lanes?: number[];
 }
 
 export interface ClusterLayout {
@@ -226,14 +233,21 @@ export function layoutClusterColumns(
     const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
     return 2 * r + (size >= 2 ? 64 : 14);
   };
-  const LANE_W = 620;
-  const laneX = (i: number): number => (i - (parts - 1) / 2) * LANE_W;
 
   // per-lane vertical packing, every lane centered on y = 0
   const laneOrder: CoinId[][] = Array.from({ length: parts }, () => []);
   for (const rep of reps) {
     for (const lane of lanes.get(rep) ?? [0]) laneOrder[Math.min(lane, parts - 1)]!.push(rep);
   }
+  // lane spacing follows the content: a tall epoch would otherwise
+  // scale the whole drawing down until the columns sat shoulder to
+  // shoulder (the viewport fit is uniform), so the gap grows with the
+  // tallest lane, keeping the drawing's aspect steady however long
+  // the columns run
+  const tallest = laneOrder.reduce(
+    (m, order) => Math.max(m, order.reduce((s, rep) => s + slotH(rep), 0)), 1);
+  const LANE_W = Math.max(620, (tallest * 1.2) / Math.max(1, parts));
+  const laneX = (i: number): number => (i - (parts - 1) / 2) * LANE_W;
   if (mode === "force") {
     // linear-barycenter sweeps: within each lane, re-sort by the mean
     // current y of a vertex's transfer neighbors (wherever they sit)
@@ -312,7 +326,7 @@ export function layoutClusterColumns(
     const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
     const a = acc.get(rep) ?? { sx: 0, sy: 0, n: 1 };
     const x = a.sx / Math.max(1, a.n), y = a.sy / Math.max(1, a.n);
-    nodes.set(rep, { rep, x, y, r, size });
+    nodes.set(rep, { rep, x, y, r, size, lanes: lanes.get(rep) ?? [0] });
     minX = Math.min(minX, x - r); maxX = Math.max(maxX, x + r);
     minY = Math.min(minY, y - r); maxY = Math.max(maxY, y + r);
   }
@@ -389,6 +403,32 @@ function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numbe
   return { tx: x1 - mx, ty: y1 - my };
 }
 
+/** the column layout's two edge shapes: an edge INSIDE one epoch's lane
+ *  threads beside the column like an arc diagram (bowed right, deeper
+ *  the farther apart its ends), an edge BETWEEN lanes runs straight —
+ *  the bipartite reading of the matched columns */
+function columnEdge(
+  ctx: CanvasRenderingContext2D,
+  x0: number, y0: number, x1: number, y1: number,
+  sameLane: boolean,
+  bowSign: number,
+): { tx: number; ty: number } {
+  if (!sameLane) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    return { tx: x1 - x0, ty: y1 - y0 };
+  }
+  // thread on the column's OUTER side, keeping the gap between lanes
+  // clear for the straight cross-lane edges
+  const bow = bowSign * Math.min(240, 28 + Math.abs(y1 - y0) * 0.3);
+  const mx = (x0 + x1) / 2 + bow, my = (y0 + y1) / 2;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.quadraticCurveTo(mx, my, x1, y1);
+  return { tx: x1 - mx, ty: y1 - my };
+}
+
 /** a small arrowhead at (x1, y1) along the (tx, ty) direction */
 function arrowAt(ctx: CanvasRenderingContext2D, x1: number, y1: number, tx: number, ty: number, size = 7): void {
   const d = Math.hypot(tx, ty) || 1;
@@ -448,10 +488,41 @@ export function drawContraction(
     }
   }
 
+  // where a vertex's disc is DRAWN right now: settled at its layout
+  // slot, or mid-flight between its old discs' centroid and the slot
+  // while a repartition tween runs — edges follow the gliding discs
+  // instead of snapping to the finished layout (#101)
+  const posOf = (node: ClusterNode): { x: number; y: number } => {
+    if (transT >= 1 || !trans) return node;
+    const frags = trans.fragments.get(node.rep);
+    if (!frags || frags.length === 0) return node;
+    let sx = 0, sy = 0, w = 0;
+    for (const f of frags) {
+      const ww = f.r * f.r;
+      sx += f.x * ww; sy += f.y * ww; w += ww;
+    }
+    return {
+      x: sx / w + (node.x - sx / w) * transT,
+      y: sy / w + (node.y - sy / w) * transT,
+    };
+  };
+  // the column layout marks its vertices with lanes; their presence
+  // switches the edge shapes from the ring's center-bow to the columns'
+  // straight-between / arc-threaded-within pair
+  const columns = clay.nodes.size > 0 &&
+    clay.nodes.values().next().value!.lanes !== undefined;
+  let maxLane = 0;
+  if (columns) {
+    for (const n of clay.nodes.values()) {
+      for (const l of n.lanes ?? []) maxLane = Math.max(maxLane, l);
+    }
+  }
+
   // residual transfer edges (one per tx output whose source differs);
-  // during a repartition tween they fade in with the settling discs
+  // during a repartition tween they ride the discs, dimming only a
+  // little while everything is in flight
   ctx.save();
-  ctx.globalAlpha = Math.max(0, discT * 0.75) * (0.25 + 0.75 * transT);
+  ctx.globalAlpha = Math.max(0, discT * 0.75) * (0.5 + 0.5 * transT);
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
     const from = nodeOf(tx.inputs[0]!);
@@ -459,7 +530,13 @@ export function drawContraction(
       const to = nodeOf(out);
       if (to === from) continue; // self-transfer (same inferred cluster) contracts away
       const touched = hov !== undefined && (from.rep === hov || to.rep === hov);
-      const tan = bezier(ctx, from.x, from.y, to.x, to.y);
+      const p0 = posOf(from), p1 = posOf(to);
+      const sameLane = from.lanes !== undefined && to.lanes !== undefined &&
+        from.lanes.length === 1 && to.lanes.length === 1 && from.lanes[0] === to.lanes[0];
+      const bowSign = sameLane && from.lanes![0]! < (maxLane + 1) / 2 ? -1 : 1;
+      const tan = columns
+        ? columnEdge(ctx, p0.x, p0.y, p1.x, p1.y, sameLane, bowSign)
+        : bezier(ctx, p0.x, p0.y, p1.x, p1.y);
       const color = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
       ctx.strokeStyle = color;
       ctx.lineWidth = touched ? 2.6 : 1.6;
@@ -469,7 +546,7 @@ export function drawContraction(
       const d = Math.hypot(tan.tx, tan.ty) || 1;
       ctx.fillStyle = color;
       arrowAt(ctx,
-        to.x - (tan.tx / d) * (to.r + 3), to.y - (tan.ty / d) * (to.r + 3),
+        p1.x - (tan.tx / d) * (to.r + 3), p1.y - (tan.ty / d) * (to.r + 3),
         tan.tx, tan.ty);
     }
   }
