@@ -7,12 +7,12 @@ import { type Camera, worldToScreen, screenToWorld, zoomAt } from "./ui/camera";
 import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
 import { economySteps } from "./scenario/economySteps";
-import { PERSONAS, CARELESS, MAX_POP, ownerColor, walletOf, type Persona } from "./scenario/cast";
+import { PERSONAS, CARELESS, MAX_POP, ownerColor, walletOf, WALLETS, type Persona } from "./scenario/cast";
 import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams, type ParamPatch, type Intervention, type ManualPlan } from "./engine/economy";
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_ALL, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeWelds, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type Clustering, type Mistake } from "./analysis/clusters";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
@@ -232,7 +232,7 @@ let ciohMax = CIOH_MAX_OFF;
 // sub-transaction's identified payments must total before the sole
 // remaining unknown output is welded as change. 1 = a single round
 // amount decides; higher bars trade coverage for fewer wrong welds.
-const CHANGE_EV_MAX = 3;
+const CHANGE_EV_MAX = 4;
 let changeEvidence = 1;
 // which payment-identification tells the change heuristic runs (#76):
 // TELL_USD | TELL_BTC | TELL_AUX, all on by default. The bar above is
@@ -241,7 +241,7 @@ let changeEvidence = 1;
 let changeTells = TELL_ALL;
 function tellCount(mask: number): number {
   return ((mask & TELL_USD) !== 0 ? 1 : 0) + ((mask & TELL_BTC) !== 0 ? 1 : 0) +
-    ((mask & TELL_AUX) !== 0 ? 1 : 0);
+    ((mask & TELL_AUX) !== 0 ? 1 : 0) + ((mask & TELL_SCRIPT) !== 0 ? 1 : 0);
 }
 // grading toggle: mark transactions where a heuristic's local inference
 // is wrong against the hidden truth (storyteller's grading — latent
@@ -1126,6 +1126,7 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     ? `<div id="chtells">
         <label class="ovnest" title="an amount landing on a round multiple of $10 at that day's exchange rate reads as a payment — prices are set in dollars"><input type="checkbox" id="chusd" checked> round dollars</label>
         <label class="ovnest" title="an amount round in BTC terms (0.05, not 0.0473) reads as a payment too"><input type="checkbox" id="chbtc" checked> round bitcoin</label>
+        <label class="ovnest" title="an output paying a script family (address type) none of the inputs use reads as a payment — a wallet keeps its change where it keeps its keys. A wallet migration makes this tell misfire: the new wallet's change looks foreign next to the old wallet's coins"><input type="checkbox" id="chscript" checked> script type</label>
         <label class="ovnest" title="an output the observer's auxiliary information attributes to a different owner than a granted input is a payment however the amount reads — needs the knowledge grant below to have anything to say"><input type="checkbox" id="chaux" checked> auxiliary attribution</label>
         <div class="ovslider" title="how many of the ENABLED tell kinds must fire across the sub-transaction's identified payments before the leftover output is linked. At 1 any single tell decides; higher bars demand the kinds corroborate each other, trading coverage for fewer wrong welds">
           <span>evidence bar</span>
@@ -1154,7 +1155,7 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     </div>
     <div id="nsproposal"></div>
   </div>
-  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, feerates absolute and relative to the day's prevailing rate — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
+  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, feerates absolute and relative to the day's prevailing rate, address script families, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
   <div id="nsnfcontrols" style="display:none">
     <div class="ovslider" title="similarity a pair must clear to be matched (mean cosine over the feature blocks); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
       <span>threshold</span>
@@ -1167,7 +1168,7 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
       <span id="nsnfpos"></span>
     </div>
     <div id="nsnfstats"></div>
-    <div class="nshint">real wallets also differ in script types, nLockTime defaults and signature grinding — named here, not simulated</div>
+    <div class="nshint">each wallet product here keeps one script family, one nLockTime default and one signing habit — the same knobs real wallet software leaves set on the record</div>
   </div>
   <h3>auxiliary information</h3>
   <label title="the exchange's private books: a coin withdrawn by an identified customer, or spent into an identified deposit, carries a true name. Nothing on the graph marks these — this observer simply holds the records, and the named coins become a floor of certain knowledge under whatever the slider grants"><input type="checkbox" id="kycobs"> exchange records (KYC)</label>
@@ -1252,7 +1253,7 @@ function reflectOverlays(): void {
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
     ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
   const changeOff = (overlays & OV_CHANGE) === 0;
-  for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chaux", TELL_AUX]] as const) {
+  for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", TELL_SCRIPT], ["chaux", TELL_AUX]] as const) {
     const box = document.getElementById(id) as HTMLInputElement;
     box.checked = (changeTells & bit) !== 0;
     box.disabled = changeOff;
@@ -1407,7 +1408,7 @@ document.getElementById("chev")!.addEventListener("input", (e) => {
 });
 // the tell checkboxes re-run the map too; the bar clamps to however
 // many kinds remain enabled
-for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chaux", TELL_AUX]] as const) {
+for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", TELL_SCRIPT], ["chaux", TELL_AUX]] as const) {
   document.getElementById(id)!.addEventListener("change", (e) => {
     changeTells = (e.target as HTMLInputElement).checked
       ? changeTells | bit : changeTells & ~bit;
@@ -2554,7 +2555,9 @@ function openInspector(u: number): void {
       <span class="tut-progress">${p.role}${u === CARELESS ? " ⚠" : ""}</span></div>
     <p>${p.concern}</p>
     <p class="role" title="${walletOf(p).pitch} — fingerprint: ${walletOf(p).tell}">runs
-      <b>${walletOf(p).name}</b>${p.walletWhy ? ` — ${p.walletWhy}` : ""}</p>
+      <b>${walletOf(p).name}</b>${p.walletBefore !== undefined
+        ? ` (moved from <b>${WALLETS[p.walletBefore]!.name}</b> — the old savings still sit on its addresses)`
+        : ""}${p.walletWhy ? ` — ${p.walletWhy}` : ""}</p>
     <p class="role">wallet: ${utxos.length} coin${utxos.length === 1 ? "" : "s"}, ${fmtSats(total)} sats
       <button id="traceall" class="chip-btn">trace all coins</button></p>
     <div class="coinlist">${coins.map((c) => {

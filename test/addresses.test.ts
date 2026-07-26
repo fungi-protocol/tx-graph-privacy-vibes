@@ -89,7 +89,8 @@ test("fresh wallets never share an address; the walk is stable as the chain grow
   const carols = [...eco.chain.coins.values()].filter((c) => c.owner === CARELESS);
   assert.ok(carols.length >= 3, "Carol has too few coins to exercise reuse");
   assert.equal(new Set(carols.map((c) => addrKey(c.addr!))).size, 1);
-  assert.deepEqual(carols[0]!.addr, { who: CARELESS, branch: "external", index: 0 });
+  assert.deepEqual(carols[0]!.addr,
+    { who: CARELESS, branch: "external", index: 0, script: "segwit" });
 });
 
 test("the observer links reused addresses with no inference at all", () => {
@@ -106,7 +107,8 @@ test("the observer links reused addresses with no inference at all", () => {
   assert.ok(welds.length >= 1);
   for (const w of welds) {
     assert.equal(w.tx, undefined);
-    assert.match(w.addr!, /^bc1p[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{8}$/);
+    // Carol runs Brightpay, a segwit wallet — her one address is bc1q
+    assert.match(w.addr!, /^bc1q[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{8}$/);
     // inference-free means never wrong: one true owner per weld
     assert.equal(new Set(w.coins.map((c) => eco.chain.coins.get(c)!.owner)).size, 1);
   }

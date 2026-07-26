@@ -6,6 +6,7 @@
 // (miner, market stall, privacy maximalist, batching exchange desk), then
 // seeded townsfolk from role templates.
 import { Rng } from "../core/prng";
+import type { ScriptKind, WalletTraits } from "../model/chain";
 
 export interface Persona {
   name: string;
@@ -14,6 +15,11 @@ export interface Persona {
   concern: string;
   /** wallet product key (WALLETS); absent = "hearth", the town default */
   wallet?: string;
+  /** the wallet run BEFORE the story: pre-story savings still sit on its
+   *  addresses, so a migration is two script families in one true wallet —
+   *  and the old coins' change tells misfire (the new wallet's change
+   *  looks foreign next to the old wallet's inputs) */
+  walletBefore?: string;
   /** why this person picked that wallet — shown on the character sheet */
   walletWhy?: string;
   /** root coin values: savings acquired before the story begins */
@@ -55,57 +61,78 @@ export interface Edge {
 }
 
 /**
- * The town's wallet software — invented products, not real ones. Each ships
- * a fee policy, and the policy is a fingerprint: every transaction publishes
- * its feerate, so a wallet that always bids the same way signs its user's
- * cluster. The simulation fingerprints feerate policy only; real wallets
- * also differ in script types, nLockTime defaults, and signature grinding,
- * which exist here only as a footnote — the chain records them, this model
- * does not.
+ * The town's wallet software — invented products, not real ones. Each
+ * ships a bundle of defaults, and every default is a fingerprint the
+ * chain records: the FEE POLICY (every transaction publishes its
+ * feerate, so a wallet that always bids the same way signs its user's
+ * cluster), the SCRIPT FAMILY its addresses pay to (public on the face
+ * of every output), the NLOCKTIME default (anti-fee-sniping wallets
+ * lock each draft to the fresh tip; the rest leave zero), and the
+ * SIGNATURE GRINDING habit (some grind every signature low-R, so their
+ * signatures are uniformly small; the rest leave sizes mixed). Script,
+ * locktime, and grinding are assigned retroactively — a pure walk of
+ * the record, so the seeded streams that shape the town never move —
+ * and the fee model keeps one fixed vsize regardless of family: the
+ * kinds differ on the record, not in what they cost here.
  *
- * The policy maps the day's prevailing rate and one behavior draw in [0,1)
- * to a bid, so swapping policies never changes how many dice a day rolls.
+ * The fee policy maps the day's prevailing rate and one behavior draw
+ * in [0,1) to a bid, so swapping policies never changes how many dice
+ * a day rolls.
  */
 export interface WalletProduct {
   /** product name, as its marketing would have it */
   name: string;
   /** the sales pitch — why its users chose it */
   pitch: string;
-  /** how the fingerprint reads to an observer */
+  /** how the full fingerprint reads to an observer */
   tell: string;
   fee: (base: number, draw: number) => number;
+  /** script family its addresses pay to */
+  script: ScriptKind;
+  /** transaction-building habits, recorded on the txs it drafts */
+  traits: WalletTraits;
 }
 
 export const WALLETS: Record<string, WalletProduct> = {
   hearth: {
     name: "Hearth",
     pitch: "the wallet everyone's cousin recommends — sensible defaults, no questions asked",
-    tell: "bids near the market rate with a modest scatter",
+    tell: "bids near the market rate with a modest scatter; pays to bc1q addresses and locks every draft to the fresh tip",
     fee: (base, draw) => Number((base * (0.8 + draw * 0.6)).toFixed(2)),
+    script: "segwit",
+    traits: { locktime: "tip", lowR: false },
   },
   pelican: {
     name: "Pelican",
     pitch: "“why pay the mempool's asking price?” — for people who count fees",
-    tell: "always under the market, always a whole sat per vbyte (never below one, the relay floor)",
+    tell: "always under the market, always a whole sat per vbyte (never below one, the relay floor); bc1q addresses, and every signature ground low-R — a byte saved on each",
     fee: (base, draw) => Math.max(1, Math.floor(base * (0.72 + draw * 0.12))),
+    script: "segwit",
+    traits: { locktime: "zero", lowR: true },
   },
   ledgerline: {
     name: "Ledgerline",
     pitch: "till and desk software — payouts confirm on schedule, the register does the rest",
-    tell: "a steady 1.3× premium to one decimal, day in, day out",
+    tell: "a steady 1.3× premium to one decimal, day in, day out — and still pays to 3… compatibility addresses, years behind the curve",
     fee: (base) => Number((base * 1.3).toFixed(1)),
+    script: "compat",
+    traits: { locktime: "zero", lowR: false },
   },
   foxglove: {
     name: "Foxglove",
     pitch: "privacy-branded: randomizes its fee bids so the wallet itself keeps no rhythm",
-    tell: "a scatter twice as wide as anyone's — the width is its own signature",
+    tell: "a fee scatter twice as wide as anyone's — the width is its own signature; bc1p addresses (it moved to the newest family first), tip-locked drafts, ground signatures — every knob at the careful setting, and the bundle is itself conspicuous",
     fee: (base, draw) => Number((base * (0.6 + draw * 1.1)).toFixed(2)),
+    script: "taproot",
+    traits: { locktime: "tip", lowR: true },
   },
   brightpay: {
     name: "Brightpay",
     pitch: "one big friendly button marked “instant”",
-    tell: "well over the market and rounded to a whole sat — convenience, paid for",
+    tell: "well over the market and rounded to a whole sat — convenience, paid for; bc1q addresses, zero locktime, factory defaults untouched",
     fee: (base, draw) => Math.max(1, Math.round(base * (1.45 + draw * 0.25))),
+    script: "segwit",
+    traits: { locktime: "zero", lowR: false },
   },
 };
 
@@ -117,6 +144,21 @@ export function walletOf(p: Persona): WalletProduct {
 /** feerate this persona's wallet bids, given the day's rate and one draw */
 export function walletFee(p: Persona, base: number, draw: number): number {
   return walletOf(p).fee(base, draw);
+}
+
+/** the script family this persona's coins land on: savings brought from
+ *  before the story sit on the FORMER wallet's kind where one is named —
+ *  the chain shows the migration — everything else on the current one */
+export function walletScript(p: Persona, preStory: boolean): ScriptKind {
+  const key = preStory ? (p.walletBefore ?? p.wallet) : p.wallet;
+  return (WALLETS[key ?? "hearth"] ?? WALLETS["hearth"]!).script;
+}
+
+/** the persona's transaction-building habits — always the CURRENT
+ *  wallet's: migrating imports the old keys into the new software, so
+ *  old coins keep their script family but spend with new-wallet habits */
+export function walletTraits(p: Persona): WalletTraits {
+  return walletOf(p).traits;
 }
 
 // tableau10, as in the diagram-E visual language
@@ -173,7 +215,8 @@ export const PERSONAS: Persona[] = [
       "with the link in plain sight.",
     roots: [1_200_000, 900_000, 350_000, 250_000, 150_000],
     wallet: "foxglove",
-    walletWhy: "read the fingerprinting papers; picked the wallet that promises to leave none",
+    walletBefore: "hearth",
+    walletWhy: "read the fingerprinting papers and switched from Hearth; his old savings still sit on Hearth's addresses, and the chain shows the seam",
     stats: { privacy: 4, thrift: 2, hassle: 2 },
   },
   {
@@ -195,7 +238,8 @@ export const PERSONAS: Persona[] = [
       "with him twice.",
     roots: [1_100_000, 750_000, 300_000],
     wallet: "pelican",
-    walletWhy: "thin months taught him to shave every cost that shaves",
+    walletBefore: "brightpay",
+    walletWhy: "thin months taught him to shave every cost that shaves; the Brightpay coins from fatter days are still on its addresses",
     stats: { privacy: 2, thrift: 4, hassle: 3 },
   },
   {
@@ -240,7 +284,8 @@ export const PERSONAS: Persona[] = [
     // her savings run deeper — insolvent tenants can't join settlements
     roots: [2_600_000, 1_400_000, 600_000, 330_000, 210_000],
     wallet: "foxglove",
-    walletWhy: "if the landlord reads chains, the wallet had better not initial its work",
+    walletBefore: "hearth",
+    walletWhy: "if the landlord reads chains, the wallet had better not initial its work — she left Hearth the month she signed the lease, savings still on the old addresses",
     stats: { privacy: 5, thrift: 2, hassle: 2 },
   },
 ];

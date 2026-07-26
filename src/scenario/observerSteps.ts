@@ -13,8 +13,8 @@
 // The change-tell family step follows accuracy/030's constraints: the
 // ordering tell is position-leaks-when-ordering-is-deterministic (with
 // sorted/shuffled outputs as the defense), not a payment-first law;
-// the address-type tell is named as real-world only (this town is
-// type-uniform by construction); and the family is framed so blocking
+// the address-type tell runs live (each wallet product keeps one script
+// family — the "script type" checkbox); and the family is framed so blocking
 // one member visibly does not blind the others. Citations: round
 // numbers = the wiki's folklore tell (what this lens runs);
 // fresh/"shadow" address = Androulaki et al. 2012; never-seen-again
@@ -138,10 +138,12 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         identified — which is why some wallets sort outputs by a neutral
         convention (BIP 69) or shuffle them, to destroy that signal. And
         the address-type tell: change usually matches the inputs' address
-        type while the payment is whatever the payee asked for. That one
-        has no purchase here — this town's wallets all use one address
-        type — but real chains mix types, and every mixed-type payment
-        leaks what a uniform one doesn't.</p>
+        type while the payment is whatever the payee asked for — a wallet
+        keeps its change where it keeps its keys. This town's wallet
+        products each stick to one script family, so the tell has purchase
+        here: it runs under the <b>script type</b> checkbox in the change
+        heuristic's controls, and every mixed-type payment leaks what a
+        uniform one doesn't.</p>
         <p>Researchers added more. The freshly generated address next to
         one seen before is probably the change (Androulaki et al. call it
         the <i>shadow address</i>); an address that never appears again is

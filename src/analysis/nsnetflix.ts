@@ -3,15 +3,19 @@
 // Where ns-social matches vertices by who they transact with, this
 // heuristic matches them by how they behave: each cluster's public record
 // yields a feature vector — amount distribution, temporal pattern, amounts
-// over time, feerates absolute and relative to the day's prevailing rate —
-// and clusters whose vectors agree closely are proposed as one user.
-// The relative-feerate block is where wallet software sings: every product
-// in scenario/cast.ts bids by policy, and the policy survives clustering.
+// over time, feerates absolute and relative to the day's prevailing rate,
+// address script families, and transaction-building habits (nLockTime
+// default, signature grinding) — and clusters whose vectors agree closely
+// are proposed as one user. The feerate, script and habit blocks are where
+// wallet software sings: every product in scenario/cast.ts bids by policy,
+// keeps its addresses in one script family, and stamps its drafts the same
+// way every time, and all of that survives clustering.
 //
 // Unlike the propagation algorithm, the iterative form buys no intuition
 // here: playback is greedy — best score first, each vertex matched at most
 // once, no revisiting — so playing is only a way to animate the ranking.
 import type { Chain, TxId, CoinId } from "../model/chain";
+import { SCRIPT_KINDS } from "../model/chain";
 import type { Clustering } from "./clusters";
 
 export interface NfEvent {
@@ -33,6 +37,11 @@ export interface NfStats {
   feeAbs: number[];
   /** feerate relative to the day median, fixed buckets */
   feeRel: number[];
+  /** address script families of the cluster's coins (SCRIPT_KINDS order) */
+  script: number[];
+  /** tx-building habits of the cluster's spends:
+   *  [tip-locked drafts, zero-locked drafts, low-R signatures, other] */
+  habits: number[];
   /** how many spends the vector rests on (thin evidence reads noisy) */
   spends: number;
 }
@@ -89,6 +98,8 @@ export function nfStats(cl: Clustering, chain: Chain): Map<string, NfStats> {
     drift: new Array(TIME_BUCKETS).fill(0),
     feeAbs: new Array(FEE_ABS_BUCKETS).fill(0),
     feeRel: new Array(FEE_REL_EDGES.length + 1).fill(0),
+    script: new Array(SCRIPT_KINDS.length).fill(0),
+    habits: new Array(4).fill(0),
     spends: 0,
   });
   const driftSums = new Map<string, { s: number[]; n: number[] }>();
@@ -109,6 +120,8 @@ export function nfStats(cl: Clustering, chain: Chain): Map<string, NfStats> {
     if (rep === undefined) continue;
     const st = get(rep);
     st.amounts[amtBucket(c.value)]!++;
+    const sk = c.addr?.script;
+    if (sk !== undefined) st.script[SCRIPT_KINDS.indexOf(sk)]!++;
     const day = c.producer !== null
       ? chain.txs.get(c.producer)?.timestep ?? c.entered ?? 0
       : c.entered ?? 0;
@@ -123,12 +136,24 @@ export function nfStats(cl: Clustering, chain: Chain): Map<string, NfStats> {
       if (rep !== undefined) funders.add(rep);
     }
     const m = med.get(tx.timestep) ?? 0;
+    // the draft's nLockTime is the builder's habit — credited to the
+    // cluster holding the first input; signatures are each signer's own
+    const builder = cl.rep.get(tx.inputs[0]! as CoinId);
     for (const rep of funders) {
       const st = get(rep);
       st.spends++;
       st.temporal[timeBin(tx.timestep)]!++;
       st.feeAbs[feeAbsBucket(tx.feerate)]!++;
       if (m > 0) st.feeRel[feeRelBucket(tx.feerate / m)]!++;
+      if (rep === builder && tx.locktime !== undefined) {
+        st.habits[tx.locktime === "tip" ? 0 : 1]!++;
+      }
+      if (tx.sigLowR !== undefined) {
+        for (let k = 0; k < tx.inputs.length; k++) {
+          if (cl.rep.get(tx.inputs[k]! as CoinId) !== rep) continue;
+          st.habits[tx.sigLowR[k] ? 2 : 3]!++;
+        }
+      }
       const ds = driftSums.get(rep)!;
       for (const cid of tx.outputs) {
         const oRep = cl.rep.get(cid as CoinId);
@@ -168,6 +193,7 @@ export function nfSimilarity(a: NfStats, b: NfStats): number {
   const blocks: [number[], number[]][] = [
     [a.amounts, b.amounts], [a.temporal, b.temporal], [a.drift, b.drift],
     [a.feeAbs, b.feeAbs], [a.feeRel, b.feeRel],
+    [a.script, b.script], [a.habits, b.habits],
   ];
   let sum = 0, n = 0;
   for (const [x, y] of blocks) {

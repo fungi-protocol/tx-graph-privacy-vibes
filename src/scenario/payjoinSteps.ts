@@ -130,9 +130,11 @@ export function payjoinSteps(
         heuristic</i>). But the record cannot settle it: every feature
         this observer reads — amounts, inputs, outputs, structure — is
         consistent with both readings, so suspicion stays suspicion.
-        (Real wallets also leave <b>fingerprints</b> the town's do not —
-        quirks of how a wallet builds its transactions — and those can
-        tilt the guess further without settling it.)</p>
+        (Wallets also leave <b>fingerprints</b> — quirks of how each
+        builds its transactions, and this town's wallet products carry
+        them too. A two-input spend whose inputs sit on different script
+        families reads more like two wallets than one, and can tilt the
+        guess further without settling it.)</p>
         <p>The payee is not fooled at all: they contributed their coin, so
         they know <b>exactly</b> which inputs were the payer's. What a
         counterparty learns is a fixed point, and each payment adds

@@ -12,11 +12,13 @@
  * the declared version; never re-interpret an old field's bytes in place.
  * History: v1 = pre-M10 interventions as 5-tuples matched by (memo, due) —
  * structurally distinguishable, dropped; v2 = interventions as
- * [day, schedule id, plan]. Fragments without `sv` are v2 (the last
- * pre-versioning schema); fragments claiming a future version are parsed
- * best-effort — unknown fields are ignored anyway.
+ * [day, schedule id, plan]; v3 = `ct` gains the script-type tell (bit 8),
+ * so a v2 all-tells mask (7) migrates to the new all-tells mask (15).
+ * Fragments without `sv` are v2 (the last pre-versioning schema);
+ * fragments claiming a future version are parsed best-effort — unknown
+ * fields are ignored anyway.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export interface FragmentState {
   seed: string;
@@ -63,8 +65,8 @@ export interface FragmentState {
    *  = 1, a single tell decides) */
   ce?: number;
   /** lens 1 only: which change-identification tells run — a bitmask of
-   *  round-USD (1), round-BTC (2), auxiliary attribution (4); absent =
-   *  all of them */
+   *  round-USD (1), round-BTC (2), auxiliary attribution (4), script
+   *  type (8); absent = all of them */
   ct?: number;
   /** lens 1 only: the observer's knowledge grant [1 = holds the
    *  exchange's KYC records, auxiliary-information reveals as a % of
@@ -164,6 +166,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   // migrations, keyed on the declared schema version (see SCHEMA_VERSION)
   const sv = num(r.sv, 1, 1e6, true) ?? SCHEMA_VERSION;
   if (sv < 2) delete r.i; // v1 interventions matched by (memo, due): unreplayable
+  // v2's all-tells mask was 7; the intent "every tell on" now spells 15
+  if (sv < 3 && r.ct === 7) r.ct = 15;
   const seed = str(r.seed, 64);
   if (seed === undefined || seed.length === 0) return null;
   const out: FragmentState = { seed };
@@ -239,7 +243,7 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (cm !== undefined) out.cm = cm;
   const ce = num(r.ce, 1, 8, true);
   if (ce !== undefined) out.ce = ce;
-  const ct = num(r.ct, 0, 7, true);
+  const ct = num(r.ct, 0, 15, true);
   if (ct !== undefined) out.ct = ct;
   if (Array.isArray(r.ai)) {
     const kx = num(r.ai[0], 0, 1, true), ax = num(r.ai[1], 0, 100, true);

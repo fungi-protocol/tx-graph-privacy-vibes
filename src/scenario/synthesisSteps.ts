@@ -532,8 +532,9 @@ export function synthesisSteps(
       html: `<p>Every analysis this chapter ran used the public record
         plus rumor-grade knowledge of the town's arrangements — the
         weakest of the three cards, and no names needed up front. Real
-        analysts hold more: wallet <b>fingerprints</b>, network metadata,
-        timing, purchased records — none of which this town models. Read
+        analysts hold more: this town's wallet <b>fingerprints</b> stop at
+        a few products' worth of tells, and network metadata, timing
+        correlation and purchased records it does not model at all. Read
         every result here as a <b>lower bound</b> on exposure.</p>
         <p>And the propagation you watched is <b>one</b> inspectable,
         source-grounded method for the sparse regime — not the ceiling

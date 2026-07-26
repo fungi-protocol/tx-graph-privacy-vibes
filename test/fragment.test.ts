@@ -75,9 +75,18 @@ test("change tell mask round-trips and is clamped", async () => {
   const craft = (state: unknown): Promise<unknown> =>
     encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
   const wild = await craft({ seed: "ok", ct: 999 }) as Record<string, unknown>;
-  assert.equal(wild.ct, 7);
+  assert.equal(wild.ct, 15);
   const junk = await craft({ seed: "ok", ct: "aux" }) as Record<string, unknown>;
   assert.equal(junk.ct, undefined);
+});
+
+test("v2 fragments: an all-tells mask of 7 migrates to the widened all-tells 15", () => {
+  // pre-v3 "every tell on" spelled 7; the intent survives the new bit
+  assert.equal(sanitize({ seed: "ok", sv: 2, ct: 7 })!.ct, 15);
+  // a deliberate subset stays a subset — no bit invented for it
+  assert.equal(sanitize({ seed: "ok", sv: 2, ct: 5 })!.ct, 5);
+  // a v3 fragment saying 7 means script-off on purpose
+  assert.equal(sanitize({ seed: "ok", sv: 3, ct: 7 })!.ct, 7);
 });
 
 test("missing fragment decodes to null", async () => {

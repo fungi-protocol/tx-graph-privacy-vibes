@@ -17,23 +17,26 @@
 //     outputs, per coin, within a sub-transaction (the whole
 //     transaction when no partition applies): an amount that is
 //     plausibly a payment — low decimal hamming weight in dollars at
-//     that day's rate or in BTC ($40, 0.05 BTC; not $37.63) — or an
-//     output reliably attributed to a different owner than a granted
-//     input by auxiliary information. (A third real-world tell, a
-//     script type differing from the inputs', has no purchase here:
-//     this town's script types are uniform by construction.) Step two
+//     that day's rate or in BTC ($40, 0.05 BTC; not $37.63) — or a
+//     script family none of the inputs use (wallets pay change back
+//     to their own kind, so a foreign kind reads as the payee's
+//     address; a wallet migration makes this tell misfire, the new
+//     wallet's change looking foreign next to the old wallet's
+//     inputs) — or an output reliably attributed to a different owner
+//     than a granted input by auxiliary information. Step two
 //     is generic linkage over what remains: payment outputs are
 //     assumed NOT to be linked to the inputs; if exactly ONE
 //     non-payment output remains it is suspected as change and linked,
 //     provided the payment identifications clear the configured
 //     evidentiary bar; if several remain, some payments may have been
 //     missed, so the null hypothesis is a batch payment and the
-//     observer abstains. Two further real-world identifiers are named
-//     but not modeled: a script type differing from the input
-//     cluster's (contingent on the inputs having been clustered), and
-//     — for an output that has itself been spent — cluster feature
-//     vectors (nLockTime conventions, signature grinding, temporal
-//     habits) differing from the input cluster's.
+//     observer abstains. One further real-world identifier is named
+//     but not modeled here: for an output that has itself been spent,
+//     cluster feature vectors (nLockTime conventions, signature
+//     grinding, temporal habits) differing from the input cluster's —
+//     the town records those traits, and its statistical
+//     fingerprinting heuristic reads them, but the change heuristic
+//     does not.
 //     One inversion: where the outputs show a radix
 //     coinjoin structure — menu denominations with repeated values —
 //     a repeated denomination's null hypothesis flips to SELF-SPEND
@@ -159,10 +162,10 @@ export interface Heuristics {
 }
 
 /** The change heuristic's payment-identification tells, individually
- *  switchable (Heuristics.changeTells). The script-type tell is real
- *  but has nothing to bite here — this town's script types are uniform
- *  by construction — so it is named in prose, not modeled as a bit. */
-export const TELL_USD = 1, TELL_BTC = 2, TELL_AUX = 4, TELL_ALL = 7;
+ *  switchable (Heuristics.changeTells): round dollars, round bitcoin,
+ *  auxiliary attribution, and the script-type tell — an output paying
+ *  a script family none of the inputs use reads as the payment. */
+export const TELL_USD = 1, TELL_BTC = 2, TELL_AUX = 4, TELL_SCRIPT = 8, TELL_ALL = 15;
 
 /** decimal hamming weight: how many nonzero digits the integer has */
 function decHW(n: number): number {
@@ -309,6 +312,16 @@ export function clusterObserver(
         const g = grants?.get(i);
         if (g !== undefined) inOwners.add(g);
       }
+      // the script-type tell reads the sub-transaction's input families
+      // off the record: an output paying a family none of the inputs use
+      // is not where this wallet keeps its change
+      const inScripts = new Set<string>();
+      if ((tellsOn & TELL_SCRIPT) !== 0) {
+        for (const i of ins) {
+          const s = chain.coins.get(i)!.addr?.script;
+          if (s !== undefined) inScripts.add(s);
+        }
+      }
       const payments: CoinId[] = [];
       let kinds = 0; // TELL_* bits that fired across the identified payments
       const selfs: CoinId[] = [];
@@ -319,18 +332,23 @@ export function clusterObserver(
         // inside a radix structure a menu denomination is what a
         // self-spend looks like, so its amount says nothing
         const amount = radixStructure && isDenomination(v) ? 0 : amountKinds(v, price, tellsOn);
+        const oScript = chain.coins.get(o)!.addr?.script;
+        const script = inScripts.size > 0 && oScript !== undefined && !inScripts.has(oScript)
+          ? TELL_SCRIPT : 0;
+        const marks = amount | script;
         if (g !== undefined && inOwners.size > 0) {
-          // an auxiliary attribution outranks the amount guess in both
+          // an auxiliary attribution outranks the other tells in both
           // directions: a different owner is a payment however the
-          // amount reads; the same owner is a self-spend already
-          // settled by the grant layer, so no change weld is needed
+          // amount or script reads; the same owner is a self-spend
+          // already settled by the grant layer, so no change weld is
+          // needed
           if (!inOwners.has(g)) {
             payments.push(o);
-            kinds |= TELL_AUX | amount;
+            kinds |= TELL_AUX | marks;
           }
-        } else if (amount !== 0) {
+        } else if (marks !== 0) {
           payments.push(o);
-          kinds |= amount;
+          kinds |= marks;
         } else if (radixStructure) {
           selfs.push(o); // the inverted null hypothesis: self-spend
         } else {
@@ -357,7 +375,8 @@ export function clusterObserver(
       // the bar counts distinct tell KINDS that fired — corroboration
       // between kinds, not repetition within one
       const evidence = ((kinds & TELL_USD) !== 0 ? 1 : 0) +
-        ((kinds & TELL_BTC) !== 0 ? 1 : 0) + ((kinds & TELL_AUX) !== 0 ? 1 : 0);
+        ((kinds & TELL_BTC) !== 0 ? 1 : 0) + ((kinds & TELL_AUX) !== 0 ? 1 : 0) +
+        ((kinds & TELL_SCRIPT) !== 0 ? 1 : 0);
       if (unknowns.length === 1 && evidence >= bar) {
         const guess = unknowns[0]!;
         const g = changeGuess.get(tid);

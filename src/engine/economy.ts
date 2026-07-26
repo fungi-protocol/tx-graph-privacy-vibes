@@ -6,10 +6,10 @@
 // are impulse buys, paid unilaterally on the spot. From SETTLE_DAY an
 // oracle nets offsetting obligations into settlements; from COINJOIN_DAY
 // strangers spanning communities coinjoin with denominated outputs.
-import { Chain, type CoinId, type TxId } from "../model/chain";
+import { Chain, type CoinId, type TxId, type Owner, type ScriptKind, type WalletTraits } from "../model/chain";
 import { txfee } from "../core/sats";
 import { Rng } from "../core/prng";
-import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, walletFee, type Persona, type Edge } from "../scenario/cast";
+import { PERSONAS, CARELESS, BASE_POP, MAX_POP, buildCast, walletFee, walletScript, walletTraits, type Persona, type Edge } from "../scenario/cast";
 import { chooseWeighted, feeCost, naiveCost, hassleCost, urgencyCost, type CostedPlan } from "../agents/decide";
 import { bruteDecomps, DUST } from "../denom/denominations";
 import { sumsetUpTo, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
@@ -213,7 +213,8 @@ export class Economy {
       due.push({ id: `ra${u}`, value, owner: u, label: p.income ?? "outside income" });
       this.arrivals.set(arrives, due);
     });
-    this.chain.assignAddresses(this.reusers());
+    this.chain.assignAddresses(this.reusers(), this.scriptOf);
+    this.chain.assignTxTraits(this.traitsOf);
     this.routeExchange();
   }
 
@@ -224,6 +225,23 @@ export class Economy {
     this.cast.forEach((p, u) => { if (p.reuses) out.add(u); });
     return out;
   }
+
+  /** the script family a coin lands on — the owner's wallet's kind, read
+   *  by the retroactive address walk. Savings brought from before the
+   *  story (roots entering on or before the owner's arrival) sit on the
+   *  FORMER wallet's kind where one is named: a migration shows on chain.
+   *  The outside world pays to the common default. */
+  private scriptOf = (who: Owner, day: number, root: boolean): ScriptKind => {
+    if (who === null) return "segwit";
+    const p = this.cast[who]!;
+    return walletScript(p, root && day <= (p.arrives ?? 0));
+  };
+
+  /** the wallet habits recorded on transactions and signatures — the
+   *  current wallet's, whoever built or signed (imported old coins spend
+   *  with the new software's defaults). Outside parties: plain defaults. */
+  private traitsOf = (who: Owner): WalletTraits =>
+    who === null ? { locktime: "zero", lowR: false } : walletTraits(this.cast[who]!);
 
   /**
    * Exchange use, routed retroactively: some money enters town as a KYC-ed
@@ -1140,9 +1158,11 @@ export class Economy {
         : walletFee(this.cast[buy.payer]!, this.feebase, draw);
       this.unilateral(buy.payer, null, this.sats(buy.usd), buy.memo, feerate, buy.id);
     }
-    // the day's new outputs get their addresses — the retroactive script
-    // choice, replayed after the fact so no seeded stream ever moves
-    this.chain.assignAddresses(this.reusers());
+    // the day's new outputs get their addresses and the day's new
+    // transactions their wallet traits — the retroactive script choice,
+    // replayed after the fact so no seeded stream ever moves
+    this.chain.assignAddresses(this.reusers(), this.scriptOf);
+    this.chain.assignTxTraits(this.traitsOf);
     this.routeExchange();
     return this.events.slice(before);
   }

@@ -20,14 +20,32 @@ export type Owner = number | null;
  * the address string (addrText) — analysis code must compare addresses for
  * equality and display addrText, never read `who`.
  *
- * Script types are uniform by construction (one output kind, matching the
- * fee model's fixed sizes), so the type tell has no purchase in this town.
+ * `script` is the output's script family — public on the face of every
+ * address, and a wallet fingerprint: each wallet product pays to one kind,
+ * so the kinds a cluster's coins use trace its software (and a change
+ * output usually matches its inputs' kind, the change heuristic's
+ * script-type tell). The fee model keeps one fixed vsize regardless — the
+ * kinds differ on the record, not in what they cost here.
  */
 export type AddrBranch = "external" | "internal";
+/** script families, oldest first — protocol families, not products */
+export type ScriptKind = "legacy" | "compat" | "segwit" | "taproot";
+export const SCRIPT_KINDS: ScriptKind[] = ["legacy", "compat", "segwit", "taproot"];
 export interface Addr {
   who: Owner;
   branch: AddrBranch;
   index: number;
+  /** script family; absent only where no wallet was named (intro scene) */
+  script?: ScriptKind;
+}
+
+/** a wallet product's transaction-building habits, recorded on the txs it
+ *  builds (assignTxTraits): the nLockTime default and whether it grinds
+ *  every signature low-R (uniformly small) or leaves sizes mixed */
+export interface WalletTraits {
+  /** "tip" = anti-fee-sniping, locks each draft to the fresh chain tip */
+  locktime: "tip" | "zero";
+  lowR: boolean;
 }
 
 /** canonical equality key for an address (opaque to analysis: compare,
@@ -36,8 +54,9 @@ export function addrKey(a: Addr): string {
   return `${a.who ?? "x"}/${a.branch === "external" ? "e" : "i"}/${a.index}`;
 }
 
-/** the address as the chain publishes it: a short bech32m-looking string,
- *  deterministic in the derivation path and nothing else */
+/** the address as the chain publishes it: a short address-looking string,
+ *  deterministic in the derivation path, prefixed by its script family the
+ *  way real addresses are — the family is public even in display form */
 export function addrText(a: Addr): string {
   const key = addrKey(a);
   let h = 0x811c9dc5;
@@ -50,7 +69,9 @@ export function addrText(a: Addr): string {
     out += chars[h & 31];
     h = Math.imul(h ^ (h >>> 15), 2654435761) >>> 0;
   }
-  return `bc1p${out}`;
+  const prefix = a.script === "legacy" ? "1" : a.script === "compat" ? "3"
+    : a.script === "segwit" ? "bc1q" : "bc1p";
+  return `${prefix}${out}`;
 }
 
 export interface Coin {
@@ -93,6 +114,14 @@ export interface Tx {
   feerate: number;
   fee: Sats;
   memo?: string;           // narrative: what this transaction was for
+  /** the builder wallet's nLockTime default — public record, like the
+   *  feerate. Assigned retroactively by assignTxTraits; undefined only
+   *  before that walk runs (or where no wallet was named). */
+  locktime?: "tip" | "zero";
+  /** per input, whether its signature is ground low-R (uniformly small)
+   *  — each party signs its own inputs, so a collaborative transaction
+   *  can mix grinding habits side by side. Parallel to `inputs`. */
+  sigLowR?: boolean[];
 }
 
 export class Chain {
@@ -196,8 +225,15 @@ export class Chain {
    * branch. Each owner in `reusers` skips the fresh-index discipline
    * entirely: one external address for everything, receives and change
    * alike, the way careless wallets and donation pages still do.
+   *
+   * `scriptOf(who, day, root)` names the script family the owner's wallet
+   * paid to for a coin created that day (`root` = it entered from outside
+   * rather than being produced by a transaction; day < 0 = pre-story).
+   * Savings brought along from before the story may sit on a FORMER
+   * wallet's kind — a migration is visible on chain as two script
+   * families in one true wallet. Omitted = no families assigned.
    */
-  assignAddresses(reusers: Set<number>): void {
+  assignAddresses(reusers: Set<number>, scriptOf?: (who: Owner, day: number, root: boolean) => ScriptKind): void {
     const dayOf = (c: Coin): number =>
       c.producer !== null ? this.txs.get(c.producer)!.timestep : (c.entered ?? -1);
     const coins = [...this.coins.values()]
@@ -213,7 +249,11 @@ export class Chain {
         continue;
       }
       if (coin.owner !== null && reusers.has(coin.owner)) {
-        coin.addr = { who: coin.owner, branch: "external", index: 0 };
+        // one address = one script: the reused address was handed out by
+        // the current wallet, whatever day a coin lands on it
+        const s = scriptOf?.(coin.owner, 0, false);
+        coin.addr = { who: coin.owner, branch: "external", index: 0,
+          ...(s !== undefined ? { script: s } : {}) };
         continue;
       }
       const branch: AddrBranch =
@@ -223,7 +263,27 @@ export class Chain {
       const k = `${coin.owner ?? "x"}/${branch}`;
       const index = next.get(k) ?? 0;
       next.set(k, index + 1);
-      coin.addr = { who: coin.owner, branch, index };
+      const s = scriptOf?.(coin.owner, dayOf(coin), coin.producer === null);
+      coin.addr = { who: coin.owner, branch, index,
+        ...(s !== undefined ? { script: s } : {}) };
+    }
+  }
+
+  /**
+   * Assign every transaction its builder wallet's habits, retroactively —
+   * the same pure-walk discipline as assignAddresses, so no seeded stream
+   * ever moves. The nLockTime default comes from the wallet that drafted
+   * the transaction (the first input's owner — the payer in this town's
+   * unilateral spends, the initiator in its collaborative forms); the
+   * per-input signature grinding comes from each input owner's own wallet,
+   * because each party signs its own inputs. Idempotent: a transaction
+   * already assigned keeps its record.
+   */
+  assignTxTraits(traitsOf: (who: Owner) => WalletTraits): void {
+    for (const tx of this.txs.values()) {
+      if (tx.locktime !== undefined) continue;
+      tx.locktime = traitsOf(this.coins.get(tx.inputs[0]!)!.owner).locktime;
+      tx.sigLowR = tx.inputs.map((i) => traitsOf(this.coins.get(i)!.owner).lowR);
     }
   }
 
