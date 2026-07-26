@@ -1218,10 +1218,12 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
       <input type="range" id="nsparts" min="2" max="4" step="1" value="2">
       <output id="nspartsv">2</output>
     </div>
+    <div class="ovslider" title="the analysis lands finished; drag back to rewind the algorithm's progress and watch the merges retract, then land again in the order it made them">
+      <span>progress</span>
+      <input type="range" id="nsprog" min="0" max="0" step="1" value="0">
+    </div>
     <div class="nsrow">
-      <button id="nsplay" title="animate the propagation match by match">play</button>
-      <button id="nsskip" title="jump to where the algorithm terminates">skip</button>
-      <button id="nsundo" title="retract the last match">undo</button>
+      <button id="nsplay" title="animate the propagation match by match from wherever the progress slider points">play</button>
       <span id="nspos"></span>
     </div>
     <div id="nsproposal"></div>
@@ -1233,9 +1235,12 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
       <input type="range" id="nsnfth" min="0" max="101" step="1" value="65">
       <output id="nsnfthv">0.65</output>
     </div>
+    <div class="ovslider" title="the greedy run lands finished; drag back to rewind its progress and watch the matches land again best-first">
+      <span>progress</span>
+      <input type="range" id="nfprog" min="0" max="0" step="1" value="0">
+    </div>
     <div class="nsrow">
-      <button id="nsnfplay" title="animate the greedy run best-match-first — no revisiting, so this is only a way to watch the ranking land">play</button>
-      <button id="nsnfskip" title="jump to where the greedy run terminates">skip</button>
+      <button id="nsnfplay" title="animate the greedy run best-match-first from wherever the progress slider points — no revisiting, so this is only a way to watch the ranking land">play</button>
       <span id="nsnfpos"></span>
     </div>
     <div id="nsnfstats"></div>
@@ -1375,6 +1380,9 @@ function reflectOverlays(): void {
     (document.getElementById("nsplay") as HTMLButtonElement).textContent = nsPlaying ? "pause" : "play";
     const run = nsRun();
     const matches = activePairs(nsEvents()).length;
+    const prog = document.getElementById("nsprog") as HTMLInputElement;
+    prog.max = String(run.length);
+    prog.value = String(Math.min(nsCursor, run.length));
     (document.getElementById("nspos") as HTMLElement).textContent =
       `${Math.min(nsCursor, run.length)}/${run.length} · ${matches} match${matches === 1 ? "" : "es"}`;
     reflectNsProposal();
@@ -1388,6 +1396,9 @@ function reflectOverlays(): void {
     (document.getElementById("nsnfplay") as HTMLButtonElement).textContent = nfPlaying ? "pause" : "play";
     const run = nfRun();
     const applied = Math.min(nfCursor, run.length);
+    const prog = document.getElementById("nfprog") as HTMLInputElement;
+    prog.max = String(run.length);
+    prog.value = String(applied);
     (document.getElementById("nsnfpos") as HTMLElement).textContent =
       `${applied}/${run.length} match${run.length === 1 ? "" : "es"}`;
     reflectNfStats();
@@ -1422,7 +1433,7 @@ function reflectNsProposal(): void {
   const box = document.getElementById("nsproposal") as HTMLElement;
   const pair = nsProposalPair();
   if (!pair) {
-    box.innerHTML = nsSocial && collapsed
+    box.innerHTML = NS_MANUAL_OVERRIDE && nsSocial && collapsed
       ? `<span class="nshint">select two vertices to examine a pair</span>` : "";
     return;
   }
@@ -1817,6 +1828,11 @@ function nsStep(): void {
   withNsRepartition(() => { nsCursor += 1; });
   nsPlayTimer = window.setTimeout(nsStep, 1100);
 }
+// #102: the manual examine/merge flow is parked while the playback
+// basics settle — no new proposal can be staged from the canvas. The
+// machinery below stays: fragments that recorded manual matches still
+// replay them, and the flow returns when the flag flips back.
+const NS_MANUAL_OVERRIDE: boolean = false;
 /** a decision from the paused examination: merge the two components —
  *  `forced` marks a pair the threshold alone would not admit */
 function nsMerge(a: string, b: string, score: number, forced: boolean): void {
@@ -1828,7 +1844,7 @@ function nsMerge(a: string, b: string, score: number, forced: boolean): void {
 /** the pair under manual examination: the selected cluster and the
  *  second-clicked one, or the last two selected coins' vertices */
 function nsProposalPair(): [string, string] | null {
-  if (!nsActive()) return null;
+  if (!NS_MANUAL_OVERRIDE || !nsActive()) return null;
   if (selection?.kind === "cluster" && nsSecond !== null && nsSecond !== selection.id) {
     return [selection.id, nsSecond];
   }
@@ -1867,14 +1883,14 @@ document.getElementById("nsplay")!.addEventListener("click", () => {
   }
   nsSetPlaying(!nsPlaying);
 });
-document.getElementById("nsskip")!.addEventListener("click", () => {
+// #102: the analysis lands finished (setNsSocial pins the cursor to the
+// end); this slider rewinds it. Dragging back retracts matches with the
+// same repartition tween a replay lands them with, dragging forward
+// re-applies them in the algorithm's own order.
+document.getElementById("nsprog")!.addEventListener("input", (e) => {
+  const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  withNsRepartition(() => { nsCursor = nsRun().length; });
-});
-document.getElementById("nsundo")!.addEventListener("click", () => {
-  nsSetPlaying(false);
-  if (nsManual.length > 0) withNsRepartition(() => void nsManual.pop());
-  else if (nsCursor > 0) withNsRepartition(() => { nsCursor -= 1; });
+  withNsRepartition(() => { nsCursor = v; });
 });
 
 // --- ns-netflix controls: the same repartition tween; playback is the
@@ -1929,9 +1945,11 @@ document.getElementById("nsnfplay")!.addEventListener("click", () => {
   }
   nfSetPlaying(!nfPlaying);
 });
-document.getElementById("nsnfskip")!.addEventListener("click", () => {
+// #102: the greedy run's rewind slider, same semantics as ns-social's
+document.getElementById("nfprog")!.addEventListener("input", (e) => {
+  const v = Number((e.target as HTMLInputElement).value);
   nfSetPlaying(false);
-  withNsRepartition(() => { nfCursor = nfRun().length; });
+  withNsRepartition(() => { nfCursor = v; });
 });
 overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
@@ -2329,7 +2347,7 @@ function applySelection(hit: Hit): void {
     if (at >= 0) ids.splice(at, 1);
     else ids.push(hit.id);
     selection = ids.length > 0 ? { kind: "coins", ids } : null;
-  } else if (hit.kind === "cluster" && nsActive() && collapsed &&
+  } else if (hit.kind === "cluster" && NS_MANUAL_OVERRIDE && nsActive() && collapsed &&
       selection?.kind === "cluster" && selection.id !== hit.id) {
     // ns-social paused examination: the second vertex completes a
     // proposal (clicking the same second vertex again withdraws it)
