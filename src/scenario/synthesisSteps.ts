@@ -436,6 +436,7 @@ export function synthesisSteps(
       view: 2,
       lens: 1,
       grants: [0, 12],
+      reveals: ["nssoc"], // "Try it: check social-network analysis"
       scene: 1,
       minDay: 115,
     },

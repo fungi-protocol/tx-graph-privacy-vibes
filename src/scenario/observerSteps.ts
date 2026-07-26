@@ -38,8 +38,9 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         <p>This bare structure is the observer's raw material — public,
         permanent, and downloadable by anyone. Everything the observer
         will ever claim about it is an <b>inference</b> laid on top. The
-        next steps switch those inferences on, one at a time; the
-        <b>heuristics</b> panel on the left lets you flip them yourself.</p>`,
+        next steps switch those inferences on, one at a time — each lands
+        on a <b>heuristics</b> panel on the left as it arrives, yours to
+        flip from then on.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,

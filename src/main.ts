@@ -1154,20 +1154,71 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
   </div>
   <h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
-// the panel grows with the story: the sub-transaction row stays off the
-// panel until the narrative (or the free-playing user) first runs it —
-// and once introduced it stays, even through the remove-one-clue rerun
-let subsumSeen = false;
+// the panel grows with the story: a row stays off the panel until the
+// walked path (or the free-playing user, or a restored fragment) first
+// runs it with the observer panel in view — and once introduced it
+// stays, even through the remove-one-clue rerun. A step can also unhide
+// a row it only points at (TutorialStep.reveals), and leaving the tour
+// — done or skip — or arriving on a tourless link reveals everything.
+type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "nssoc" | "nsnf" | "aux" | "grading";
+const seenRows = new Set<PanelRow>();
+let allRowsSeen = false;
+function rowsOnNow(): Record<PanelRow, boolean> {
+  const eo = effOverlays();
+  return {
+    reuse: (eo & OV_REUSE) !== 0,
+    cioh: (eo & OV_CIOH) !== 0,
+    change: (eo & OV_CHANGE) !== 0,
+    subsum: (overlays & OV_SUBSUM) !== 0,
+    nssoc: nsSocial,
+    nsnf: nfOn,
+    aux: kycObs || auxFrac > 0,
+    grading: showMistakes,
+  };
+}
+// the elements a row owns: its label plus any nested controls, and the
+// section headings for the sections that hold a single row
+function panelRowEls(k: PanelRow): (Element | null)[] {
+  const byBit = (bit: number): Element | null =>
+    overlaysPanel.querySelector(`input[data-bit="${bit}"]`)?.closest("label") ?? null;
+  const byId = (id: string): Element | null =>
+    document.getElementById(id)?.closest("label") ?? null;
+  const h3 = overlaysPanel.querySelectorAll("h3");
+  switch (k) {
+    case "reuse": return [byBit(OV_REUSE)];
+    case "cioh": return [byBit(OV_CIOH), document.getElementById("ciohmax")?.closest(".ovslider") ?? null];
+    case "change": return [byBit(OV_CHANGE), document.getElementById("chtells")];
+    case "subsum": return [byBit(OV_SUBSUM)];
+    case "nssoc": return [byId("nssoc")];
+    case "nsnf": return [byId("nsnf")];
+    case "aux": return [h3[1] ?? null, byId("kycobs"), document.getElementById("auxfrac")?.closest(".ovslider") ?? null];
+    case "grading": return [h3[2] ?? null, byId("mistakes")];
+  }
+}
 function reflectOverlays(): void {
+  // marks are taken only with the observer panel in view: the cards
+  // chapter's walked-path overlays must not pre-reveal rows the
+  // observer chapter means to introduce one at a time
+  const rowOn = rowsOnNow();
+  const rowKeys = Object.keys(rowOn) as PanelRow[];
+  if (lens === 1) for (const k of rowKeys) { if (rowOn[k]) seenRows.add(k); }
+  let anyHeuristic = false;
+  for (const k of rowKeys) {
+    const show = allRowsSeen || seenRows.has(k) || rowOn[k];
+    if (show && k !== "aux" && k !== "grading") anyHeuristic = true;
+    for (const el of panelRowEls(k)) {
+      if (el) (el as HTMLElement).style.display = show ? "" : "none";
+    }
+  }
+  // with no rows yet the panel is a bare heading — hide that too
+  (overlaysPanel.querySelector("h3") as HTMLElement).style.display =
+    anyHeuristic ? "" : "none";
   overlaysPanel.querySelectorAll("input[data-bit]").forEach((el) => {
     const input = el as HTMLInputElement;
     // the boxes show what RUNS — the forced CIOH reads checked while
     // sub-tx is on, though the user's own setting waits underneath
     input.checked = (effOverlays() & Number(input.dataset["bit"])) !== 0;
   });
-  const subRow = overlaysPanel.querySelector(`input[data-bit="${OV_SUBSUM}"]`)!
-    .closest("label") as HTMLElement;
-  subRow.style.display = subsumSeen || (overlays & OV_SUBSUM) !== 0 ? "" : "none";
   // while the sub-transaction analysis runs, CIOH is forced on and
   // greyed out (see effOverlays)
   const ciohBox = overlaysPanel.querySelector(`input[data-bit="${OV_CIOH}"]`) as HTMLInputElement;
@@ -1295,7 +1346,6 @@ function setOverlays(mask: number): void {
   const before = collapsed && collapseT > 0.9 && collapseCache
     ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
   overlays = mask & OV_ALL;
-  if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
   simRev += 1; // the observer's map — and every lens seeded from it — changes
   reflectOverlays();
   if (before) {
@@ -1564,9 +1614,8 @@ overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
   // their own handlers
   if (id === "mistakes" || id === "ciohmax" || id.startsWith("ch") || id.startsWith("ns")) return;
-  // a hand on the panel keeps the sub-transaction row: unchecking a
-  // visible heuristic must not make it vanish from under the pointer
-  if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
+  // no row can vanish from under the pointer: anything checked here was
+  // visible, so reflectOverlays already marked it seen
   let mask = 0;
   overlaysPanel.querySelectorAll("input[data-bit]:checked").forEach((el) => {
     mask |= Number((el as HTMLInputElement).dataset["bit"]);
@@ -2356,17 +2405,28 @@ function readableHandoff(): void {
 
 const tutorial = new Tutorial(steps, {
   onFocus: (focus) => flyTo(focus),
-  onDone: () => readableHandoff(),
+  onDone: () => {
+    allRowsSeen = true; // the town is theirs — the whole panel with it
+    reflectOverlays();
+    readableHandoff();
+  },
   // leaving the tour hands over the full toolbox: every heuristic on
   // the panel and running, and the town itself — skipping from the
   // intro must not leave the time controls hidden with the cards scene
   onSkip: () => {
+    allRowsSeen = true;
     setScene(1, eco ? economy().day : 0);
     setOverlays(OV_ALL);
     if (grantsOn()) setGrants(false, 0); // the dial is the player's to turn
     readableHandoff();
   },
-  onStepChange: () => {
+  onStepChange: (index) => {
+    // a step that only points at a panel row (rather than running it)
+    // unhides it for every step at or after it — walked-path rule
+    for (let i = 0; i <= index; i++) {
+      for (const r of steps[i]?.reveals ?? []) seenRows.add(r as PanelRow);
+    }
+    reflectOverlays();
     // the hide filter ("h") outlives selections; combined with a step
     // that keeps the prior selection it can hide the very transaction
     // the step is framing — a step landing always lifts it
@@ -2840,7 +2900,13 @@ async function init(): Promise<void> {
 
   if (state?.t !== undefined && state.t >= 0) tutorial.go(state.t, !state.cam);
   else if (state?.t === undefined && !state?.ref) tutorial.go(0, !state?.cam);
-  else tutorial.hide(); // explicit t < 0, or a bare reference link: no tour
+  else {
+    // explicit t < 0, or a bare reference link: no tour — and with no
+    // story to unfold, the whole heuristics panel is available at once
+    allRowsSeen = true;
+    reflectOverlays();
+    tutorial.hide();
+  }
 
   if (state?.ref) {
     const { wx, wy } = state.ref;

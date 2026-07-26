@@ -35,6 +35,10 @@ export interface TutorialStep {
   /** something to select when the step becomes active (trace highlight);
    * null clears the selection; undefined leaves it alone */
   select?: () => { kind: "coin" | "tx"; id: string } | null | undefined;
+  /** heuristics-panel rows this step unhides without running them — for
+   * a step that invites the reader to flip a switch itself. Walked-path
+   * rule like `overlays`: revealed at every step at or after this one */
+  reveals?: string[];
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
