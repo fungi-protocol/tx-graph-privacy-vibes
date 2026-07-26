@@ -108,7 +108,10 @@ export function coinjoinSteps(
         among the plausible alternatives, and the more strangers' pasts flow
         through, the more company it keeps.</p>`,
       focus: () => pad(denseFocus()),
-      view: 1,
+      // stays in card view: this step zooms in on the same transaction
+      // the previous step framed, and a view morph in between reads as
+      // leaving the card even though the camera never meant to
+      view: 0,
       lens: 1,
       scene: 1,
       minDay: 100,
