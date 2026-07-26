@@ -178,7 +178,7 @@ export function synthesisSteps(
       id: "no-names-were-needed",
       title: "No names were needed",
       html: `<p>Step back and take stock. Every map in this story — the
-        clusters, the welds, the shrinking candidate sets — was computed
+        clusters, the links, the shrinking candidate sets — was computed
         from the <b>public record alone</b>. No accounts, no subpoenas,
         no names: this is the <b>weakest access tier</b>, and it got this
         far. And the record is permanent — anything the observer missed
@@ -237,7 +237,7 @@ export function synthesisSteps(
           ? "One recorded observation"
           : `A chain of ${c.support.length} recorded observations`}: the
         <b>sub-transaction analysis</b> found a unique balancing
-        partition of this transaction, and welded each part
+        partition of this transaction, and linked each part
         together.</p>`
           : `<p>Every cluster on the observer's map is a <b>claim</b> —
         "these coins share an owner" — and every claim rests on recorded
@@ -247,7 +247,7 @@ export function synthesisSteps(
         <b>proves</b> is value flow — which inputs funded which outputs.
         Reading each part as <b>one owner</b> is an assumption the
         observer adds on top, and the map records it as an assumption on
-        the weld instead of laundering it into fact. A claim you can
+        the link instead of laundering it into fact. A claim you can
         take apart this way can also be tested — next.</p>`;
       },
       focus: naiveRect,
@@ -272,11 +272,11 @@ export function synthesisSteps(
         sub-transaction analysis <b>switched off</b> — the view here
         shows that rerun. The claim <b>survives</b>: with the matching
         game gone, plain common-input-ownership reads the very same
-        transaction and welds the same coins.</p>`
+        transaction and links the same coins.</p>`
             : `<p>Now test it: rerun the whole analysis with the
         sub-transaction analysis <b>switched off</b> — the view here
         shows that rerun. This time the claim <b>dies</b>: no other
-        method reads this transaction, so the weld rested on that one
+        method reads this transaction, so the link rested on that one
         clue.</p>`;
         return `${line}
         <p>Read a survival precisely: it means blocking that method
@@ -397,7 +397,7 @@ export function synthesisSteps(
         <p>What closes the gap between the town and the miniature is
         <b>consolidation</b>. Every time a wallet spends coins together,
         every time a change guess lands, pseudonyms fuse — the
-        change-welding you watched earlier is exactly this fusing — and
+        change-linking you watched earlier is exactly this fusing — and
         over months of ordinary housekeeping the splinters drift toward
         one pseudonym per person. The town's privacy tools <b>slow that
         drift</b>; they don't reverse it. So the failed sweep you just
@@ -533,7 +533,7 @@ export function synthesisSteps(
         plus rumor-grade knowledge of the town's arrangements — the
         weakest of the three cards, and no names needed up front. Real
         analysts hold more: this town's wallet <b>fingerprints</b> stop at
-        a few products' worth of tells, and network metadata, timing
+        a few products' worth of habits, and network metadata, timing
         correlation and purchased records it does not model at all. Read
         every result here as a <b>lower bound</b> on exposure.</p>
         <p>And the propagation you watched is <b>one</b> inspectable,

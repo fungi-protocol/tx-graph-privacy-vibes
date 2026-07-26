@@ -110,7 +110,7 @@ export function payjoinSteps(
         as one owner — but they were <b>two people's coins</b>. A
         transaction that spends inputs owned by more than one user
         <b>falsifies CIOH by construction</b>.</p>
-        <p>The observer's cluster now welds payer and payee together, and
+        <p>The observer's cluster now merges payer and payee together, and
         the change guess goes quiet too: the payment output isn't a round
         amount any more — the payee's own coin is stirred in — so the
         observer has nothing to grab.</p>`,
@@ -164,7 +164,7 @@ export function payjoinSteps(
         ambiguity the way the combinatorics might suggest, because
         consolidated inputs read as one thing.</p>
         <p>A couple of readings is real doubt — the change guess went
-        quiet, the cluster weld might be wrong — but it is <b>small</b>
+        quiet, the cluster merge might be wrong — but it is <b>small</b>
         doubt. And it was counted <i>ignoring the transaction's
         context</i>. The next step puts the context back.</p>`,
       focus: () => pad(payjoinFocus()),
@@ -195,7 +195,7 @@ export function payjoinSteps(
             clustering on both sides, the natural resolution is not "my
             clusters are wrong" but "<b>this is two people's coins in one
             transaction</b>." The payjoin is detected, retroactively: the
-            handful of readings collapses back to one, the weld is
+            handful of readings collapses back to one, the merge is
             unwound, and the observer walks away with something new — an
             <b>edge between two clusters</b>, a record that these two
             pseudonyms transact. Strong evidence, not proof — the prior

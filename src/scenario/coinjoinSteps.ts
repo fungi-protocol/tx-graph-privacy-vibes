@@ -94,7 +94,7 @@ export function coinjoinSteps(
         value are interchangeable, so the readings can be counted over the
         values — and there is always more than one. (A session too tangled
         even for that earns only an abstention, and abstention alone proves
-        nothing.) Either way a careful analyst <b>declines to weld
+        nothing.) Either way a careful analyst <b>declines to link
         anything</b> — where the earlier forms fed CIOH lies, this one
         starves it. Starves it <i>inside the join</i>, that is: the clusters
         on either side remain, still matched to the town's relationships.</p>
@@ -113,7 +113,8 @@ export function coinjoinSteps(
     {
       id: "the-null-hypothesis-flips",
       title: "The null hypothesis flips",
-      html: `<p>Look at what the menu does to <b>change identification</b>.
+      html: `<p>Look at what the menu does to <b>change/payment
+        identification</b>.
         In an ordinary spend, a round amount reads as a payment. But
         repeated denominations are exactly what <i>taking your own
         balance back</i> looks like — so where a transaction's outputs
@@ -121,7 +122,7 @@ export function coinjoinSteps(
         presumption inverts: a denominated output's null hypothesis is a
         <b>self-spend</b>, treated like change — belonging with the
         inputs that funded it — unless there is evidence it is a
-        payment. The round-amount tell that would have called every
+        payment. The round-amount heuristic that would have called every
         denomination a payment goes quiet.</p>
         <p>That inversion is why the inline payment rides along <b>in the
         same denominations</b>: cut into menu values, it looks like

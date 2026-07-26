@@ -7,7 +7,7 @@
 // CIOH, then two-step change identification (identify the payment
 // outputs first, then suspect the sole remainder; several remainders
 // read as a batch payment and the observer abstains) with its
-// real-world family of tells and the configurable evidence bar, cluster
+// real-world family of heuristics and the configurable evidence bar, cluster
 // contraction, and the pseudonym graph — which the chapter closes by
 // combining with the exchange's records: names seed clusters, welds
 // spread names. The Scroll #2/#3 arc: familiar heuristics first, then
@@ -16,13 +16,13 @@
 // NOT here: it waits for the intersection chapter, after ambiguity and
 // errors, where its phase-transition lesson lands.
 //
-// The change-tell family step follows accuracy/030's constraints: the
-// ordering tell is position-leaks-when-ordering-is-deterministic (with
+// The change-heuristic family step follows accuracy/030's constraints:
+// the ordering read is position-leaks-when-ordering-is-deterministic (with
 // sorted/shuffled outputs as the defense), not a payment-first law;
-// the address-type tell runs live (each wallet product keeps one script
+// the address-type heuristic runs live (each wallet product keeps one script
 // family — the "script type" checkbox); and the family is framed so blocking
 // one member visibly does not blind the others. Citations: round
-// numbers = the wiki's folklore tell (what this lens runs);
+// numbers = the wiki's folklore heuristic (what this lens runs);
 // fresh/"shadow" address = Androulaki et al. 2012; never-seen-again
 // address = Meiklejohn et al. 2013; fingerprint classifiers = Möser &
 // Narayanan 2022, Kappos et al. 2022. CIOH itself is the whitepaper's own
@@ -149,8 +149,8 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         map, there is no single "whoever paid" to hand the change to, and
         the careful analyst abstains. Each correct guess extends a
         cluster by one hop; chained day after day, that is most of the
-        map you now see. The round-amount read is the one payment tell
-        this lens runs so far — but it is one member of a
+        map you now see. The round-amount read is the one payment
+        heuristic this lens runs so far — but it is one member of a
         <b>family</b>.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
@@ -161,30 +161,30 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
     },
     {
       id: "a-family-of-tells",
-      title: "A family of tells",
+      title: "A family of heuristics",
       html: `<p>You met two siblings in the first chapter. The ordering
-        tell, stated precisely: any wallet that orders its outputs by a
+        heuristic, stated precisely: any wallet that orders its outputs by a
         fixed rule leaks the change's <b>position</b> once its software is
         identified — which is why some wallets sort outputs by a neutral
         convention (BIP 69) or shuffle them, to destroy that signal. And
-        the address-type tell: change usually matches the inputs' address
+        the address-type heuristic: change usually matches the inputs' address
         type while the payment is whatever the payee asked for — a wallet
         keeps its change where it keeps its keys. This town's wallet
-        products each stick to one script family, so the tell has purchase
+        products each stick to one script family, so the heuristic has purchase
         here: it runs under the <b>script type</b> checkbox in the change
         heuristic's controls, and every mixed-type payment leaks what a
         uniform one doesn't.</p>
         <p>Researchers added more. The freshly generated address next to
         one seen before is probably the change (Androulaki et al. call it
         the <i>shadow address</i>); an address that never appears again is
-        probably change too (Meiklejohn et al.) — both tells feed on the
-        address reuse this town, Carol aside, gave up. And above the hand-written tells
+        probably change too (Meiklejohn et al.) — both heuristics feed on the
+        address reuse this town, Carol aside, gave up. And above the hand-written rules
         sits a heavier tier: wallet software leaves <b>fingerprints</b> —
         fee choices, script versions, ordering and locktime conventions —
         and classifiers trained on them (Möser &amp; Narayanan; Kappos et
         al.) have proven extremely powerful in practice.</p>
-        <p>The lesson is the family, not any one member: take one tell
-        away and the others still vote.</p>`,
+        <p>The lesson is the family, not any one member: take one
+        heuristic away and the others still vote.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
@@ -197,23 +197,24 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       title: "Heuristics, not proofs",
       html: `<p>Guesses can be wrong. The real change can land on a round
         amount while an odd grocery total doesn't — and the stranger's
-        coin, the actual payment, gets welded into the payer's cluster.
+        coin, the actual payment, gets merged into the payer's cluster.
         Careful observers accept some misses to avoid <b>cluster
         collapse</b> — merging different people into one blob — and this
         observer already abstains in one such case: when <b>several</b>
         outputs stay unidentified, a payment may simply have been missed,
         so the null hypothesis is a batch of payments, not one payment
         plus change, and nothing is linked.</p>
-        <p>The rest of its caution is yours to set. Each payment tell
-        this lens runs is its own checkbox under the change heuristic —
+        <p>The rest of its caution is yours to set. Each payment
+        heuristic this lens runs is its own checkbox in the
+        change/payment identification controls —
         round dollars, round bitcoin, and (further on) auxiliary
         attributions — so you can take one away and watch the others
         still vote. The <b>evidence bar</b> below them is how many
-        <i>kinds</i> of tell the weld demands: at one, any single tell
-        decides — every bet taken; raise it and only payments that two
-        different tells agree on still anchor a weld, coverage traded
-        for caution. And the family keeps growing — real observers add
-        tells this lens doesn't model.</p>
+        <i>kinds</i> of heuristic the link demands: at one, any single
+        heuristic decides — every bet taken; raise it and only payments
+        that two different heuristics agree on still anchor the link,
+        coverage traded for caution. And the family keeps growing — real
+        observers add heuristics this lens doesn't model.</p>
         <p class="tut-aside">The rule of thumb from cryptography applies:
         attacks always get better; they never get worse.</p>`,
       focus: () => pad(bipBounds()),
@@ -237,7 +238,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         the observer's partition, but the <b>paint</b> is the town's truth
         — each vertex wears its coins' true owners, which the observer
         cannot see. A one-color vertex holds one person's coins; a vertex
-        wearing several colors welded different people together — a
+        wearing several colors merged different people together — a
         <b>cluster collapse</b> you can spot at a glance. Flip the
         heuristics on the left and watch the vertices merge and split.</p>`,
       focus: () => pad(clusterBounds()),
@@ -249,7 +250,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
     },
     {
       id: "names-meet-the-welds",
-      title: "Names meet the welds",
+      title: "Names meet the guesses",
       html: `<p>Now play the card from earlier. The heuristics panel has
         an <b>auxiliary information</b> section, and checking <i>exchange
         records (KYC)</i> just handed this observer the exchange's books
@@ -259,12 +260,12 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         combination is worth more than its parts. The records name a few
         coins; CIOH and the change guesses built the clusters; and a
         cluster holding a named coin takes the name — everything the
-        welds gathered, the name now covers. One exchange withdrawal
+        guesses gathered, the name now covers. One exchange withdrawal
         identifies a whole pseudonym's history, rates, salary, and
         counterparties. The traffic runs the other way too: a
-        <b>wrong</b> weld hands someone's coins to someone else's name —
+        <b>wrong</b> link hands someone's coins to someone else's name —
         unless two disagreeing names land in one cluster, in which case
-        the observer knows one of its own welds is a lie, and the
+        the observer knows one of its own links is a lie, and the
         cluster earns no name at all. The map is patient: a name learned
         today applies to everything already on it.</p>
         <p>Everything so far assumed each transaction has <b>one

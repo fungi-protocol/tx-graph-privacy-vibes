@@ -178,7 +178,7 @@ export function intersectionSteps(
         <p>Why hand you this dial <b>now</b>, after the guesses started
         missing and the coinjoins made pasts ambiguous? Because of what
         the previous step showed at the scale of one name. Leaks do not
-        add up — they <b>compound</b>: each named coin seeds the welds
+        add up — they <b>compound</b>: each named coin seeds the links
         around it, and past a <b>critical threshold</b> the seeds start
         creating each other. Drag the slider slowly and watch for it: a
         surprisingly <b>small</b> fraction of coins leaked town-wide is
@@ -255,7 +255,7 @@ export function intersectionSteps(
         A coinjoin's change output matches nothing on the menu — an amount
         analyst can pick it out at a glance and hand it straight back to
         its owner's pre-coinjoin cluster. The cautious observer shown here
-        declines to weld it, but the amounts already answered the question.
+        declines to link it, but the amounts already answered the question.
         Spend it beside a coinjoined coin, as happened here, and the two
         pasts are joined: the session's ambiguity is spent along with
         it.</p>

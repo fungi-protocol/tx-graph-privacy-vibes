@@ -1182,8 +1182,8 @@ const overlaysPanel = document.getElementById("overlays")!;
 const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_REUSE, label: "address reuse", title: "coins paid to the same address — one key controls both, on the face of the record; no inference involved" },
   { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
-  { bit: OV_CHANGE, label: "change identification", title: "two steps: identify the payment outputs first (a round dollar or BTC amount, or a disclosed owner), then read what remains — exactly one unidentified output is suspected change and welded to the spender; several read as a batch payment and the observer abstains; repeated menu denominations invert the presumption, reading as self-spends" },
-  { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition welds its sub-transactions together" },
+  { bit: OV_CHANGE, label: "change/payment identification", title: "two steps: identify the payment outputs first (a round dollar or BTC amount, or a disclosed owner), then read what remains — exactly one unidentified output is suspected change and linked to the spender; several read as a batch payment and the observer abstains; repeated menu denominations invert the presumption, reading as self-spends" },
+  { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition links each sub-transaction's coins together" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
   `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>` +
@@ -1197,12 +1197,12 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     ? `<div id="chtells">
         <label class="ovnest" title="an amount landing on a round multiple of $10 at that day's exchange rate reads as a payment — prices are set in dollars"><input type="checkbox" id="chusd" checked> round dollars</label>
         <label class="ovnest" title="an amount round in BTC terms (0.05, not 0.0473) reads as a payment too"><input type="checkbox" id="chbtc" checked> round bitcoin</label>
-        <label class="ovnest" title="an output paying a script family (address type) none of the inputs use reads as a payment — a wallet keeps its change where it keeps its keys. A wallet migration makes this tell misfire: the new wallet's change looks foreign next to the old wallet's coins"><input type="checkbox" id="chscript" checked> script type</label>
+        <label class="ovnest" title="an output paying a script family (address type) none of the inputs use reads as a payment — a wallet keeps its change where it keeps its keys. A wallet migration makes this heuristic misfire: the new wallet's change looks foreign next to the old wallet's coins"><input type="checkbox" id="chscript" checked> script type</label>
         <label class="ovnest" title="an output the observer's auxiliary information attributes to a different owner than a granted input is a payment however the amount reads — needs the knowledge grant below to have anything to say"><input type="checkbox" id="chaux" checked> auxiliary attribution</label>
-        <div class="ovslider" title="how many of the ENABLED tell kinds must fire across the sub-transaction's identified payments before the leftover output is linked. At 1 any single tell decides; higher bars demand the kinds corroborate each other, trading coverage for fewer wrong welds">
+        <div class="ovslider" title="how many of the ENABLED heuristic kinds must fire across the sub-transaction's identified payments before the leftover output is linked. At 1 any single heuristic decides; higher bars demand the kinds corroborate each other, trading coverage for fewer wrong links">
           <span>evidence bar</span>
           <input type="range" id="chev" min="1" max="${CHANGE_EV_MAX}" step="1" value="1">
-          <output id="chevv">1 tell</output>
+          <output id="chevv">1 heuristic</output>
         </div>
       </div>`
     : "")).join("") +
@@ -1344,7 +1344,7 @@ function reflectOverlays(): void {
   chev.value = String(changeEvidence);
   chev.disabled = changeOff || tellCount(changeTells) <= 1;
   (document.getElementById("chevv") as HTMLOutputElement).textContent =
-    changeEvidence === 1 ? "1 tell" : `${changeEvidence} tells`;
+    changeEvidence === 1 ? "1 heuristic" : `${changeEvidence} heuristics`;
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
   (document.getElementById("kycobs") as HTMLInputElement).checked = kycObs;
   (document.getElementById("auxfrac") as HTMLInputElement).value = String(Math.round(auxFrac * 100));

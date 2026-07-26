@@ -92,7 +92,7 @@ export function settlementSteps(
               unique split — an unlucky coincidence of amounts; most
               settlements give it nothing.`;
         return `<p>Flip to the observer. CIOH reads this as one entity's
-        spend and welds <b>all</b> the participants into a single cluster
+        spend and merges <b>all</b> the participants into a single cluster
         — wronger than ever.</p>
         <p>Worse for the observer: with a cycle inside, a participant's net
         can land anywhere, <b>including near zero</b>. In a payjoin the
