@@ -3,9 +3,11 @@
 // Where ns-social matches vertices by who they transact with, this
 // heuristic matches them by how they behave: each cluster's public record
 // yields a feature vector — amount distribution, temporal pattern, amounts
-// over time, feerates absolute and relative to the day's prevailing rate,
-// address script families, and transaction-building habits (nLockTime
-// default, signature grinding) — and clusters whose vectors agree closely
+// over time, time-of-day rhythm (a shopkeeper spends during business
+// hours, a night owl after dark — the habit of a person, and it survives
+// clustering), feerates absolute and relative to the day's prevailing
+// rate, address script families, and transaction-building habits
+// (nLockTime default, signature grinding) — and clusters whose vectors agree closely
 // are proposed as one user. The feerate, script and habit blocks are where
 // wallet software sings: every product in scenario/cast.ts bids by policy,
 // keeps its addresses in one script family, and stamps its drafts the same
@@ -33,6 +35,9 @@ export interface NfStats {
   temporal: number[];
   /** mean log2 payment size per timeline eighth (0 where silent) */
   drift: number[];
+  /** spends per 3-hour window of the day — the initiator's waking-hours
+   *  rhythm (#94), read off each spend's public minute of day */
+  hours: number[];
   /** log2-bucketed absolute feerates of the cluster's spends */
   feeAbs: number[];
   /** feerate relative to the day median, fixed buckets */
@@ -48,6 +53,7 @@ export interface NfStats {
 
 const AMT_BUCKETS = 24;
 const TIME_BUCKETS = 8;
+const HOUR_BUCKETS = 8; // 3-hour windows of the day
 const FEE_ABS_BUCKETS = 12;
 // relative-rate bucket edges: under the market, at it, premium tiers
 const FEE_REL_EDGES = [0.7, 0.85, 0.95, 1.05, 1.2, 1.45, 2];
@@ -96,6 +102,7 @@ export function nfStats(cl: Clustering, chain: Chain): Map<string, NfStats> {
     amounts: new Array(AMT_BUCKETS).fill(0),
     temporal: new Array(TIME_BUCKETS).fill(0),
     drift: new Array(TIME_BUCKETS).fill(0),
+    hours: new Array(HOUR_BUCKETS).fill(0),
     feeAbs: new Array(FEE_ABS_BUCKETS).fill(0),
     feeRel: new Array(FEE_REL_EDGES.length + 1).fill(0),
     script: new Array(SCRIPT_KINDS.length).fill(0),
@@ -148,6 +155,9 @@ export function nfStats(cl: Clustering, chain: Chain): Map<string, NfStats> {
       if (rep === builder && tx.locktime !== undefined) {
         st.habits[tx.locktime === "tip" ? 0 : 1]!++;
       }
+      if (rep === builder && tx.minute !== undefined) {
+        st.hours[Math.max(0, Math.min(HOUR_BUCKETS - 1, Math.floor(tx.minute / 60 / 3)))]!++;
+      }
       if (tx.sigLowR !== undefined) {
         for (let k = 0; k < tx.inputs.length; k++) {
           if (cl.rep.get(tx.inputs[k]! as CoinId) !== rep) continue;
@@ -192,6 +202,7 @@ function cosine(a: number[], b: number[]): number | null {
 export function nfSimilarity(a: NfStats, b: NfStats): number {
   const blocks: [number[], number[]][] = [
     [a.amounts, b.amounts], [a.temporal, b.temporal], [a.drift, b.drift],
+    [a.hours, b.hours],
     [a.feeAbs, b.feeAbs], [a.feeRel, b.feeRel],
     [a.script, b.script], [a.habits, b.habits],
   ];

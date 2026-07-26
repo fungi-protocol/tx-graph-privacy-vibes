@@ -17,6 +17,7 @@ function synth(over: Partial<NfStats>): NfStats {
     amounts: new Array(24).fill(0),
     temporal: new Array(8).fill(0),
     drift: new Array(8).fill(0),
+    hours: new Array(8).fill(0),
     feeAbs: new Array(12).fill(0),
     feeRel: new Array(8).fill(0),
     script: new Array(4).fill(0),

@@ -340,7 +340,7 @@ export function drawMorph(
       ctx.fillText(`${tid} — ${paint.txMemo(tx) ?? "transaction"}`, frame.x + 10, frame.y + 17);
       ctx.fillStyle = "#6d727d";
       ctx.font = "10px system-ui, sans-serif";
-      ctx.fillText(`fee ${fmtSats(tx.fee)} sats @ ${tx.feerate} sat/vb${lockText(tx)}`, frame.x + 10, frame.y + 33);
+      ctx.fillText(`fee ${fmtSats(tx.fee)} sats @ ${tx.feerate} sat/vb${traitText(tx)}`, frame.x + 10, frame.y + 33);
       ctx.restore();
     } else {
       // square node: bare id; memo and fee move to the caption below so
@@ -356,7 +356,7 @@ export function drawMorph(
       const memo = paint.txMemo(tx);
       if (memo) ctx.fillText(memo, frame.x + frame.w / 2, frame.y + frame.h + 12);
       ctx.fillStyle = "#6d727d";
-      ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb${lockText(tx)}`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 24 : 12));
+      ctx.fillText(`fee ${fmtSats(tx.fee)} @ ${tx.feerate} sat/vb${traitText(tx)}`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 24 : 12));
       if (flag) {
         ctx.fillStyle = "#e15759";
         ctx.fillText(`✗ ${flag}`, frame.x + frame.w / 2, frame.y + frame.h + (memo ? 36 : 24));
@@ -419,12 +419,16 @@ export function drawMorph(
   ctx.globalAlpha = 1;
 }
 
-/** the transaction's nLockTime, as the record shows it (#93): wallets
+/** what the record shows beside the fee (#93, #94): the minute of day
+ *  the transaction hit the chain, and the draft's nLockTime — wallets
  *  that anti-fee-snipe set it to the current tip height, others leave
- *  it zero — public on the face of every transaction, so shown beside
- *  the fee in both views. Absent where no wallet was named. */
-function lockText(tx: { locktime?: "tip" | "zero" }): string {
-  return tx.locktime === undefined ? "" : ` · nLockTime ${tx.locktime === "tip" ? "tip" : "0"}`;
+ *  it zero. Both public on the face of every transaction, shown in both
+ *  views; absent where no wallet was named. */
+function traitText(tx: { locktime?: "tip" | "zero"; minute?: number }): string {
+  const at = tx.minute === undefined ? ""
+    : ` · ${String(Math.floor(tx.minute / 60)).padStart(2, "0")}:${String(tx.minute % 60).padStart(2, "0")}`;
+  const lock = tx.locktime === undefined ? "" : ` · nLockTime ${tx.locktime === "tip" ? "tip" : "0"}`;
+  return at + lock;
 }
 
 function drawCoinBox(

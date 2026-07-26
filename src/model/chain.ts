@@ -122,6 +122,11 @@ export interface Tx {
    *  — each party signs its own inputs, so a collaborative transaction
    *  can mix grinding habits side by side. Parallel to `inputs`. */
   sigLowR?: boolean[];
+  /** minute of day (0–1439) the transaction hit the chain — public
+   *  record, like the timestep. When a person transacts is a habit of
+   *  the person, not the wallet (#94). Assigned retroactively by
+   *  assignTxMinutes; undefined only before that walk runs. */
+  minute?: number;
 }
 
 export class Chain {
@@ -284,6 +289,19 @@ export class Chain {
       if (tx.locktime !== undefined) continue;
       tx.locktime = traitsOf(this.coins.get(tx.inputs[0]!)!.owner).locktime;
       tx.sigLowR = tx.inputs.map((i) => traitsOf(this.coins.get(i)!.owner).lowR);
+    }
+  }
+
+  /**
+   * Stamp every transaction with its minute of day, retroactively —
+   * the same pure-walk pattern as assignTxTraits. The minute is the
+   * INITIATOR's (first input's owner): they drafted and broadcast, so
+   * the record shows their waking hours. Idempotent.
+   */
+  assignTxMinutes(minuteOf: (who: Owner, tid: TxId) => number): void {
+    for (const tx of this.txs.values()) {
+      if (tx.minute !== undefined) continue;
+      tx.minute = minuteOf(this.coins.get(tx.inputs[0]!)!.owner, tx.id);
     }
   }
 

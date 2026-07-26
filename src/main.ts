@@ -1329,7 +1329,7 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
     </div>
     <div id="nsproposal"></div>
   </div>
-  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, feerates absolute and relative to the day's prevailing rate, address script families, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script families in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
+  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, time-of-day rhythm, feerates absolute and relative to the day's prevailing rate, address script families, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script families in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
   <div id="nsnfcontrols" style="display:none">
     <div class="ovslider" title="similarity a pair must clear to be matched (mean cosine over the feature blocks); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
       <span>threshold</span>
@@ -1516,6 +1516,13 @@ function reflectOverlays(): void {
 // relative-rate bucket labels, matching nsnetflix's FEE_REL_EDGES
 const NF_REL_LABELS = ["<0.7×", "0.7–0.85×", "0.85–0.95×", "0.95–1.05×", "1.05–1.2×", "1.2–1.45×", "1.45–2×", "≥2×"];
 /** the selected vertex's behavioral fingerprint, summarized */
+/** the cluster's loudest 3-hour window, when any spend carries a time */
+function hourHint(hours: number[]): string {
+  const total = hours.reduce((a, b) => a + b, 0);
+  if (total === 0) return "";
+  const h = hours.indexOf(Math.max(...hours));
+  return ` · most active ${String(h * 3).padStart(2, "0")}:00–${String(h * 3 + 3).padStart(2, "0")}:00`;
+}
 function reflectNfStats(): void {
   const box = document.getElementById("nsnfstats") as HTMLElement;
   if (!nfActive() || !collapsed || selection?.kind !== "cluster") {
@@ -1534,7 +1541,7 @@ function reflectNfStats(): void {
   const tPeak = st.temporal.indexOf(Math.max(...st.temporal));
   box.innerHTML = st.spends === 0
     ? `<span class="nshint">no spends on record — only receipt evidence</span>`
-    : `<span class="nshint">${st.spends} spend${st.spends === 1 ? "" : "s"} · bids ${NF_REL_LABELS[relPeak]} the day's rate · busiest in eighth ${tPeak + 1} of the timeline</span>`;
+    : `<span class="nshint">${st.spends} spend${st.spends === 1 ? "" : "s"} · bids ${NF_REL_LABELS[relPeak]} the day's rate · busiest in eighth ${tPeak + 1} of the timeline${hourHint(st.hours)}</span>`;
 }
 /** the paused-mode examination: two selected vertices, their score, and
  *  the decision — accept (it clears the threshold) or force (it does not) */

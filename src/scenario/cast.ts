@@ -40,6 +40,14 @@ export interface Persona {
    *  as the story needs it: one community first, the studio trio before
    *  rent day, the bike-shop crowd before word crosses community lines. */
   arrives?: number;
+  /** waking-hours habit [start, end) in hours of the day, end < start
+   *  wrapping midnight: the window this person tends to transact in.
+   *  A habit of the PERSON, not the wallet — a shopkeeper spends during
+   *  business hours, a night owl after dark — and every transaction's
+   *  minute of day is public record, so the habit survives clustering
+   *  and feeds statistical fingerprinting (#94). Absent = the town
+   *  default (8–22, anyone's waking day). */
+  hours?: [number, number];
   /** character-sheet stats, 0–5, feeding the (deliberately simple) cost terms */
   stats: {
     /** how much a naive, history-linking spend bothers them */
@@ -173,6 +181,7 @@ export const COMMUNITIES: number[][] = [[0, 1, 2, 3], [4, 5, 6], [7, 8, 9]];
 export const PERSONAS: Persona[] = [
   {
     name: "Alice", role: "salaried", community: 0, income: "salary",
+    hours: [18, 23], // salaried: pays her bills after work
     concern: "Everyone she pays — the handyman, the web designer, the " +
       "merchants — can walk her coins backwards and size up her savings. " +
       "Paying unilaterally, each purchase hands its recipient a thread " +
@@ -184,6 +193,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     name: "Bob", role: "handyman", community: 0, income: "out-of-town job",
+    hours: [7, 17], // on the job early, settles up on site
     concern: "Clients pay him for jobs. He does not want one client " +
       "comparing his rates with another's, or tracing how much he has " +
       "saved. Every unilateral receipt is a thread anyone he ever worked " +
@@ -209,6 +219,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     name: "Dave", role: "freelance web developer", community: 0, income: "overseas client",
+    hours: [21, 3], // night owl on the overseas client's clock — wraps midnight
     concern: "Clients pay him, and he pays subcontractors. He does not " +
       "want client X learning that client Y exists, or a subcontractor " +
       "reading his margin. Unilaterally, money received from Y touches Z " +
@@ -244,6 +255,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     name: "Grace", role: "bike shop", community: 1, income: "till revenue", arrives: 76,
+    hours: [9, 17], // the shop transacts when the shop is open
     concern: "A business wallet is a magnet: revenue volume, payroll and " +
       "supplier margins all live in one cluster. Customers see her " +
       "supplier payments; suppliers can size her revenue. One identified " +
@@ -255,6 +267,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     name: "Heidi", role: "potter, owns the studio", community: 2, income: "gallery sales", arrives: 36,
+    hours: [10, 18], // studio hours
     concern: "Her tenant pays her rent into the same wallet she pays the " +
       "carpenter and the designer from. She does not want Judy gauging " +
       "her finances, nor the people she hires seeing her rental income. " +
@@ -266,6 +279,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     name: "Ivan", role: "carpenter", community: 2, income: "out-of-town job", arrives: 36,
+    hours: [6, 15], // job sites start at dawn
     concern: "Rate privacy between clients, and materials purchases that " +
       "do not let a client estimate his markup. The lumber yard receipt " +
       "sits one hop from the invoice it was bought for.",
@@ -346,6 +360,7 @@ const ARCHETYPES: Archetype[] = [
   {
     persona: {
       name: "Lena", role: "market stall, high volume", income: "till revenue", arrives: 104,
+      hours: [8, 16], // the stall trades while the market runs
       concern: "A steady run of small sales, all into one till. Any single " +
         "customer who identifies one sale can read the whole till — volume, " +
         "regulars, the supplier she underpays.",
@@ -364,6 +379,7 @@ const ARCHETYPES: Archetype[] = [
   {
     persona: {
       name: "Max", role: "privacy maximalist", income: "consulting retainer", arrives: 106,
+      hours: [0, 24], // schedules broadcasts around the clock on purpose — a habit withheld is a feature erased
       concern: "Treats every link as a leak: coordinates whenever the menu " +
         "offers it, never declines a session, never consolidates. The town's " +
         "counterexample — and a reminder that discipline buys ambiguity you " +
@@ -382,6 +398,7 @@ const ARCHETYPES: Archetype[] = [
   {
     persona: {
       name: "Nadia", role: "exchange desk, batches payouts", income: "desk float top-up", arrives: 108,
+      hours: [9, 17], // the desk keeps office hours
       concern: "A desk that owes many people at once and pays them all in " +
         "one transaction to save fees. Cheap — and it publishes her whole " +
         "payout list as a single record every time.",

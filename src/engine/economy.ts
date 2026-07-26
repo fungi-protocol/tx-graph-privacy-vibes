@@ -215,8 +215,19 @@ export class Economy {
     });
     this.chain.assignAddresses(this.reusers(), this.scriptOf);
     this.chain.assignTxTraits(this.traitsOf);
+    this.chain.assignTxMinutes(this.minuteOf);
     this.routeExchange();
   }
+
+  /** the minute of day a draft hit the chain — the initiator's waking
+   *  hours (#94), drawn from a dedicated per-transaction stream so the
+   *  record replays exactly and the retroactive walk never disturbs the
+   *  seeded streams that shape the town. Outside parties keep no habit. */
+  private minuteOf = (who: Owner, tid: TxId): number => {
+    const [s, e] = who === null ? [0, 24] : this.cast[who]!.hours ?? [8, 22];
+    const span = ((e - s + 24) % 24) || 24;
+    return Math.floor((s * 60 + new Rng(`${this.seed}/minute/${tid}`).next() * span * 60) % 1440);
+  };
 
   /** who hands out one address for everything — a profile trait, read by
    *  the retroactive address walk, never by the seeded streams */
@@ -1163,6 +1174,7 @@ export class Economy {
     // replayed after the fact so no seeded stream ever moves
     this.chain.assignAddresses(this.reusers(), this.scriptOf);
     this.chain.assignTxTraits(this.traitsOf);
+    this.chain.assignTxMinutes(this.minuteOf);
     this.routeExchange();
     return this.events.slice(before);
   }
