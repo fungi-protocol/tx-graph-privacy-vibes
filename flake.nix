@@ -37,7 +37,9 @@
             buildPhase = ''
               esbuild src/main.ts --bundle --minify --format=iife \
                 --target=es2022 --outfile=app.js
-              node build.mjs app.js index.html.in index.html
+              esbuild src/worker/analysis-worker.ts --bundle --minify --format=iife \
+                --target=es2022 --outfile=worker.js
+              node build.mjs app.js worker.js index.html.in index.html
             '';
             installPhase = ''
               mkdir -p $out

@@ -98,6 +98,15 @@
            background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
            padding: 8px 14px; font-size: 13px; opacity: 1; transition: opacity 0.5s; }
   .toast.gone { opacity: 0; }
+  #busy { position: fixed; left: 50%; top: 16px; transform: translateX(-50%);
+          display: flex; align-items: center; gap: 8px;
+          background: #33363e; border: 1px solid #4a4e57; border-radius: 8px;
+          padding: 6px 14px; font-size: 13px; color: #d8dade; z-index: 30; }
+  #busy[hidden] { display: none; }
+  .busy-spin { width: 12px; height: 12px; border-radius: 50%;
+               border: 2px solid #4a4e57; border-top-color: #edc948;
+               animation: busyspin 0.8s linear infinite; }
+  @keyframes busyspin { to { transform: rotate(360deg); } }
   #timebar { position: fixed; right: 16px; top: 16px; display: none;
              align-items: center; gap: 2px; background: #33363e;
              border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 8px; }
@@ -191,6 +200,8 @@
   <input id="dayslider" type="range" min="0" max="0" step="1" value="0"
          title="seek to any recorded day — the record stays either way">
 </div>
+<div id="busy" hidden><span class="busy-spin"></span>recomputing the observer&rsquo;s map&hellip;</div>
+<!--WORKER_SRC-->
 <!--APP_JS-->
 </body>
 </html>

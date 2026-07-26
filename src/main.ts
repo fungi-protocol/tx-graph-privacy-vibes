@@ -23,6 +23,10 @@ import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./s
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
 import { auxInfoDecay, observerGrants, grantAttribution, grantMerges, clusterGrantOwners, type AuxDecay } from "./analysis/auxinfo";
+import { observerOpts, type AnalysisKnobs, type AnalysisBundle } from "./analysis/pipeline";
+// import type: guaranteed fully erased — the worker module's top-level
+// message listener must never execute on the page's side
+import type { AnalysisJob, AnalysisReply } from "./worker/analysis-worker";
 import { synthesisSteps, claimExhibit, rentForms, counterpartyExhibit, type ClaimExhibit, type SweepView } from "./scenario/synthesisSteps";
 import { synthesisSweepExhibit, clusterOwner, outsiderEdges } from "./scenario/synthesisStaging";
 import { gameSteps } from "./scenario/gameSteps";
@@ -259,19 +263,34 @@ let showMistakes = false;
 // visible chain's identity plus the full knob signature. Unchecking
 // and rechecking a heuristic lands back on a key already computed, so
 // the toggle replays the repartition tween without repeating the work.
-function memoLRU<V>(cap: number): (key: string, compute: () => V) => V {
+interface Memo<V> {
+  get(key: string, compute: () => V): V;
+  /** whether the key is already computed — the async gateway's probe (#84) */
+  has(key: string): boolean;
+  /** install a result computed elsewhere (the worker's) under its key */
+  set(key: string, v: V): void;
+}
+function memoLRU<V>(cap: number): Memo<V> {
   const m = new Map<string, V>();
-  return (key, compute) => {
-    if (m.has(key)) {
-      const v = m.get(key)!;
-      m.delete(key); // re-insertion keeps the map in recency order
-      m.set(key, v);
-      return v;
-    }
-    const v = compute();
+  const set = (key: string, v: V): void => {
+    m.delete(key); // re-insertion keeps the map in recency order
     m.set(key, v);
     if (m.size > cap) m.delete(m.keys().next().value!);
-    return v;
+  };
+  return {
+    get(key, compute) {
+      if (m.has(key)) {
+        const v = m.get(key)!;
+        m.delete(key);
+        m.set(key, v);
+        return v;
+      }
+      const v = compute();
+      set(key, v);
+      return v;
+    },
+    has: (key) => m.has(key),
+    set,
   };
 }
 /** identity of the visible chain: which object, grown how far — the
@@ -294,26 +313,33 @@ function mapSig(): string {
 
 const mistakeMemo = memoLRU<Map<string, Mistake[]>>(16);
 function mistakes(): Map<string, Mistake[]> {
-  return mistakeMemo(mapSig(), () => gradeWelds(active().chain, clustering().welds));
+  return mistakeMemo.get(mapSig(), () => gradeWelds(active().chain, clustering().welds));
 }
 // the base clustering reads the grant too (#66): an auxiliary
 // attribution is one of the change heuristic's payment identifiers, so
 // the observer's map varies with the dial — the signature carries it
+/** the observer-map knobs, resolved for the shared pipeline — the sync
+ *  path and the worker read this one translation (#84) */
+function analysisKnobs(): AnalysisKnobs {
+  return {
+    reuse: (overlays & OV_REUSE) !== 0,
+    cioh: (effOverlays() & OV_CIOH) !== 0,
+    change: (overlays & OV_CHANGE) !== 0,
+    subsum: (overlays & OV_SUBSUM) !== 0,
+    ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
+    ...(changeEvidence > 1 ? { changeEvidence } : {}),
+    ...(changeTells !== TELL_ALL ? { changeTells } : {}),
+    kycObs,
+    auxFrac,
+  };
+}
 const clMemo = memoLRU<Clustering>(24);
 function clustering(): Clustering {
-  return clMemo(mapSig(), () => {
+  return clMemo.get(mapSig(), () => {
     const s = active();
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
-    return clusterObserver(s.chain, priceAt, {
-      reuse: (overlays & OV_REUSE) !== 0,
-      cioh: (effOverlays() & OV_CIOH) !== 0,
-      change: (overlays & OV_CHANGE) !== 0,
-      subsum: (overlays & OV_SUBSUM) !== 0,
-      ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
-      ...(changeEvidence > 1 ? { changeEvidence } : {}),
-      ...(changeTells !== TELL_ALL ? { changeTells } : {}),
-      ...(grantsOn() ? { grants: currentGrants() } : {}),
-    });
+    return clusterObserver(s.chain, priceAt,
+      observerOpts(analysisKnobs(), currentGrants() ?? null));
   });
 }
 
@@ -334,9 +360,12 @@ function grantsOn(): boolean {
 // base clustering consumes it too (as the change heuristic's auxiliary
 // payment identifier), and must not have to build attributions first
 const grantMapMemo = memoLRU<Map<string, number | null>>(16);
+function grantMapKey(): string {
+  return `${chainKey()}|${grantSig()}`;
+}
 function currentGrants(): Map<string, number | null> | undefined {
   if (!grantsOn()) return undefined;
-  return grantMapMemo(`${chainKey()}|${grantSig()}`, () =>
+  return grantMapMemo.get(grantMapKey(), () =>
     observerGrants(active().chain, session.seed, auxFrac, kycObs));
 }
 interface GrantState {
@@ -350,7 +379,7 @@ interface GrantState {
 const grantMemo = memoLRU<GrantState>(16);
 function grantState(): GrantState {
   // mapSig covers both the base clustering and the grant knobs
-  return grantMemo(mapSig(), () => {
+  return grantMemo.get(mapSig(), () => {
     const g = currentGrants() ?? new Map<string, number | null>();
     const base = clustering();
     return {
@@ -392,9 +421,12 @@ let nsPlayTimer: number | null = null;
  *  selected cluster); examined in the panel, accepted or dismissed */
 let nsSecond: string | null = null;
 const nsRunMemo = memoLRU<NsEvent[]>(16);
+function nsRunKey(): string {
+  return `${mapSig()}§ns${nsThreshold}|${nsParts}`;
+}
 function nsRun(): NsEvent[] {
   // mapSig covers the base map (observerBase is a function of it)
-  const events = nsRunMemo(`${mapSig()}§ns${nsThreshold}|${nsParts}`, () =>
+  const events = nsRunMemo.get(nsRunKey(), () =>
     nsSocialRun(observerBase(), active().chain, nsThreshold, nsParts));
   nsCursor = Math.min(nsCursor, events.length);
   return events;
@@ -447,9 +479,12 @@ function nfBase(): Clustering {
   const base = observerBase();
   return nsActive() ? nsApply(base, nsEvents()) : base;
 }
+function nfRunKey(): string {
+  return `${mapSig()}§${nsSig()}§nf${nfThreshold}`;
+}
 function nfRun(): NfEvent[] {
   // nfBase is a function of the base map and the ns-social replay
-  const events = nfRunMemo(`${mapSig()}§${nsSig()}§nf${nfThreshold}`, () =>
+  const events = nfRunMemo.get(nfRunKey(), () =>
     runNetflix(nfBase(), active().chain, nfThreshold));
   nfCursor = Math.min(nfCursor, events.length);
   return events;
@@ -492,7 +527,7 @@ function collapseState(): CollapseState {
   // back with the camera unmoved lands on the arrangement already laid
   const fit = clusterFit ? `${clusterFit.x},${clusterFit.y},${clusterFit.w},${clusterFit.h}` : "·";
   const key = `${mapSig()}§${matchSig()}§${lens}|${agent}|${unclustered ? 1 : 0}|${forceLayout ? 1 : 0}|${fit}`;
-  lastCollapse = collapseMemo(key, () => {
+  lastCollapse = collapseMemo.get(key, () => {
     const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
@@ -1395,11 +1430,246 @@ function reflectNsProposal(): void {
   });
 }
 reflectOverlays();
+// --- #84: the heavy analysis off the main thread. Every observer-knob
+// handler routes through commitKnobs: when the #85 memos already hold
+// the target's results the change lands synchronously as before, and
+// when they are cold the job goes to the analysis worker — the display
+// freezes on the previous settings, a spinner appears if the wait is
+// noticeable, and when the results come back they are installed into
+// the memos and the change lands with the same repartition tween a
+// warm toggle replays. The worker holds at most one job; a knob moved
+// again mid-flight replaces the queued follow-up (last wins).
+interface SubmittedJob {
+  msg: AnalysisJob;
+  target: KnobSnap;
+  finish: () => void;
+  /** invalidated when a warm toggle lands synchronously mid-flight */
+  epoch: number;
+  /** the visible chain at submit time; a chain that grew mid-flight
+   *  just misses the cache — one synchronous recompute on the next
+   *  draw beats installing results under the wrong key */
+  chainK: string;
+  nsManualSig: string;
+}
+let inFlight: SubmittedJob | null = null;
+let queuedJob: SubmittedJob | null = null;
+let knobEpoch = 0;
+/** where the knobs are headed while a job is in flight — a further
+ *  change mutates on top of this, not the frozen display state */
+let knobTarget: KnobSnap | null = null;
+let workerDown = false;
+const analysisWorker: Worker | null = (() => {
+  const src = (window as unknown as { __WORKER_SRC?: string }).__WORKER_SRC;
+  if (!src || typeof Worker === "undefined") return null;
+  try {
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), { name: "analysis" });
+    w.addEventListener("message", (ev) => { onWorkerReply(ev.data as AnalysisReply); });
+    w.addEventListener("error", () => { onWorkerDown(); });
+    return w;
+  } catch {
+    return null;
+  }
+})();
+/** the knobs the gateway snapshots and reverts: everything a routed
+ *  handler mutates (replay cursors stay out — finish() sets those) */
+interface KnobSnap {
+  ov: number; cm: number; ce: number; ct: number;
+  kx: boolean; ax: number;
+  ns: boolean; nth: number; npt: number;
+  nf: boolean; nfth: number; mi: boolean;
+}
+function snapKnobs(): KnobSnap {
+  return {
+    ov: overlays, cm: ciohMax, ce: changeEvidence, ct: changeTells,
+    kx: kycObs, ax: auxFrac,
+    ns: nsSocial, nth: nsThreshold, npt: nsParts,
+    nf: nfOn, nfth: nfThreshold, mi: showMistakes,
+  };
+}
+function applyKnobsSnap(k: KnobSnap): void {
+  overlays = k.ov; ciohMax = k.cm; changeEvidence = k.ce; changeTells = k.ct;
+  kycObs = k.kx; auxFrac = k.ax;
+  nsSocial = k.ns; nsThreshold = k.nth; nsParts = k.npt;
+  nfOn = k.nf; nfThreshold = k.nfth; showMistakes = k.mi;
+}
+/** whether every memo the current settings will consult is warm */
+function analysisReady(): boolean {
+  if (!clMemo.has(mapSig())) return false;
+  if (grantsOn() && (!grantMapMemo.has(grantMapKey()) || !grantMemo.has(mapSig()))) return false;
+  if (nsSocial && !nsRunMemo.has(nsRunKey())) return false;
+  if (nfOn && !nfRunMemo.has(nfRunKey())) return false;
+  if (showMistakes && !mistakeMemo.has(mapSig())) return false;
+  return true;
+}
+let jobSeq = 0;
+/** the job message, built with the TARGET knobs applied; nsFull marks
+ *  a handler about to pin the ns replay cursor to the end of the run */
+function buildAnalysisJob(nsFull: boolean): AnalysisJob {
+  return {
+    id: ++jobSeq,
+    session: {
+      seed: session.seed, params: session.params, timeline: session.timeline,
+      manual: session.manual, manualFrom: session.manualFrom,
+      interventions: session.interventions,
+    },
+    day: eco!.day,
+    cursor: cursorDay(),
+    tx: viewTx,
+    knobs: analysisKnobs(),
+    wants: {
+      ns: nsSocial ? { threshold: nsThreshold, parts: nsParts } : null,
+      nf: nfOn
+        ? {
+            threshold: nfThreshold,
+            applyNs: nsActive(),
+            nsCursor: nsFull ? Number.MAX_SAFE_INTEGER : nsCursor,
+            nsManual: nsManual.slice(),
+          }
+        : null,
+      mistakes: showMistakes,
+    },
+  };
+}
+function nsManualSigNow(): string {
+  return nsManual.map((e) => `${e.a}+${e.b}`).join(",");
+}
+/** install the worker's results under the keys the applied target
+ *  state derives — the same strings the draw path will ask for */
+function installBundle(b: AnalysisBundle): void {
+  clMemo.set(mapSig(), b.cl);
+  if (b.grantMap) grantMapMemo.set(grantMapKey(), b.grantMap);
+  if (b.grant) grantMemo.set(mapSig(), b.grant);
+  if (b.nsEvents) nsRunMemo.set(nsRunKey(), b.nsEvents);
+  if (b.mistakes) mistakeMemo.set(mapSig(), b.mistakes);
+}
+/** the nf run's key includes the ns replay position, which finish()
+ *  may move — install only when what the worker computed on is what
+ *  the key denotes right now (called before AND after finish) */
+function tryInstallNf(job: SubmittedJob, b: AnalysisBundle): void {
+  const want = job.msg.wants.nf;
+  if (!want || !b.nfEvents || !nfOn) return;
+  if (want.applyNs !== nsActive()) return;
+  if (want.applyNs) {
+    if (job.nsManualSig !== nsManualSigNow()) return;
+    const runLen = b.nsEvents ? b.nsEvents.length : 0;
+    if (Math.min(want.nsCursor, runLen) !== Math.min(nsCursor, runLen)) return;
+  }
+  nfRunMemo.set(nfRunKey(), b.nfEvents);
+}
+function onWorkerReply(reply: AnalysisReply): void {
+  const job = inFlight;
+  inFlight = null;
+  if (queuedJob) {
+    // superseded mid-flight: drop this result, run the newest job
+    inFlight = queuedJob;
+    queuedJob = null;
+    analysisWorker!.postMessage(inFlight.msg);
+    return;
+  }
+  spinnerOff();
+  if (!job || job.msg.id !== reply.id || job.epoch !== knobEpoch) return;
+  knobTarget = null;
+  applyKnobsSnap(job.target);
+  simRev += 1;
+  if (chainKey() === job.chainK) {
+    installBundle(reply.bundle);
+    tryInstallNf(job, reply.bundle);
+  }
+  job.finish();
+  if (chainKey() === job.chainK) tryInstallNf(job, reply.bundle);
+}
+function onWorkerDown(): void {
+  workerDown = true;
+  const last = queuedJob ?? inFlight;
+  inFlight = null;
+  queuedJob = null;
+  spinnerOff();
+  if (last && last.epoch === knobEpoch) {
+    // land the change synchronously after all: one jank, not a lost click
+    knobTarget = null;
+    applyKnobsSnap(last.target);
+    simRev += 1;
+    last.finish();
+  }
+}
+/** route a knob change: mutate the settings, then either finish now
+ *  (memos warm, no worker, or not the live economy) or freeze the
+ *  display and finish when the worker's results land */
+function commitKnobs(mutate: () => void, finish: () => void, opts: { nsFull?: boolean } = {}): void {
+  const prev = knobTarget ?? snapKnobs();
+  if (knobTarget) applyKnobsSnap(knobTarget);
+  mutate();
+  simRev += 1; // the observer's map — and every lens seeded from it — changes
+  if (scene !== 1 || !eco || workerDown || !analysisWorker || analysisReady()) {
+    // a warm landing invalidates anything still in flight: its results
+    // may install (right keys, right data) but must not re-apply an
+    // older target over this newer state
+    knobEpoch += 1;
+    knobTarget = null;
+    queuedJob = null;
+    spinnerOff();
+    finish();
+    return;
+  }
+  const target = snapKnobs();
+  const sub: SubmittedJob = {
+    msg: buildAnalysisJob(opts.nsFull === true),
+    target,
+    finish,
+    epoch: knobEpoch,
+    chainK: chainKey(),
+    nsManualSig: nsManualSigNow(),
+  };
+  // the display keeps the settings it was drawn with; the DOM controls
+  // already show the user's choice, and the spinner covers the gap
+  applyKnobsSnap(knobTarget ?? prev);
+  knobTarget = target;
+  if (inFlight) queuedJob = sub;
+  else {
+    inFlight = sub;
+    analysisWorker.postMessage(sub.msg);
+  }
+  spinnerSoon();
+}
+// the spinner waits 150ms before showing: a fast worker roundtrip
+// should not flash a "thinking" pill for every notch of a slider
+const busyEl = document.getElementById("busy") as HTMLElement;
+let busyTimer: number | null = null;
+function spinnerSoon(): void {
+  if (busyTimer !== null || !busyEl.hidden) return;
+  busyTimer = window.setTimeout(() => {
+    busyTimer = null;
+    busyEl.hidden = false;
+  }, 150);
+}
+function spinnerOff(): void {
+  if (busyTimer !== null) {
+    clearTimeout(busyTimer);
+    busyTimer = null;
+  }
+  busyEl.hidden = true;
+}
+/** the repartition tween every routed handler replays on landing —
+ *  matched discs glide together, a retracted weld pulls back apart */
+function startRepartitionTween(before: { cl: Clustering; clay: ClusterLayout } | null): void {
+  if (!before) return;
+  const tr: ClusterTransition = {
+    t: 0,
+    fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+  };
+  clusterTrans = tr;
+  anim.add(900, (t) => { tr.t = t; }, {
+    done: () => { if (clusterTrans === tr) clusterTrans = null; },
+  });
+  kick();
+}
+
 function setMistakes(on: boolean): void {
-  showMistakes = on;
-  reflectOverlays();
-  draw();
-  void syncFragment();
+  commitKnobs(() => { showMistakes = on; }, () => {
+    reflectOverlays();
+    draw();
+    void syncFragment();
+  });
 }
 document.getElementById("mistakes")!.addEventListener("change", (e) => {
   setMistakes((e.target as HTMLInputElement).checked);
@@ -1409,56 +1679,45 @@ document.getElementById("mistakes")!.addEventListener("change", (e) => {
 // new ones (purely cosmetic — both endpoints are honestly computed
 // partitions, and the tween feeds nothing)
 function setOverlays(mask: number): void {
-  const before = repartitionStart();
-  overlays = mask & OV_ALL;
-  simRev += 1; // the observer's map — and every lens seeded from it — changes
+  commitKnobs(() => { overlays = mask & OV_ALL; }, () => {
+    const before = repartitionStart();
+    reflectOverlays();
+    startRepartitionTween(before);
+    recomputeTrace();
+    draw();
+    void syncFragment();
+  });
+}
+/** the shared landing for the live per-notch controls (no tween — the
+ *  map re-welds in place under the pointer) */
+function knobFinishLive(): void {
   reflectOverlays();
-  if (before) {
-    const tr: ClusterTransition = {
-      t: 0,
-      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
-    };
-    clusterTrans = tr;
-    anim.add(900, (t) => { tr.t = t; }, {
-      done: () => { if (clusterTrans === tr) clusterTrans = null; },
-    });
-    kick();
-  }
   recomputeTrace();
   draw();
-  void syncFragment();
+  syncFragmentSoon();
 }
 // the cap slider re-runs the observer's map live; "input" fires per
 // notch so dragging shows clusters splitting and re-welding as it moves
 document.getElementById("ciohmax")!.addEventListener("input", (e) => {
-  ciohMax = Number((e.target as HTMLInputElement).value);
-  simRev += 1; // the observer's map changes
-  reflectOverlays();
-  recomputeTrace();
-  draw();
-  syncFragmentSoon();
+  const v = Number((e.target as HTMLInputElement).value);
+  commitKnobs(() => { ciohMax = v; }, knobFinishLive);
 });
 // the evidence bar re-runs the observer's map live per notch: raising
 // it shows change welds letting go, coverage traded for caution
 document.getElementById("chev")!.addEventListener("input", (e) => {
-  changeEvidence = Number((e.target as HTMLInputElement).value);
-  simRev += 1; // the observer's map changes
-  reflectOverlays();
-  recomputeTrace();
-  draw();
-  syncFragmentSoon();
+  const v = Number((e.target as HTMLInputElement).value);
+  commitKnobs(() => { changeEvidence = v; }, knobFinishLive);
 });
 // the tell checkboxes re-run the map too; the bar clamps to however
 // many kinds remain enabled
 for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", TELL_SCRIPT], ["chaux", TELL_AUX]] as const) {
   document.getElementById(id)!.addEventListener("change", (e) => {
-    changeTells = (e.target as HTMLInputElement).checked
-      ? changeTells | bit : changeTells & ~bit;
-    simRev += 1; // the observer's map changes
-    reflectOverlays();
-    recomputeTrace();
-    draw();
-    syncFragmentSoon();
+    const on = (e.target as HTMLInputElement).checked;
+    // the mutate runs on top of any in-flight target, so rapid toggles
+    // of different tells compose instead of clobbering each other
+    commitKnobs(() => {
+      changeTells = on ? changeTells | bit : changeTells & ~bit;
+    }, knobFinishLive);
   });
 }
 // --- the knowledge-grant controls. The KYC toggle repartitions the
@@ -1466,34 +1725,21 @@ for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", 
 // re-runs live per notch, so dragging shows names landing and clusters
 // fusing as the grant grows.
 function setGrants(kx: boolean, ax: number): void {
-  const before = repartitionStart();
-  kycObs = kx;
-  auxFrac = ax;
-  reflectOverlays();
-  if (before) {
-    const tr: ClusterTransition = {
-      t: 0,
-      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
-    };
-    clusterTrans = tr;
-    anim.add(900, (t) => { tr.t = t; }, {
-      done: () => { if (clusterTrans === tr) clusterTrans = null; },
-    });
-    kick();
-  }
-  recomputeTrace();
-  draw();
-  void syncFragment();
+  commitKnobs(() => { kycObs = kx; auxFrac = ax; }, () => {
+    const before = repartitionStart();
+    reflectOverlays();
+    startRepartitionTween(before);
+    recomputeTrace();
+    draw();
+    void syncFragment();
+  });
 }
 document.getElementById("kycobs")!.addEventListener("change", (e) => {
   setGrants((e.target as HTMLInputElement).checked, auxFrac);
 });
 document.getElementById("auxfrac")!.addEventListener("input", (e) => {
-  auxFrac = Number((e.target as HTMLInputElement).value) / 100;
-  reflectOverlays();
-  recomputeTrace();
-  draw();
-  syncFragmentSoon();
+  const v = Number((e.target as HTMLInputElement).value) / 100;
+  commitKnobs(() => { auxFrac = v; }, knobFinishLive);
 });
 
 // --- ns-social controls. Every state change while the map is contracted
@@ -1508,17 +1754,7 @@ function withNsRepartition(mutate: () => void): void {
     highlight = null;
   }
   if (nsSecond !== null && !lensClustering().members.has(nsSecond)) nsSecond = null;
-  if (before) {
-    const tr: ClusterTransition = {
-      t: 0,
-      fragments: transitionFragments(before.cl, before.clay, lensClustering()),
-    };
-    clusterTrans = tr;
-    anim.add(900, (t) => { tr.t = t; }, {
-      done: () => { if (clusterTrans === tr) clusterTrans = null; },
-    });
-    kick();
-  }
+  startRepartitionTween(before);
   recomputeTrace();
   reflectOverlays();
   draw();
@@ -1526,12 +1762,15 @@ function withNsRepartition(mutate: () => void): void {
 }
 function setNsSocial(on: boolean): void {
   if (nsSocial === on) return;
-  withNsRepartition(() => {
-    nsSocial = on;
-    if (on) nsCursor = nsRun().length; // enabling shows the finished analysis
-    else nsSetPlaying(false);
-    nsSecond = null;
-  });
+  // the knob mutates through the gateway; the cursor pin — which reads
+  // the (possibly worker-computed) run — waits for the landing
+  commitKnobs(() => { nsSocial = on; }, () => {
+    withNsRepartition(() => {
+      if (on) nsCursor = nsRun().length; // enabling shows the finished analysis
+      else nsSetPlaying(false);
+      nsSecond = null;
+    });
+  }, { nsFull: on });
 }
 function nsSetPlaying(on: boolean): void {
   nsPlaying = on;
@@ -1584,18 +1823,16 @@ document.getElementById("nsth")!.addEventListener("input", (e) => {
   // read before nsSetPlaying: its reflectOverlays writes the old value back
   const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  withNsRepartition(() => {
-    nsThreshold = v / 100;
-    nsCursor = nsRun().length;
-  });
+  commitKnobs(() => { nsThreshold = v / 100; }, () => {
+    withNsRepartition(() => { nsCursor = nsRun().length; });
+  }, { nsFull: true });
 });
 document.getElementById("nsparts")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  withNsRepartition(() => {
-    nsParts = v;
-    nsCursor = nsRun().length;
-  });
+  commitKnobs(() => { nsParts = v; }, () => {
+    withNsRepartition(() => { nsCursor = nsRun().length; });
+  }, { nsFull: true });
 });
 document.getElementById("nsplay")!.addEventListener("click", () => {
   if (!nsPlaying && nsCursor >= nsRun().length) {
@@ -1619,10 +1856,11 @@ document.getElementById("nsundo")!.addEventListener("click", () => {
 // never revisited, so there is nothing to go back to
 function setNf(on: boolean): void {
   if (nfOn === on) return;
-  withNsRepartition(() => {
-    nfOn = on;
-    if (on) nfCursor = nfRun().length; // enabling shows the finished run
-    else nfSetPlaying(false);
+  commitKnobs(() => { nfOn = on; }, () => {
+    withNsRepartition(() => {
+      if (on) nfCursor = nfRun().length; // enabling shows the finished run
+      else nfSetPlaying(false);
+    });
   });
 }
 function nfSetPlaying(on: boolean): void {
@@ -1654,9 +1892,8 @@ document.getElementById("nsnfth")!.addEventListener("input", (e) => {
   // read before nfSetPlaying: its reflectOverlays writes the old value back
   const v = Number((e.target as HTMLInputElement).value);
   nfSetPlaying(false);
-  withNsRepartition(() => {
-    nfThreshold = v / 100;
-    nfCursor = nfRun().length;
+  commitKnobs(() => { nfThreshold = v / 100; }, () => {
+    withNsRepartition(() => { nfCursor = nfRun().length; });
   });
 });
 document.getElementById("nsnfplay")!.addEventListener("click", () => {
