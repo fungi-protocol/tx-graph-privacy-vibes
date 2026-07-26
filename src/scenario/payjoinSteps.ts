@@ -200,7 +200,7 @@ export function payjoinSteps(
             best explanation, and it usually holds.</p>
             <p>The lesson cuts against the last step's comfort: a
             payjoin's few bits of cover are spent easily by <b>good prior
-            clustering</b> — and in this town, with no address reuse and
+            clustering</b> — and in this town, with scant address reuse and
             simple wallets, the prior clustering is <i>worse</i> than a
             real observer's.</p>`;
         }

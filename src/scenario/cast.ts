@@ -25,6 +25,10 @@ export interface Persona {
   income?: string;
   /** pays all obligations due on a day in one multi-output transaction */
   batches?: boolean;
+  /** hands out one address for everything — receives and change alike —
+   *  instead of drawing a fresh one per output. The oldest wallet hygiene
+   *  failure, and the one clustering lever that needs no inference. */
+  reuses?: boolean;
   /** the day this person moves to town (savings, income, and obligations
    *  all start then); 0/undefined = here from the start. The town grows
    *  as the story needs it: one community first, the studio trio before
@@ -150,10 +154,13 @@ export const PERSONAS: Persona[] = [
   {
     name: "Carol", role: "pays the obvious way", community: 0, income: "salary",
     concern: "Believes she has nothing to hide: withdrew from a KYC " +
-      "exchange and pays everyone unilaterally. Every spend links straight " +
-      "back to her identified withdrawal — she is the baseline the others " +
-      "are measured against.",
+      "exchange, pays everyone unilaterally, and hands out the same " +
+      "address every time — her change goes back to it too. Every coin " +
+      "she ever touches is linked on the face of the record, no guessing " +
+      "required, and every spend chains back to her identified " +
+      "withdrawal. She is the baseline the others are measured against.",
     roots: [1_400_000, 380_000],
+    reuses: true,
     wallet: "brightpay",
     walletWhy: "the button says instant and the payment is instant; what else is there",
     stats: { privacy: 0, thrift: 2, hassle: 4 },

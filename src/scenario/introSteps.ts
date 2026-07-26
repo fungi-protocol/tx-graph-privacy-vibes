@@ -144,9 +144,9 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         form of clustering — no inference, no guessing, just reading —
         and, sadly, it is still pervasive on the real chain: donation
         pages, exchange deposit addresses, lazy software.</p>
-        <p>Every wallet in this simulation draws a <b>fresh address for
-        every output</b>, as well-made wallets do. Keep that assumption
-        in mind: everything an observer manages in this story is managed
+        <p>Nearly every wallet in this simulation draws a <b>fresh address
+        for every output</b>, as well-made wallets do. Keep that in mind:
+        almost everything an observer manages in this story is managed
         <i>without</i> the easiest lever, the one the real world still
         offers.</p>`,
       focus: pad(all, 60),

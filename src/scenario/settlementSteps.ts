@@ -108,7 +108,7 @@ export function settlementSteps(
       focus: () => pad(settleFocus()),
       view: 0,
       lens: 1,
-      overlays: 7,
+      overlays: 15,
       scene: 1,
       minDay: 60,
     },

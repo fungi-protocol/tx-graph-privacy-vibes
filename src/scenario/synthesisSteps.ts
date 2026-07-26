@@ -290,7 +290,7 @@ export function synthesisSteps(
       select: selNaive,
       view: 1,
       lens: 1,
-      overlays: 3,
+      overlays: 11, // the rerun keeps every other linkage, reuse included
       scene: 1,
       minDay: 115,
     },

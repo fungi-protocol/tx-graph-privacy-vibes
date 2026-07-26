@@ -7,6 +7,52 @@ export type CoinId = string;
 export type TxId = string;
 export type Owner = number | null;
 
+/**
+ * The address a coin is locked to, as a wallet's bookkeeping sees it: a
+ * derivation path (entity, branch, index). `external` is the branch whose
+ * addresses are handed out to be paid at; `internal` is the change branch,
+ * spent back to oneself. A well-made wallet draws a fresh index for every
+ * output; a reuser hands out one address for everything, and every coin
+ * paid to it is linked on the face of the record — same address, same key,
+ * same owner, no inference involved.
+ *
+ * `who` is the storyteller's bookkeeping. What the chain publishes is only
+ * the address string (addrText) — analysis code must compare addresses for
+ * equality and display addrText, never read `who`.
+ *
+ * Script types are uniform by construction (one output kind, matching the
+ * fee model's fixed sizes), so the type tell has no purchase in this town.
+ */
+export type AddrBranch = "external" | "internal";
+export interface Addr {
+  who: Owner;
+  branch: AddrBranch;
+  index: number;
+}
+
+/** canonical equality key for an address (opaque to analysis: compare,
+ *  never parse) */
+export function addrKey(a: Addr): string {
+  return `${a.who ?? "x"}/${a.branch === "external" ? "e" : "i"}/${a.index}`;
+}
+
+/** the address as the chain publishes it: a short bech32m-looking string,
+ *  deterministic in the derivation path and nothing else */
+export function addrText(a: Addr): string {
+  const key = addrKey(a);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h = Math.imul(h ^ key.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  const chars = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"; // bech32 alphabet
+  let out = "";
+  for (let i = 0; i < 8; i++) {
+    out += chars[h & 31];
+    h = Math.imul(h ^ (h >>> 15), 2654435761) >>> 0;
+  }
+  return `bc1p${out}`;
+}
+
 export interface Coin {
   id: CoinId;
   value: Sats;
@@ -16,6 +62,11 @@ export interface Coin {
   label?: string;          // narrative tag, e.g. "exchange withdrawal"
   /** the day a root entered from outside; undefined = pre-story savings */
   entered?: number;
+  /** the address this output pays to — public record, like the value.
+   *  Assigned retroactively by assignAddresses (a pure walk of the record,
+   *  so the seeded streams that shape the town never move); undefined only
+   *  before that walk runs. */
+  addr?: Addr;
   /**
    * Ground truth: whose funds this output carries — the entities whose
    * inputs paid for it. Usually a single entity; a payjoin's payment
@@ -121,6 +172,53 @@ export class Chain {
 
   utxos(): Coin[] {
     return [...this.coins.values()].filter((c) => c.dest === null);
+  }
+
+  /**
+   * Assign every coin its address, retroactively: the script choice each
+   * owner's wallet would have made, reconstructed from the record instead
+   * of rolled during simulation, so the seeded streams that shape the town
+   * are untouched. Idempotent, and stable as the chain grows — the walk
+   * runs in creation order (day, then record order), so a coin's address
+   * never changes once assigned.
+   *
+   * Branch follows the ground truth of whose funds an output carries: an
+   * output whose owner is its sole funder is that owner's wallet paying
+   * itself (change, a coinjoin's denominated outputs) and lands on the
+   * internal branch; everything else — deposits from outside, payments
+   * received, a payjoin's payment output — is a receive, on the external
+   * branch. Each owner in `reusers` skips the fresh-index discipline
+   * entirely: one external address for everything, receives and change
+   * alike, the way careless wallets and donation pages still do.
+   */
+  assignAddresses(reusers: Set<number>): void {
+    const dayOf = (c: Coin): number =>
+      c.producer !== null ? this.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+    const coins = [...this.coins.values()]
+      .map((c, seq) => ({ c, seq }))
+      .sort((a, b) => dayOf(a.c) - dayOf(b.c) || a.seq - b.seq)
+      .map((x) => x.c);
+    const next = new Map<string, number>();
+    for (const coin of coins) {
+      if (coin.addr) {
+        // already assigned on an earlier walk; keep the counter in step
+        const k = `${coin.addr.who ?? "x"}/${coin.addr.branch}`;
+        next.set(k, Math.max(next.get(k) ?? 0, coin.addr.index + 1));
+        continue;
+      }
+      if (coin.owner !== null && reusers.has(coin.owner)) {
+        coin.addr = { who: coin.owner, branch: "external", index: 0 };
+        continue;
+      }
+      const branch: AddrBranch =
+        coin.producer === null ? "external"
+        : coin.funders.length === 1 && coin.funders[0] === coin.owner ? "internal"
+        : "external";
+      const k = `${coin.owner ?? "x"}/${branch}`;
+      const index = next.get(k) ?? 0;
+      next.set(k, index + 1);
+      coin.addr = { who: coin.owner, branch, index };
+    }
   }
 
   /**

@@ -30,7 +30,7 @@ test("observer heuristics bitmask round-trips and is clamped", async () => {
   const craft = (state: unknown): Promise<unknown> =>
     encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
   const wild = await craft({ seed: "ok", ov: 999 }) as Record<string, unknown>;
-  assert.equal(wild.ov, 7);
+  assert.equal(wild.ov, 15);
   const neg = await craft({ seed: "ok", ov: -4 }) as Record<string, unknown>;
   assert.equal(neg.ov, 0);
 });

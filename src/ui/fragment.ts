@@ -48,7 +48,8 @@ export interface FragmentState {
   l?: number;
   /** lens 2 only: which agent's view (participant index) */
   a?: number;
-  /** lens 1 only: observer heuristics bitmask (1 CIOH, 2 change, 4 subset-sum) */
+  /** lens 1 only: observer heuristics bitmask (1 CIOH, 2 change,
+   *  4 subset-sum, 8 address reuse) */
   ov?: number;
   /** lens 1 only: CIOH max-inputs cap (absent = no cap) */
   cm?: number;
@@ -208,7 +209,7 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (l !== undefined) out.l = l;
   const a = num(r.a, 0, MAX_AGENT, true);
   if (a !== undefined) out.a = a;
-  const ov = num(r.ov, 0, 7, true);
+  const ov = num(r.ov, 0, 15, true);
   if (ov !== undefined) out.ov = ov;
   const cm = num(r.cm, 2, 64, true);
   if (cm !== undefined) out.cm = cm;

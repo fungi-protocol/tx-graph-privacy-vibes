@@ -1,6 +1,7 @@
 // Chapter 3: the third-party observer — the bare public record first,
-// then each heuristic switched on in turn: address reuse (the linkage
-// this town gave up, named so the floor framing is honest), CIOH,
+// then each linkage switched on in turn: address reuse (the most basic
+// clustering, inference-free, live in this town because Carol reuses;
+// everyone else's fresh addresses keep the floor framing honest), CIOH,
 // change identification and its real-world family of tells, cluster
 // contraction, and the pseudonym graph. The Scroll #2/#3 arc: familiar
 // heuristics first, then the honest caveat that attacks always get
@@ -44,24 +45,31 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       minDay: 21,
     },
     {
-      id: "no-reused-addresses",
-      title: "The mistake this town doesn't make",
-      html: `<p>The oldest linkage needs no inference at all. Every coin
-        is locked to an <b>address</b>, and paying the same address twice
-        links the two coins on the face of the record — one key controls
-        both. Bitcoin's own whitepaper warned that "a new key pair should
-        be used for each transaction"; early wallets reused addresses
-        anyway, and it was the first clustering lever anyone pulled.</p>
-        <p>Every wallet in this town draws a <b>fresh address for every
-        output</b> — as well-made wallets do today. So that lever is absent
-        here, and it's worth saying out loud: on the real chain, reuse is
-        still everywhere, so a real observer starts with linkage this
-        chapter never even needs. Everything the observer achieves in this
-        story is a <b>floor</b>.</p>`,
+      id: "address-reuse",
+      title: "The oldest linkage",
+      html: `<p>The most basic clustering needs no inference at all. Every
+        coin is locked to an <b>address</b>, and paying the same address
+        twice links the coins on the face of the record — one key plainly
+        controls both. Bitcoin's own whitepaper warned that "a new key pair
+        should be used for each transaction"; early wallets reused
+        addresses anyway, and reading reused addresses was the first
+        clustering lever anyone pulled.</p>
+        <p>Nearly every wallet in this town draws a <b>fresh address for
+        every output</b>, as well-made wallets do today. The exception is
+        Carol: she hands out one address to everyone who pays her, and her
+        change goes back to it too. That first colored cluster is every
+        coin she has ever touched — assembled by <i>reading</i> the record,
+        not betting on it. Open her character sheet and the same address
+        repeats down her whole coin list, marked ⟲.</p>
+        <p>On the real chain, reuse is still everywhere — donation pages,
+        exchange deposit addresses, lazy software — so a real observer
+        starts with far more of this free linkage than one careless
+        neighbor's. Everything the observer achieves in this story is a
+        <b>floor</b>.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
-      overlays: 0,
+      overlays: 8,
       scene: 1,
       minDay: 21,
     },
@@ -85,7 +93,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
-      overlays: 1,
+      overlays: 9,
       scene: 1,
       minDay: 21,
     },
@@ -109,7 +117,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
-      overlays: 3,
+      overlays: 11,
       scene: 1,
       minDay: 21,
     },
@@ -130,7 +138,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         one seen before is probably the change (Androulaki et al. call it
         the <i>shadow address</i>); an address that never appears again is
         probably change too (Meiklejohn et al.) — both tells feed on the
-        address reuse this town gave up. And above the hand-written tells
+        address reuse this town, Carol aside, gave up. And above the hand-written tells
         sits a heavier tier: wallet software leaves <b>fingerprints</b> —
         fee choices, script versions, ordering and locktime conventions —
         and classifiers trained on them (Möser &amp; Narayanan; Kappos et
@@ -140,7 +148,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
-      overlays: 3,
+      overlays: 11,
       scene: 1,
       minDay: 21,
     },
@@ -159,7 +167,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
-      overlays: 3,
+      overlays: 11,
       scene: 1,
       minDay: 21,
     },
@@ -183,7 +191,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,
-      overlays: 3,
+      overlays: 11,
       scene: 1,
       minDay: 21,
     },
@@ -205,7 +213,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       focus: () => pad(clusterBounds()),
       view: 2,
       lens: 1,
-      overlays: 3,
+      overlays: 11,
       scene: 1,
       minDay: 21,
     },

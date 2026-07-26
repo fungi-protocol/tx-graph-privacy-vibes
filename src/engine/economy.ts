@@ -213,6 +213,15 @@ export class Economy {
       due.push({ id: `ra${u}`, value, owner: u, label: p.income ?? "outside income" });
       this.arrivals.set(arrives, due);
     });
+    this.chain.assignAddresses(this.reusers());
+  }
+
+  /** who hands out one address for everything — a profile trait, read by
+   *  the retroactive address walk, never by the seeded streams */
+  private reusers(): Set<number> {
+    const out = new Set<number>();
+    this.cast.forEach((p, u) => { if (p.reuses) out.add(u); });
+    return out;
   }
 
   /** the parameters in effect on a given day: the base params with every
@@ -1098,6 +1107,9 @@ export class Economy {
         : walletFee(this.cast[buy.payer]!, this.feebase, draw);
       this.unilateral(buy.payer, null, this.sats(buy.usd), buy.memo, feerate, buy.id);
     }
+    // the day's new outputs get their addresses — the retroactive script
+    // choice, replayed after the fact so no seeded stream ever moves
+    this.chain.assignAddresses(this.reusers());
     return this.events.slice(before);
   }
 

@@ -36,7 +36,7 @@ import { commonInputFill, type Paint } from "./ui/paint";
 import { Tutorial } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
-import { type Chain } from "./model/chain";
+import { type Chain, addrKey, addrText } from "./model/chain";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -212,10 +212,11 @@ function setViewDay(d: number | null, tx: number | null = null): void {
 let lens: 0 | 1 | 2 = 0;
 let lensAgent: number | null = null;
 // which heuristics the observer lens runs, as a bitmask:
-// 1 = CIOH, 2 = round-USD change, 4 = subset-sum; default all of them.
+// 1 = CIOH, 2 = round-USD change, 4 = subset-sum, 8 = address reuse;
+// default all of them.
 // With all off the union-find never fires, every coin is a singleton, and
 // the observer's map degrades honestly into the bare public structure.
-const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_ALL = 7;
+const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_ALL = 15;
 let overlays = OV_ALL;
 // CIOH's max-inputs cap: transactions with more inputs than this are
 // not welded by CIOH. The slider's top position means "no cap".
@@ -238,6 +239,7 @@ function clustering(): Clustering {
   if (!clCache || clCache.rev !== simRev) {
     const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
     const cl = clusterObserver(s.chain, priceAt, {
+      reuse: (overlays & OV_REUSE) !== 0,
       cioh: (overlays & OV_CIOH) !== 0,
       change: (overlays & OV_CHANGE) !== 0,
       subsum: (overlays & OV_SUBSUM) !== 0,
@@ -961,6 +963,7 @@ lensBtn.addEventListener("click", () => setLens(((lens + 1) % 3) as 0 | 1 | 2));
 // colored, or captioned beyond what the chain itself says.
 const overlaysPanel = document.getElementById("overlays")!;
 const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
+  { bit: OV_REUSE, label: "address reuse", title: "coins paid to the same address — one key controls both, on the face of the record; no inference involved" },
   { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
   { bit: OV_CHANGE, label: "round-USD change", title: "the round-dollar output is probably the payment; the other is change" },
   { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition welds its sub-transactions together" },
@@ -2201,9 +2204,16 @@ function openInspector(u: number): void {
     <div class="coinlist">${coins.map((c) => {
       const d = dayOf(c);
       const when = d < 0 ? "savings" : `day ${d}`;
+      // the address each coin is locked to; one appearing twice in this
+      // list is reuse, the linkage that needs no inference — flag it
+      const shared = c.addr !== undefined &&
+        coins.filter((o) => o.addr && addrKey(o.addr) === addrKey(c.addr!)).length > 1;
+      const addr = c.addr
+        ? ` · <span title="${c.addr.branch === "internal" ? "change branch" : "receive branch"}, index ${c.addr.index}${shared ? " — REUSED: every coin on this address is linked on the face of the record" : ""}">${addrText(c.addr)}${shared ? " ⟲" : ""}</span>`
+        : "";
       return `<div class="coinrow${c.dest ? " spentrow" : ""}" data-c="${c.id}">
         <span class="coin-chip" style="background:${ownerColor(u)}">${fmtSats(c.value)}</span>
-        <span class="role">${when}${c.label ? ` · ${c.label}` : ""}${c.dest ? " · spent" : ""}</span>
+        <span class="role">${when}${c.label ? ` · ${c.label}` : ""}${addr}${c.dest ? " · spent" : ""}</span>
       </div>`;
     }).join("")}</div>`;
   inspector.style.display = "block";

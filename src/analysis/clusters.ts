@@ -1,5 +1,10 @@
 // Third-party observer clustering: what someone with no names and no colors
-// can infer from the public graph alone. Three heuristics from the
+// can infer from the public graph alone. Address reuse first — the one
+// linkage that is not a heuristic at all: two coins paid to the same
+// address are controlled by the same key, on the face of the record
+// (the whitepaper's §10 urges a new key pair per transaction for exactly
+// this reason, and reading reused addresses was the first clustering
+// lever anyone pulled). Then three heuristics from the
 // literature, deliberately simple:
 //   - CIOH (common-input-ownership): a transaction spending several inputs
 //     is evidence one entity owns all of them. The whitepaper's own §10
@@ -22,7 +27,7 @@
 // Heuristics, not proofs: the change guess can be wrong, and when it is
 // wrong it welds a stranger's coin into the cluster. That failure mode is
 // left in on purpose.
-import { type Chain, type CoinId, type TxId } from "../model/chain";
+import { type Chain, type CoinId, type TxId, addrKey, addrText } from "../model/chain";
 import { subTransactionMapping } from "./subsetsum";
 
 /** one observation the observer's map rests on: a method applied to a
@@ -41,9 +46,12 @@ import { subTransactionMapping } from "./subsetsum";
  *  general evidence ledger — the underlying flow verdicts live in the
  *  sub-transaction analysis itself. */
 export interface Weld {
-  method: "cioh" | "change" | "subtx";
-  /** the base observation: the transaction the method looked at */
-  tx: TxId;
+  method: "reuse" | "cioh" | "change" | "subtx";
+  /** the base observation: the transaction the method looked at. Absent
+   *  on reuse welds, whose observation is an address, not a transaction. */
+  tx?: TxId;
+  /** the reused address a reuse weld rests on (its base observation) */
+  addr?: string;
   /** the coins this single observation welds into one owner */
   coins: CoinId[];
   /** the assumption the weld adds beyond what the method's verdict
@@ -76,6 +84,10 @@ export interface Clustering {
 
 /** Which heuristics the observer is running; all on by default. */
 export interface Heuristics {
+  /** link coins paid to the same address (inference-free: same address,
+   *  same key). A toggle so the tutorial can stage it, not because a
+   *  real observer would ever leave it off. */
+  reuse?: boolean;
   cioh?: boolean;
   change?: boolean;
   subsum?: boolean;
@@ -103,7 +115,7 @@ export function clusterObserver(
   usdPrice?: (day: number) => number | undefined,
   heuristics: Heuristics = {},
 ): Clustering {
-  const { cioh = true, change = true, subsum = true } = heuristics;
+  const { reuse = true, cioh = true, change = true, subsum = true } = heuristics;
   const parent = new Map<CoinId, CoinId>();
   for (const id of chain.coins.keys()) parent.set(id, id);
   const find = (x: CoinId): CoinId => {
@@ -122,6 +134,31 @@ export function clusterObserver(
 
   const changeGuess = new Map<TxId, CoinId[]>();
   const welds: Weld[] = [];
+  // address reuse first: the observer's address index is complete before a
+  // single transaction is read. Coins paid to the same address are
+  // controlled by the same key, so linking them is reading the record, not
+  // inferring from it — the weld carries no assumption that could be
+  // wrong. Addresses are compared as opaque identifiers; nothing here
+  // reads whose they are.
+  if (reuse) {
+    const byAddr = new Map<string, CoinId[]>();
+    for (const coin of chain.coins.values()) {
+      if (!coin.addr) continue;
+      const k = addrKey(coin.addr);
+      const l = byAddr.get(k);
+      if (l) l.push(coin.id);
+      else byAddr.set(k, [coin.id]);
+    }
+    for (const coins of byAddr.values()) {
+      if (coins.length < 2) continue;
+      for (let i = 1; i < coins.length; i++) union(coins[i]!, coins[0]!);
+      welds.push({
+        method: "reuse",
+        addr: addrText(chain.coins.get(coins[0]!)!.addr!),
+        coins: [...coins],
+      });
+    }
+  }
   for (const tid of chain.order) {
     if (heuristics.except?.has(tid)) continue;
     const tx = chain.txs.get(tid)!;
@@ -248,6 +285,9 @@ export interface Mistake {
 export function gradeWelds(chain: Chain, welds: Weld[]): Map<TxId, Mistake[]> {
   const out = new Map<TxId, Mistake[]>();
   for (const w of welds) {
+    // reuse welds read the record rather than betting on it — same
+    // address, same key, same owner — so there is nothing to grade
+    if (w.tx === undefined) continue;
     const owners = new Set(w.coins.map((c) => chain.coins.get(c)!.owner));
     if (owners.size < 2) continue;
     const note =

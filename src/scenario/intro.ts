@@ -36,5 +36,6 @@ export function buildIntroChain(): Chain {
     { owner: BOB, value: 250_000 - 180_000 - txfee(1, 2, fr3), label: "change" },
   ], fr3, "Bob buys a tool with the bike money");
 
+  chain.assignAddresses(new Set()); // everyone here draws fresh addresses
   return chain;
 }

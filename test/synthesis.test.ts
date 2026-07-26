@@ -42,7 +42,9 @@ test("the narrated sweep features a pure-cluster FALSE acceptance on every tutor
     assert.equal(ex.result.accepted.get(ex.featured!.node), ex.featured!.agent);
     assert.ok(Number.isFinite(ex.featured!.eccentricity) && ex.featured!.eccentricity >= 1.5);
     // and abstention dominates: the sweep is a trickle, not a flood
-    assert.ok(ex.result.accepted.size <= 2, `${seed}: ${ex.result.accepted.size} acceptances`);
+    // (the bound moved 2 -> 3 when address-reuse welds joined the map:
+    // Carol's fused pseudonym gives the sweep one more solid anchor)
+    assert.ok(ex.result.accepted.size <= 3, `${seed}: ${ex.result.accepted.size} acceptances`);
   }
 });
 
