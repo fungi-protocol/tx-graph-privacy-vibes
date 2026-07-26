@@ -17,8 +17,11 @@ export interface TutorialStep {
   lens?: 0 | 1 | 2;
   /** lens 2: whose eyes (function = resolved late; undefined = app default) */
   agent?: () => number | undefined;
-  /** lens 1: observer heuristics bitmask (1 CIOH, 2 change, 4 subset-sum);
-   * undefined = all of them */
+  /** lens 1: observer heuristics bitmask (1 CIOH, 2 change,
+   * 4 sub-transaction analysis); undefined = inherit from the last step
+   * that set it, so a heuristic stays off until the chapter that
+   * introduces it switches it on (a jump to any step lands on the same
+   * value the walked path would) */
   overlays?: number;
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
@@ -44,6 +47,8 @@ export interface TutorialCallbacks {
   onSelect?: (sel: { kind: "coin" | "tx"; id: string } | null) => void;
   /** the learner pressed "done ✓" on the last step: hand the town over */
   onDone?: () => void;
+  /** the learner pressed "skip the tour": free play from here */
+  onSkip?: () => void;
 }
 
 export class Tutorial {
@@ -82,7 +87,10 @@ export class Tutorial {
         this.cb.onDone?.();
       } else this.go(this.index + 1);
     });
-    this.panel.querySelector(".tut-skip")!.addEventListener("click", () => this.hide());
+    this.panel.querySelector(".tut-skip")!.addEventListener("click", () => {
+      this.hide();
+      this.cb.onSkip?.();
+    });
   }
 
   go(index: number, animate = true): void {
@@ -96,7 +104,7 @@ export class Tutorial {
     if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
-    if (animate) this.cb.onOverlays?.(step.overlays ?? 7);
+    if (animate) this.cb.onOverlays?.(this.overlaysAt(this.index));
     if (animate && step.select) {
       const sel = step.select();
       if (sel !== undefined) this.cb.onSelect?.(sel);
@@ -106,6 +114,18 @@ export class Tutorial {
     }
     this.cb.onStepChange?.(this.index);
     this.panel.style.display = "block";
+  }
+
+  /** effective heuristics at a step: the last explicit `overlays` at or
+   *  before it — jumping to a step lands on the same value the walked
+   *  path would. Before any step declares one, CIOH + change only: the
+   *  sub-transaction analysis waits for the chapter that needs it. */
+  private overlaysAt(index: number): number {
+    for (let i = index; i >= 0; i--) {
+      const o = this.steps[i]!.overlays;
+      if (o !== undefined) return o;
+    }
+    return 3;
   }
 
   hide(): void {

@@ -322,6 +322,7 @@ export function synthesisSteps(
       select: () => null,
       view: 2,
       lens: 1,
+      overlays: 7, // the remove-one-clue rerun is over; full analysis resumes
       scene: 1,
       minDay: 115,
     },

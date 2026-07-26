@@ -240,10 +240,10 @@ export function payjoinSteps(
         too. A sender who consolidates many coins into the join hands over
         that much more. <b>Many senders, many receivers</b>:
         payments to different receivers share one transaction, and each
-        hidden sub-transaction still relates one payment to one amount —
-        so the amounts themselves keep discriminating between readings,
-        the same arithmetic the observer's sub-transaction analysis
-        runs.</p>
+        hidden payment still relates one payer to one amount — so the
+        amounts themselves keep discriminating between readings. (The
+        next chapter names the analysis that runs exactly that
+        arithmetic.)</p>
         <p>The town doesn't run these forms — batched payouts need a
         batcher, and this neighborhood has none — but they mark the path.
         And they show what the defense would need to work at scale: the

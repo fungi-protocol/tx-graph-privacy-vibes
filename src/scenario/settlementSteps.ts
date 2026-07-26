@@ -98,11 +98,16 @@ export function settlementSteps(
         payment amount at least still constrained the guesses; here the
         amounts on chain say almost nothing about who paid whom.</p>
         <p>The sharper test is the <b>sub-transaction analysis</b> — the
-        matching game over amounts. ${verdictLine}</p>`;
+        matching game over amounts: which groups of inputs and outputs
+        balance on their own? It just joined the heuristics panel on the
+        left — the first two heuristics carried the story this far, and
+        this is the transaction shape that finally calls for it.
+        ${verdictLine}</p>`;
       },
       focus: () => pad(settleFocus()),
       view: 0,
       lens: 1,
+      overlays: 7,
       scene: 1,
       minDay: 60,
     },

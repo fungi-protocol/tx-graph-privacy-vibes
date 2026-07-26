@@ -39,9 +39,10 @@ export function coinjoinSteps(
     {
       id: "the-amounts-undo-it",
       title: "The amounts undo it",
-      html: `<p>Flip to the observer, who now plays a matching game with the
-        amounts: which groups of inputs and outputs <b>balance</b>? Think of
-        a join where inputs of 0.1, 0.3, 2 and 5 meet outputs of 0.4 and 7 —
+      html: `<p>Flip to the observer, who runs the matching game it
+        learned on the settlements: which groups of inputs and outputs
+        <b>balance</b>? Think of a join where inputs of 0.1, 0.3, 2 and 5
+        meet outputs of 0.4 and 7 —
         the only reading is 0.1&#8202;+&#8202;0.3&#8202;=&#8202;0.4 and
         2&#8202;+&#8202;5&#8202;=&#8202;7. One consistent mapping, so the
         amounts <b>fully partition</b> the transaction. Analysts call the
