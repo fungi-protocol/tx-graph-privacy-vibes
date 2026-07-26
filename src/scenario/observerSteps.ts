@@ -98,7 +98,10 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         output that lands on a <b>round dollar amount</b> at that day's
         exchange rate is probably the payment ($40, not $37.63). The other
         output is probably the change — and change belongs to whoever
-        paid.</p>
+        paid. The bet presumes <b>one</b> spender: when a transaction's
+        inputs sit in different clusters on the observer's map, there is
+        no single "whoever paid" to hand the change to, and the careful
+        analyst abstains.</p>
         <p>Each correct guess extends a cluster by one hop. Chained day
         after day, that is most of the map you now see. The round-dollar
         bet is the one tell this lens actually runs — but it is one member

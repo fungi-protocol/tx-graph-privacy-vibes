@@ -132,10 +132,16 @@ test("heuristic toggles gate their unions independently", () => {
     { owner: 1, value: 100_000 },
     { owner: 0, value: 1_000_000 - fee2 },
   ], 2);
-  // CIOH off: the co-spent inputs stay apart, the change guess still fires
+  // CIOH off: the co-spent inputs stay apart — and with the inputs in
+  // different apparent clusters there is no one spender to predict
+  // change for, so the guess abstains rather than pick an input at random
   const noCioh = clusterObserver(c, at, { cioh: false });
   assert.notEqual(noCioh.rep.get("a"), noCioh.rep.get("b"));
-  assert.equal(noCioh.changeGuess.get("t1"), "t1o2");
+  assert.equal(noCioh.changeGuess.get("t1"), undefined);
+  // both on: CIOH welds the inputs first, the tx reads unilateral, and
+  // only then does the change guess fire
+  const both = clusterObserver(c, at);
+  assert.equal(both.changeGuess.get("t1"), "t1o2");
   // change off: the co-spend still welds, no output joins the inputs
   const noChange = clusterObserver(c, at, { change: false });
   assert.equal(noChange.rep.get("a"), noChange.rep.get("b"));

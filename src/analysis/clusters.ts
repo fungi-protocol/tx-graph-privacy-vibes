@@ -155,9 +155,15 @@ export function clusterObserver(
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
       welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }
-    // round-USD change identification
+    // round-USD change identification — only meaningful on a transaction
+    // that already reads unilateral: predicting an output to be change
+    // (by not being the payment) presumes one spender, so unless every
+    // input sits in the same apparent cluster by this point in the scan,
+    // the weld would arbitrarily link the guess to one input among
+    // several candidate owners, and the observer abstains
     const price = change ? usdPrice?.(tx.timestep) : undefined;
-    if (price !== undefined && tx.outputs.length === 2) {
+    const oneSpender = tx.inputs.every((i) => find(i) === find(tx.inputs[0]!));
+    if (price !== undefined && oneSpender && tx.outputs.length === 2) {
       const looksRound = tx.outputs.map((o) => {
         const usd = (chain.coins.get(o)!.value * price) / 1e8;
         return Math.abs(usd - Math.round(usd / 10) * 10) < 0.05;

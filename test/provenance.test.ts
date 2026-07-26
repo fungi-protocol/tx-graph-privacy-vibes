@@ -59,9 +59,12 @@ test("remove-one-method: each claim names the method it cannot survive without",
   assert.equal(ab.get("change"), true);
   assert.equal(ab.get("subtx"), true);
   assert.equal(ab.get("cioh"), false);
-  // a ~ change: the reverse — it rests on the change guess
+  // a ~ change: rests on the change guess AND on CIOH — the guess only
+  // fires once every input reads as one spender, so removing either
+  // method kills the claim
   const ac = removeOneMethod(c, price, "a", "t1o2");
-  assert.equal(ac.get("cioh"), true);
+  assert.equal(ac.get("subtx"), true);
+  assert.equal(ac.get("cioh"), false);
   assert.equal(ac.get("change"), false);
 });
 
