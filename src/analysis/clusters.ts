@@ -147,11 +147,17 @@ export interface Heuristics {
    *  an inference from payment tells, so the bar does not gate it. */
   changeEvidence?: number;
   /** auxiliary attributions the observer holds (the #67 grant): coin →
-   *  true owner. Read here ONLY as a payment identifier — an output
-   *  attributed to a different owner than a granted input is a payment
-   *  (and never linked); one attributed to the same owner is a
-   *  resolved self-spend, settled by the grant layer rather than a
-   *  change weld. */
+   *  true owner. Read here two ways. As a payment identifier (through
+   *  the aux tell): an output attributed to a different owner than a
+   *  granted input is a payment (and never linked); one attributed to
+   *  the same owner is a resolved self-spend, settled by the grant
+   *  layer rather than a change weld. And as a VETO on every heuristic
+   *  weld, regardless of which tells run: a weld whose coins carry
+   *  attributions naming two different owners is a known lie, and the
+   *  observer discards the observation rather than act on it. The veto
+   *  is what makes the aux slider's maximum coincide with omniscience —
+   *  with every coin attributed, every wrong weld is visibly wrong, and
+   *  the grant layer's fusions finish the by-owner partition. */
   grants?: ReadonlyMap<CoinId, Owner>;
   /** CIOH abstains on transactions with more inputs than this: a cheap
    *  guard against the heuristic's worst failure mode, since honest
@@ -228,6 +234,22 @@ export function clusterObserver(
   const tellsOn = heuristics.changeTells ?? TELL_ALL;
   // the grant is read as a payment identifier only through the aux tell
   const grants = (tellsOn & TELL_AUX) !== 0 ? heuristics.grants : undefined;
+  // ... but the weld veto reads the grant ungated: knowing two coins'
+  // owners differ refutes any observation claiming them for one owner,
+  // whether or not the change heuristic's aux tell is switched on
+  const auxAll = heuristics.grants;
+  const refuted = (coins: readonly CoinId[]): boolean => {
+    if (!auxAll) return false;
+    let seen: Owner | undefined;
+    let any = false;
+    for (const c of coins) {
+      const g = auxAll.get(c);
+      if (g === undefined) continue;
+      if (!any) { seen = g; any = true; }
+      else if (g !== seen) return true;
+    }
+    return false;
+  };
   const parent = new Map<CoinId, CoinId>();
   for (const id of chain.coins.keys()) parent.set(id, id);
   const find = (x: CoinId): CoinId => {
@@ -371,7 +393,7 @@ export function clusterObserver(
       // recorded only where it links something new (inside a unique
       // part the part weld already claims these coins)
       for (const s of selfs) {
-        if (find(s) !== find(anchor)) {
+        if (find(s) !== find(anchor) && !refuted([s, ...ins])) {
           union(s, anchor);
           welds.push({ method: "change", tx: tid, coins: [s, anchor], basis: "radix" });
         }
@@ -381,7 +403,7 @@ export function clusterObserver(
       const evidence = ((kinds & TELL_USD) !== 0 ? 1 : 0) +
         ((kinds & TELL_BTC) !== 0 ? 1 : 0) + ((kinds & TELL_AUX) !== 0 ? 1 : 0) +
         ((kinds & TELL_SCRIPT) !== 0 ? 1 : 0);
-      if (unknowns.length === 1 && evidence >= bar) {
+      if (unknowns.length === 1 && evidence >= bar && !refuted([unknowns[0]!, ...ins])) {
         const guess = unknowns[0]!;
         const g = changeGuess.get(tid);
         if (g) g.push(guess);
@@ -407,6 +429,16 @@ export function clusterObserver(
             ...part.ins.map((i) => tx.inputs[i]!),
             ...part.outs.map((o) => tx.outputs[o]!),
           ];
+          // attributions naming two owners inside the part refute the
+          // one-owner-per-part assumption for that part (the flow
+          // verdict stands; the ownership weld does not)
+          if (refuted(coins)) {
+            if (change) {
+              identifyAndLink(part.outs.map((o) => tx.outputs[o]!),
+                part.ins.map((i) => tx.inputs[i]!), anchor, false);
+            }
+            continue;
+          }
           for (const c of coins) union(c, anchor);
           // the unique partition proves the FLOW; welding the part into
           // one owner adds the assumption that each sub-transaction is a
@@ -440,6 +472,7 @@ export function clusterObserver(
       if (map.kind === "ambiguous" || map.kind === "inconclusive") {
         for (const f of forcedLinks(tx.inputs.map(value), tx.outputs.map(value), tx.fee)) {
           const a = tx.inputs[f.in]!, b = tx.outputs[f.out]!;
+          if (refuted([a, b])) continue; // forced flow, refuted ownership
           union(b, a);
           welds.push({ method: "subtx", tx: tid, coins: [a, b], assumption: "one-owner-per-part", basis: "bound" });
         }
@@ -451,7 +484,8 @@ export function clusterObserver(
     // CIOH: all inputs of one transaction, one owner — unless the input
     // count exceeds the observer's cap, where the heuristic abstains
     if (cioh && tx.inputs.length >= 2 &&
-        tx.inputs.length <= (heuristics.ciohMaxInputs ?? Infinity)) {
+        tx.inputs.length <= (heuristics.ciohMaxInputs ?? Infinity) &&
+        !refuted(tx.inputs)) {
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
       welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }

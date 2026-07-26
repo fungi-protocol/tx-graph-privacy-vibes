@@ -15,7 +15,7 @@ import {
   kycGrants, auxGrants, observerGrants, grantAttribution, grantMerges,
   clusterGrantOwners,
 } from "../src/analysis/auxinfo";
-import { clusterObserver, type Clustering } from "../src/analysis/clusters";
+import { clusterObserver, clusterByOwner, type Clustering } from "../src/analysis/clusters";
 import { nsApply, nsSocialRun, activePairs } from "../src/analysis/nssocial";
 import { type CoinId, type Owner } from "../src/model/chain";
 
@@ -147,6 +147,26 @@ test("grantMerges: same-named clusters fuse, and at the slider's top the map col
   }
   assert.ok(fused.members.size < base.members.size, "full grant fused nothing");
   assert.ok(ownersSeen.size > 1, "full grant named only one owner");
+});
+
+test("full disclosure IS omniscience: at fraction 1 the observer's fused map equals the by-owner partition", () => {
+  // the aux slider's stated maximum (#67, #100): every heuristic is
+  // overridden by the auxiliary data. Along the pipeline's own path —
+  // grants handed to clusterObserver (where they veto welds the
+  // attributions refute) and then fused by grantMerges — the result
+  // must match clusterByOwner exactly, coinjoins and forced sub-tx
+  // pairings included.
+  const partition = (cl: Clustering): string =>
+    [...cl.members.values()].map((m) => [...m].sort().join(",")).sort().join(";");
+  for (const seed of ["golden", "welcome", "silver"]) {
+    const eco = new Economy(seed);
+    eco.runTo(115);
+    const g = auxGrants(eco.chain, seed, 1);
+    const base = clusterObserver(eco.chain, undefined, { grants: g });
+    const fused = nsApply(base, grantMerges(g, base));
+    assert.equal(partition(fused), partition(clusterByOwner(eco.chain)),
+      `seed ${seed}: full grant differs from the all-seeing partition`);
+  }
 });
 
 test("the sweep seeded by the grant: more names, more matches, and the map collapses monotonically (S&N phase behavior, pinned on the tutorial seed)", () => {
