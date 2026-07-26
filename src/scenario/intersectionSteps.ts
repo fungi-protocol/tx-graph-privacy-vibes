@@ -27,10 +27,29 @@
 // experiment on the propagation machinery).
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type AuxDecay } from "../analysis/auxinfo";
+import { type Chain, type CoinId, type TxId } from "../model/chain";
 
 export interface Focused {
   id: string;
   rect: Rect;
+}
+
+/** the chapter's opening exhibit (#104): a coin fresh out of the
+ *  denominated session the coinjoin chapter studied. One step back, its
+ *  candidates are the session's own inputs — countable without leaving
+ *  the frame. Returns a denominated output (never the change: its
+ *  amount already answers the question) and how many distinct prior
+ *  clusters the session's inputs arrived from, under the given map. */
+export function freshOrigin(
+  chain: Chain,
+  rep: (id: CoinId) => CoinId,
+  tid: TxId,
+): { out: CoinId; clusters: number } | undefined {
+  const tx = chain.txs.get(tid);
+  if (!tx) return undefined;
+  const out = tx.outputs.find((o) => chain.coins.get(o)!.label !== "coinjoin change") ?? tx.outputs[0];
+  if (out === undefined) return undefined;
+  return { out, clusters: new Set(tx.inputs.map(rep)).size };
 }
 
 /** the aux-info exhibit: whose deanonymization the step supposes, and
@@ -42,6 +61,8 @@ export interface AuxGrant {
 
 export function intersectionSteps(
   bipBounds: () => Rect,
+  freshCoin: () => Focused | undefined,
+  freshClusters: () => number | undefined,
   tracedCoin: () => Focused | undefined,
   crossTx: () => Focused | undefined,
   toxicTx: () => Focused | undefined,
@@ -61,15 +82,51 @@ export function intersectionSteps(
     {
       id: "the-candidate-origins",
       title: "The candidate origins",
-      html: `<p>Think of the observer as playing <b>Guess&nbsp;Who?</b> — it
-        holds a coin and tries to guess, among all the clusters on its
-        board, whose money this was. This coin came through a coinjoin, so
-        its trace lights up <b>several</b> clusters while everything
-        irrelevant fades: its <b>candidate origins</b>, an anonymity set. (Researchers measure
-        exactly this — the entropy of a coin's candidate set, read off
-        the graph structure: Kelen &amp; Seres. It grows by coinjoining,
-        especially with widely chosen peers — and it can decay much
-        faster than it grew.)</p>`,
+      html: () => {
+        const k = freshClusters();
+        const count = k !== undefined && k >= 2
+          ? `arrived from <b>${k} separate clusters</b> on the observer's
+          map, and the coin's owner is one of them: ${k} faces on the
+          board, right here in frame`
+          : `all sit in <b>one cluster</b> on this run's map — earlier
+          merges already collapsed the faces together, so this session
+          bought its participants less than most; the next step shows
+          the game at its usual size`;
+        return `<p>Think of the observer as playing <b>Guess&nbsp;Who?</b>
+        — it holds a coin and tries to guess, among the clusters on its
+        board, whose money this was. Start small, where the last chapter
+        ended: this coin is a <b>denominated output of the session you
+        just watched</b>, one step old. Trace it back that one step and
+        the guessing board is the session itself: its inputs ${count}.
+        That handful of faces is the coin's <b>candidate origins</b> — an
+        anonymity set.</p>
+        <p>The trace runs deeper, of course — each candidate has a past
+        of its own — and the status line at the bottom counts the deep
+        version: every root the trace reaches. But the game is already
+        visible at this scale: several candidates, one owner, and nothing
+        on the record to tell them apart.</p>`;
+      },
+      focus: at(freshCoin),
+      select: sel("coin", freshCoin),
+      view: 1,
+      lens: 1,
+      scene: 1,
+      minDay: 115,
+    },
+    {
+      id: "a-longer-past",
+      title: "A longer past",
+      html: `<p>Now pick up a coin that has <b>lived</b> — spent through
+        one session, its outputs spent onward, mingled again. Pull back
+        and its trace lights up much of the town: candidate origins
+        accumulated session over session, each join folding more
+        strangers' pasts into the coin's own. The board grew from a
+        handful of faces to a crowd.</p>
+        <p>(Researchers measure exactly this — the entropy of a coin's
+        candidate set, read off the graph structure: Kelen &amp; Seres.
+        It grows by coinjoining, especially with widely chosen peers —
+        and it can decay much faster than it grew. The rest of this
+        chapter is about the decay.)</p>`,
       focus: at(tracedCoin),
       select: sel("coin", tracedCoin),
       view: 1,

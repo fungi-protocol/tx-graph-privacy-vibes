@@ -89,3 +89,23 @@ test("a session output has several candidate origins, some robust", () => {
   assert.ok(o.roots.length >= 3, `only ${o.roots.length} candidate origins behind a 3+-party session`);
   assert.ok(o.robust.size <= o.roots.length);
 });
+
+test("the opening exhibit has faces to count across tutorial seeds (#104)", async () => {
+  // "The candidate origins" opens on a fresh output of the dense
+  // session: its inputs must arrive from several distinct clusters on
+  // the observer's map, so the Guess-Who board is visible in one frame
+  const { selectDenseCoinjoin } = await import("../src/scenario/coinjoinSteps");
+  const { freshOrigin } = await import("../src/scenario/intersectionSteps");
+  for (const seed of ["golden", "welcome", "silver", "alpha"]) {
+    const eco = new Economy(seed);
+    eco.runTo(115);
+    const tid = selectDenseCoinjoin(eco.coinjoins, eco.naiveTid ?? undefined);
+    assert.ok(tid, `seed ${seed}: no dense session by day 115`);
+    const cl = clusterObserver(eco.chain, (d) => eco.prices[d]!);
+    const hit = freshOrigin(eco.chain, (id) => cl.rep.get(id) ?? id, tid!);
+    assert.ok(hit, `seed ${seed}: no denominated output on the dense session`);
+    assert.ok(hit!.clusters >= 2,
+      `seed ${seed}: the session's inputs share one cluster (${hit!.clusters})`);
+    assert.notEqual(eco.chain.coins.get(hit!.out)!.label, "coinjoin change");
+  }
+});

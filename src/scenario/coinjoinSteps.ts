@@ -7,6 +7,28 @@
 // combinatorics dictate — countable, quantifiable as entropy — and a
 // past is blended into many plausible pasts, never severed.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
+import { type TxId } from "../model/chain";
+import { type SubMapping } from "../analysis/subsetsum";
+
+/** the chapter's denominated exhibit: prefer a session whose mapping is
+ *  PROVEN underdetermined (two balanced readings exhibited); fall back
+ *  to an unresolved dense one, and only then to anything at all. The
+ *  careless (and any unlucky) session doesn't count. Shared between the
+ *  app and the per-seed guarantee tests. */
+export function selectDenseCoinjoin(
+  coinjoins: Map<TxId, { density: number; determined: boolean; verdict: SubMapping["kind"] }>,
+  naiveTid: TxId | undefined,
+): TxId | undefined {
+  let unresolved: TxId | undefined;
+  let any: TxId | undefined;
+  for (const [tid, cj] of coinjoins) {
+    if (tid === naiveTid) continue;
+    if (any === undefined) any = tid;
+    if (cj.verdict === "ambiguous" && cj.density >= 0.5) return tid;
+    if (unresolved === undefined && !cj.determined && cj.density >= 0.5) unresolved = tid;
+  }
+  return unresolved ?? any;
+}
 
 export function coinjoinSteps(
   bipBounds: () => Rect,

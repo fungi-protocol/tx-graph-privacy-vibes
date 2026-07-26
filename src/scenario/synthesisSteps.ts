@@ -149,6 +149,16 @@ export interface SweepView {
     /** the cluster's true owner's name, when the cluster is pure */
     trueOwner: string | null;
   };
+  /** the map steps' spotlight: where the seeds and the sweep's
+   *  acceptances sit on the collapsed board, plus which mapped pairs
+   *  the outsider's aux graph connects. Reps are the exhibit
+   *  clustering's — the renderer remaps them through the live
+   *  partition before drawing. */
+  board?: {
+    seeds: { rep: string; name: string }[];
+    accepted: { rep: string; name: string }[];
+    auxPairs: [string, string][];
+  };
 }
 
 export function synthesisSteps(
@@ -305,6 +315,9 @@ export function synthesisSteps(
           ? `${s.knownEdges} of the town's ${s.allEdges} arrangements`
           : "the big arrangements";
         const seeds = s ? `${s.seedCount} seeds` : "a few seeds";
+        const seedReps = new Set((s?.board?.seeds ?? []).map((x) => x.rep));
+        const seedLines = (s?.board?.auxPairs ?? [])
+          .filter(([a, b]) => seedReps.has(a) && seedReps.has(b)).length;
         return `<p>To push further, the literature offers a construction
         (Narayanan&nbsp;&amp;&nbsp;Shmatikov, 2009): treat
         re-identification as <b>matching two graphs</b>. On one side, the
@@ -316,7 +329,16 @@ export function synthesisSteps(
         is built to tolerate that mismatch: the paper's two graphs came
         from different networks entirely.</p>
         <p>Add a few identities learned out of band — ${seeds}, pinned to
-        pseudonyms — and ask: can the seeds <b>propagate</b>?</p>`;
+        pseudonyms. On the board each seed wears a <b>gold ring</b> with
+        its name${seedLines > 0
+          ? `, and the dashed gold lines between them are the
+        arrangements the outsider's graph knows about — the second map,
+        projected onto the first`
+          : ` — none of this run's seeds share an arrangement the
+        outsider knows about, so no line joins them yet; the second
+        map's lines land on the board as names get pinned`}.
+        Everything unringed is what's left to solve. Now ask: can the
+        seeds <b>propagate</b>?</p>`;
       },
       focus: () => pad(clusterBounds()),
       select: () => null,
@@ -364,7 +386,11 @@ export function synthesisSteps(
         reverse match agrees. This run: ${s.examined} pseudonyms
         examined, ${s.noSignal} with no signal, ${s.belowThreshold}
         below threshold, ${s.reverseMismatch} vetoed by the reverse
-        match, <b>${s.acceptedCount} accepted</b>.</p>
+        match, <b>${s.acceptedCount} accepted</b>${s.acceptedCount > 0
+          ? ` — ringed <b>teal</b> on the board, the claimed name
+        wearing a question mark, and the dashed gold lines running to
+        it are the outsider's arrangements the match was scored on`
+          : ""}.</p>
         ${featured}
         <p>The numbers are scores, not probabilities — a standout can
         stand out and still be false. And the failure is structural:

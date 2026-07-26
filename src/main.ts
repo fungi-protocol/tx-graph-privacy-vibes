@@ -21,8 +21,8 @@ import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { nsSocialSteps } from "./scenario/nssocialSteps";
-import { coinjoinSteps } from "./scenario/coinjoinSteps";
-import { intersectionSteps, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
+import { coinjoinSteps, selectDenseCoinjoin } from "./scenario/coinjoinSteps";
+import { intersectionSteps, freshOrigin, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
 import { auxInfoDecay, observerGrants, grantAttribution, grantMerges, clusterGrantOwners, type AuxDecay } from "./analysis/auxinfo";
 import { observerOpts, type AnalysisKnobs, type AnalysisBundle } from "./analysis/pipeline";
 // import type: guaranteed fully erased — the worker module's top-level
@@ -913,6 +913,46 @@ function draw(): void {
         mapEdge(ra, rb, 0.55, "#76b7b2");
       }
     }
+    // #104: the synthesis chapter's spotlight — gold rings name the
+    // seeded clusters, dashed gold lines are the arrangements the
+    // outsider's aux graph knows between the named agents, and once
+    // the sweep has run, teal marks what it accepted
+    if (collapseT > 0.9 && synthSpot > 0) {
+      const board = synthExhibits().sweep?.board;
+      if (board) {
+        const cl = lensClustering();
+        const clay = clusterLayout();
+        const live = (rep: string): string => cl.rep.get(rep) ?? rep;
+        const shown = new Set(board.seeds.map((s) => live(s.rep)));
+        if (synthSpot === 2) for (const a of board.accepted) shown.add(live(a.rep));
+        for (const [a, b] of board.auxPairs) {
+          const ra = live(a), rb = live(b);
+          if (ra !== rb && shown.has(ra) && shown.has(rb)) mapEdge(ra, rb, 0.5);
+        }
+        const ring = (rep: string, name: string, color: string): void => {
+          const n = clay.nodes.get(live(rep));
+          if (!n) return;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, n.r + 7, 0, Math.PI * 2);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+          ctx.fillStyle = color;
+          ctx.font = "600 12px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "alphabetic";
+          // the fitted board fills the camera rect edge to edge, so a
+          // name above a top-edge disc would leave the frame — drop it
+          // under the disc's captions instead
+          const above = n.y - n.r - 14;
+          ctx.fillText(name, n.x, above < clay.bounds.y + 6 ? n.y + n.r + 48 : above);
+          ctx.restore();
+        };
+        for (const s of board.seeds) ring(s.rep, s.name, "#edc948");
+        if (synthSpot === 2) for (const a of board.accepted) ring(a.rep, `${a.name}?`, "#76b7b2");
+      }
+    }
   } else {
     drawMorph(ctx, s.chain, s.layout, s.bip, viewT, {
       hover, highlight, hideDim,
@@ -1052,15 +1092,21 @@ function setUnclustered(on: boolean, animate = true): void {
 }
 unclusterBtn.addEventListener("click", () => setUnclustered(!unclustered));
 /** the world rect the camera currently shows, minus whatever the
- *  tutorial panel covers — where a collapse forms its circle */
+ *  tutorial panel covers — where a collapse forms its circle. A camera
+ *  fly in flight counts as already arrived: a repartition landing
+ *  mid-fly (the analysis worker outlasting a tutorial camera move)
+ *  must fit the map to the rect the camera is headed for, not one it
+ *  is about to leave (#103's ns-columns race, seen again on the
+ *  synthesis map steps) */
 function visibleWorldRect(): Rect {
+  const c = flyCam ?? cam;
   const w = canvas.clientWidth, h = canvas.clientHeight;
   const vp = visibleViewport();
   return {
-    x: cam.x + (vp.x - w / 2) / cam.scale,
-    y: cam.y + (vp.y - h / 2) / cam.scale,
-    w: vp.w / cam.scale,
-    h: vp.h / cam.scale,
+    x: c.x + (vp.x - w / 2) / c.scale,
+    y: c.y + (vp.y - h / 2) / c.scale,
+    w: vp.w / c.scale,
+    h: vp.h / c.scale,
   };
 }
 function setCollapsed(on: boolean, animate = true): void {
@@ -2436,6 +2482,9 @@ function visibleViewport(): { x: number; y: number; w: number; h: number } {
 
 /** Animate the camera to frame a world rect with some margin. */
 let pendingFly: { rect: Rect; ms: number } | null = null;
+/** the destination of a camera fly in flight — visibleWorldRect()
+ *  treats it as where the camera already is */
+let flyCam: Camera | null = null;
 function flyTo(rect: Rect, ms = 700): void {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (w <= 0 || h <= 0) {
@@ -2452,13 +2501,17 @@ function flyTo(rect: Rect, ms = 700): void {
     scale,
   };
   const from = { ...cam };
+  flyCam = target;
   anim.add(ms, (t) => {
     cam = {
       x: from.x + (target.x - from.x) * t,
       y: from.y + (target.y - from.y) * t,
       scale: Math.exp(Math.log(from.scale) + (Math.log(target.scale) - Math.log(from.scale)) * t),
     };
-  }, { done: () => void syncFragment() });
+  }, { done: () => {
+    if (flyCam === target) flyCam = null;
+    void syncFragment();
+  } });
   kick();
 }
 
@@ -2573,6 +2626,8 @@ const steps = [
   ),
   ...intersectionSteps(
     () => active().bip.bounds,
+    () => freshOriginExhibit()?.coin,      // fresh out of the dense session (#104)
+    () => freshOriginExhibit()?.clusters,  // faces on the board, in one frame
     () => m5Moments().coin,   // a coinjoined coin worth tracing
     () => m5Moments().cross,  // a spend linking two sessions' pasts
     () => m5Moments().toxic,  // coinjoin change spent beside a mixed coin
@@ -2600,19 +2655,7 @@ function txRect(tid: string | undefined): Rect {
   return r ? { x: r.x - 260, y: r.y - 160, w: r.w + 520, h: r.h + 320 } : s.bip.bounds;
 }
 function denseCoinjoin(): string | undefined {
-  // prefer a session whose mapping is PROVEN underdetermined (two balanced
-  // readings exhibited); fall back to an unresolved dense one, and only
-  // then to anything at all. The careless (and any unlucky) session
-  // doesn't count
-  let unresolved: string | undefined;
-  let any: string | undefined;
-  for (const [tid, cj] of eco?.coinjoins ?? []) {
-    if (tid === eco?.naiveTid) continue;
-    if (any === undefined) any = tid;
-    if (cj.verdict === "ambiguous" && cj.density >= 0.5) return tid;
-    if (unresolved === undefined && !cj.determined && cj.density >= 0.5) unresolved = tid;
-  }
-  return unresolved ?? any;
+  return eco ? selectDenseCoinjoin(eco.coinjoins, eco.naiveTid ?? undefined) : undefined;
 }
 /** bounding box over a set of coins and txs in the bipartite layout */
 function traceBounds(coins: Iterable<string>, txs: Iterable<string>): Rect {
@@ -2627,6 +2670,21 @@ function traceBounds(coins: Iterable<string>, txs: Iterable<string>): Rect {
   for (const t of txs) eat(s.bip.txs.get(t));
   if (x0 > x1) return s.bip.bounds;
   return { x: x0 - 120, y: y0 - 120, w: x1 - x0 + 240, h: y1 - y0 + 240 };
+}
+
+/** chapter 7's opening exhibit (#104): a denominated output of the dense
+ *  session, one step old — its immediate candidates are the session's
+ *  own input clusters, countable inside the coinjoin chapter's frame.
+ *  Cluster count reads the live observer map (grants compounded), so
+ *  the step displays whatever the current map actually says. */
+function freshOriginExhibit(): { coin: Focused; clusters: number } | undefined {
+  const chain = eco?.chain;
+  const tid = denseCoinjoin();
+  if (!chain || !tid) return undefined;
+  const cl = observerBase();
+  const hit = freshOrigin(chain, (id) => cl.rep.get(id) ?? id, tid);
+  if (!hit) return undefined;
+  return { coin: { id: hit.out, rect: txRect(tid) }, clusters: hit.clusters };
 }
 
 // --- chapter 7: its three moments. The linking spend is injected on
@@ -2728,6 +2786,11 @@ function firstSettlement(): { tid: string; payer: number } | undefined {
 // false against latent truth (verified across the tutorial seeds).
 // Both re-derive per sim revision; the sweep is the pricey one.
 let synthCache: { rev: number; claim?: ClaimExhibit; sweep?: SweepView } | null = null;
+// #104: the synthesis map steps spotlight the sweep's cast on the
+// collapsed board — the full cluster graph alone is too busy to read
+// the story off. 1 = seeds and the aux edges between them ("Two maps
+// and a few names"), 2 = the sweep's acceptance joins ("One sweep").
+let synthSpot: 0 | 1 | 2 = 0;
 function synthExhibits(): { claim?: ClaimExhibit; sweep?: SweepView } {
   if (!eco) return {};
   if (synthCache && synthCache.rev === simRev) return synthCache;
@@ -2762,6 +2825,25 @@ function synthExhibits(): { claim?: ClaimExhibit; sweep?: SweepView } {
           eccentricity: ex.featured!.eccentricity,
           grade: ex.featured!.grade,
           trueOwner: owner === null ? null : castList()[owner]?.name ?? null,
+        };
+      })(),
+      board: (() => {
+        const mapped = new Map<string, string>([...ex.seeds, ...ex.result.accepted]);
+        const knows = new Set<string>();
+        for (const e of outsiderEdges(eco.edges, 300)) {
+          knows.add(`${e.payer}:${e.payee}`);
+          knows.add(`${e.payee}:${e.payer}`);
+        }
+        const reps = [...mapped.keys()];
+        const auxPairs: [string, string][] = [];
+        for (let i = 0; i < reps.length; i++)
+          for (let j = i + 1; j < reps.length; j++)
+            if (knows.has(`${mapped.get(reps[i]!)}:${mapped.get(reps[j]!)}`))
+              auxPairs.push([reps[i]!, reps[j]!]);
+        return {
+          seeds: [...ex.seeds].map(([rep, a]) => ({ rep, name: nameOf(a) })),
+          accepted: [...ex.result.accepted].map(([rep, a]) => ({ rep, name: nameOf(a) })),
+          auxPairs,
         };
       })(),
     };
@@ -2807,6 +2889,7 @@ const tutorial = new Tutorial(steps, {
   // intro must not leave the time controls hidden with the cards scene
   onSkip: () => {
     allRowsSeen = true;
+    synthSpot = 0; // leaving mid-chapter must not strand the spotlight
     setScene(1, eco ? economy().day : 0);
     setOverlays(OV_ALL);
     if (changeTells !== TELL_ALL) setChangeTells(TELL_ALL);
@@ -2849,6 +2932,11 @@ const tutorial = new Tutorial(steps, {
       if (ns) seenRows.add("nssoc");
     }
     reflectOverlays();
+    // #104: the synthesis map steps get their spotlight (seeds first,
+    // the sweep's acceptances one step later); any other step clears it
+    const cur = steps[index];
+    synthSpot = cur?.id === "two-maps-and-a-few-names" ? 1
+      : cur?.id === "one-sweep" ? 2 : 0;
     // the hide filter ("h") outlives selections; combined with a step
     // that keeps the prior selection it can hide the very transaction
     // the step is framing — a step landing always lifts it

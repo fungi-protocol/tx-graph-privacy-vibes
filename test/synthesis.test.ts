@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
 import { clusterObserver } from "../src/analysis/clusters";
-import { synthesisSweepExhibit, clusterOwner } from "../src/scenario/synthesisStaging";
+import { synthesisSweepExhibit, clusterOwner, outsiderEdges } from "../src/scenario/synthesisStaging";
 import { claimExhibit, rentForms, premiseDemo, counterpartyExhibit } from "../src/scenario/synthesisSteps";
 
 const SEEDS = ["welcome", "golden", "gamma", "alpha", "silver"];
@@ -47,6 +47,30 @@ test("the narrated sweep features a pure-cluster FALSE acceptance on every tutor
     // 3 -> 4 when the sum-bound welds joined — outsized coinjoin
     // outputs consolidate their funders' pseudonyms the same way)
     assert.ok(ex.result.accepted.size <= 4, `${seed}: ${ex.result.accepted.size} acceptances`);
+  }
+});
+
+test("the map steps' spotlight is drawable on every seed: two+ ringed seeds, and every acceptance has a gold line to run (#104)", () => {
+  for (const seed of SEEDS) {
+    const { eco, cl, ownerOf } = town(seed);
+    const agents = eco.cast.map((_, i) => i);
+    const ex = synthesisSweepExhibit(eco.chain, cl, eco.edges, agents, ownerOf);
+    assert.ok(ex.seeds.size >= 2, `${seed}: only ${ex.seeds.size} seeds`);
+    assert.ok(ex.result.accepted.size >= 1, `${seed}: nothing accepted`);
+    // an acceptance is scored off mapped neighbors, so its agent must
+    // share a known arrangement with some mapped agent — that is the
+    // dashed line the "One sweep" prose points at. Seed-to-seed lines
+    // are NOT guaranteed (the two-maps prose narrates their absence).
+    const known = new Set<string>();
+    for (const e of outsiderEdges(eco.edges, 300)) {
+      known.add(`${e.payer}:${e.payee}`);
+      known.add(`${e.payee}:${e.payer}`);
+    }
+    const mapped = [...ex.seeds.values(), ...ex.result.accepted.values()];
+    for (const [node, agent] of ex.result.accepted) {
+      const hasLine = mapped.some((other) => other !== agent && known.has(`${agent}:${other}`));
+      assert.ok(hasLine, `${seed}: acceptance ${node} -> ${agent} has no aux line to any mapped agent`);
+    }
   }
 });
 
