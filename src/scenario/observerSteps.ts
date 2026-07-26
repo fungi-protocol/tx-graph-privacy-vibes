@@ -242,7 +242,9 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         left-to-right order the graph already had — and the line wraps
         around a <b>circle</b>. The transfers travel with them: this is
         the <b>same graph</b> as before, every coin still its own vertex,
-        every payment still an edge. Only the layout changed.</p>
+        every payment still an edge — a payment with several parties
+        keeps a small square where its transaction pinched shut. Only
+        the layout changed.</p>
         <p>Nothing is merged yet. The ring is the raw material every
         clustering starts from: each dot a coin the observer has, so far,
         no opinion about. Its color is the coin's true owner — the town's

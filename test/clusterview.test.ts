@@ -7,9 +7,9 @@
 // the whole cluster, and every fragment must come from a real old disc.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout, pileOffset } from "../src/ui/clusterview";
+import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout, pileOffset, pileScale, discRadius, contractedEdges } from "../src/ui/clusterview";
 import { type Clustering } from "../src/analysis/clusters";
-import { clusterObserver } from "../src/analysis/clusters";
+import { clusterObserver, clusterSingletons } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
 
 function partition(groups: string[][]): Clustering {
@@ -103,15 +103,32 @@ test("transitionFragments carry their member coins: the pieces partition the new
   }
 });
 
-test("pileOffset: a cluster's stack of coin dots packs inside its layout radius (#95)", () => {
+test("pileOffset: a cluster's scaled stack of coin dots packs inside its layout radius (#95, #107)", () => {
   for (const n of [1, 2, 5, 10, 50, 200, 1000]) {
-    const rim = n >= 2 ? 12 + 7 * Math.sqrt(n) : 5;
+    const rim = discRadius(n);
+    const k = pileScale(n, rim);
+    const dotR = Math.max(1.8, 5 * k);
     for (let i = 0; i < n; i++) {
       const o = pileOffset(i);
-      assert.ok(Math.hypot(o.dx, o.dy) + 5 <= rim + 1e-9,
+      assert.ok(Math.hypot(o.dx, o.dy) * k + dotR <= rim + 1e-9,
         `dot ${i} of ${n} stays inside the rim`);
     }
   }
+});
+
+test("discRadius plateaus: still growing, but ever slower, and never caption-dwarfing (#107)", () => {
+  let prevR = discRadius(2);
+  for (const n of [8, 32, 128, 512, 2048]) {
+    const r = discRadius(n);
+    assert.ok(r > prevR, `radius keeps growing at ${n}`);
+    // area tracks ~sqrt(n): quadrupling the coins grows the radius by
+    // well under the doubling a sqrt(n) law would give
+    assert.ok(r / prevR < 1.45, `quadrupling coins at ${n} grows r only ${(r / prevR).toFixed(2)}x`);
+    prevR = r;
+  }
+  // a monster cluster still reads as a disc beside its caption, not a
+  // billboard behind it
+  assert.ok(discRadius(10000) < 110, `10k-coin disc stays modest, got ${discRadius(10000)}`);
 });
 
 test("truth paint stays honest on a real run: every observer vertex's slices sum to 1 and mixed vertices exist to expose", () => {
@@ -133,5 +150,70 @@ test("truth paint stays honest on a real run: every observer vertex's slices sum
     // the device has something to show: the observer's map really does
     // link different people together somewhere by day 115
     assert.ok(mixed >= 1, `${seed}: no mixed cluster to expose`);
+  }
+});
+
+// #107: the contracted graph's edge semantics. Each transaction pinches
+// to a junction: every distinct input cluster feeds it, it fans out to
+// every output cluster the inputs don't already own. A coin is spent at
+// most once, so on the singleton ring a coin keeps at most ONE outgoing
+// strand — the fan-out to several outputs belongs to the junction, not
+// to the coin — and a co-funding input is never left dangling.
+test("contractedEdges on singletons: one outgoing strand per coin, no orphaned inputs (#107)", () => {
+  const eco = new Economy("welcome");
+  eco.runTo(35);
+  const cl = clusterSingletons(eco.chain);
+  const edges = contractedEdges(eco.chain, cl);
+  const outStrands = new Map<string, number>();
+  for (const e of edges) {
+    for (const f of e.from) outStrands.set(f, (outStrands.get(f) ?? 0) + 1);
+    // outputs never double as sources of the same edge
+    for (const t of e.to) assert.ok(!e.from.includes(t), `${t} both feeds and receives ${e.tid}`);
+  }
+  for (const [id, n] of outStrands) {
+    assert.ok(n <= 1, `coin ${id} grew ${n} outgoing strands from one spend`);
+  }
+  // every spent coin feeds its spending transaction's edge — co-funders
+  // included (the repro: t25 spends t12o2 AND t20o2; both must appear)
+  for (const e of edges) {
+    const tx = eco.chain.txs.get(e.tid)!;
+    assert.deepEqual([...e.from].sort(), [...new Set(tx.inputs)].sort(),
+      `${e.tid} lists every input as a source on the singleton ring`);
+  }
+});
+
+test("contractedEdges under a coarse partition: co-clustered inputs collapse to one source, internal transfers vanish (#107)", () => {
+  // a1 pays: two inputs one cluster, change back to itself, payment out
+  const cl = partition([["i1", "i2", "c1"], ["p1"]]);
+  const chain = {
+    order: ["t1"],
+    txs: new Map([["t1", { id: "t1", inputs: ["i1", "i2"], outputs: ["p1", "c1"] }]]),
+  } as never;
+  const edges = contractedEdges(chain, cl);
+  assert.equal(edges.length, 1);
+  assert.deepEqual(edges[0]!.from, [cl.rep.get("i1")]);
+  assert.deepEqual(edges[0]!.to, [cl.rep.get("p1")]);
+  // fully internal tx contracts away
+  const internal = contractedEdges({
+    order: ["t2"],
+    txs: new Map([["t2", { id: "t2", inputs: ["i1"], outputs: ["c1"] }]]),
+  } as never, cl);
+  assert.equal(internal.length, 0);
+});
+
+// #107: "the clustered vs. unclustered layout is mainly a function of
+// the heuristics that are enabled, if all are disabled then that's
+// equivalent to unclustered" — the observer's map with every heuristic
+// switched off IS the bottom of the refinement lattice.
+test("observer with all heuristics off equals the singleton partition (#107)", () => {
+  const eco = new Economy("welcome");
+  eco.runTo(35);
+  const off = clusterObserver(eco.chain, (d) => eco.prices[d],
+    { reuse: false, cioh: false, change: false, subsum: false, remeet: false });
+  const bottom = clusterSingletons(eco.chain);
+  assert.equal(off.members.size, bottom.members.size);
+  for (const [rep, members] of off.members) {
+    assert.deepEqual(members, bottom.members.get(rep),
+      `cluster ${rep} is a bare singleton with every heuristic off`);
   }
 });

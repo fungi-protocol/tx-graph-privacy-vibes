@@ -3,7 +3,7 @@
 // itself. The residual edges of this now multigraph correspond to transfers
 // of Bitcoin."). With incomplete clustering this is a pseudonym graph, not
 // yet a user network.
-import { type Chain, type CoinId } from "../model/chain";
+import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { fmtSats } from "../core/sats";
 import { type Clustering } from "../analysis/clusters";
 import { type Layout, type Rect } from "./blockview";
@@ -137,13 +137,50 @@ export function transitionFragments(
 /** where the i-th coin of a cluster sits inside its vertex: a sunflower
  *  packing (golden-angle spiral) — a cluster is drawn as a STACK of its
  *  member coins, dots packed inside the vertex's rim, not an abstract
- *  disc. The spiral stays well inside the layout radius (12 + 7·sqrt n)
- *  for any size. */
+ *  disc. Offsets are unscaled: the renderer multiplies them (and the
+ *  dot radius) by pileScale so the pile fits the plateauing disc. */
 export function pileOffset(i: number): { dx: number; dy: number } {
   if (i === 0) return { dx: 0, dy: 0 };
   const a = i * 2.399963229728653;
   const r = 5.6 * Math.sqrt(i);
   return { dx: Math.cos(a) * r, dy: Math.sin(a) * r };
+}
+
+/** a cluster disc's radius: grows with membership but plateaus (area
+ *  ~ sqrt of the coin count) so a big cluster stays in the same visual
+ *  register as its caption instead of dwarfing it */
+export function discRadius(size: number): number {
+  return size >= 2 ? 12 + 9 * Math.pow(size, 0.25) : 5;
+}
+
+/** how much a cluster's sunflower pile (and its coin dots) must shrink
+ *  to fit inside the disc — 1 for small stacks, tightening as the
+ *  plateauing radius stops keeping up with the sqrt-growing pile */
+export function pileScale(size: number, r: number): number {
+  if (size < 2) return 1;
+  return Math.min(1, (r - 2) / (5.6 * Math.sqrt(size - 1) + 5));
+}
+
+/** one transaction's edges in the contracted graph: the tx vertex
+ *  pinches to a junction point, every distinct input cluster feeds it,
+ *  and it fans out to every output cluster the inputs don't already
+ *  own. No input is orphaned (the old rendering hung all outputs off
+ *  inputs[0] and drew nothing for co-funders), and a coin keeps ONE
+ *  outgoing strand per spend — the fan-out belongs to the junction,
+ *  not to the coin. A tx whose outputs all land back in input clusters
+ *  contracts away entirely. */
+export interface ContractedEdge { tid: TxId; from: CoinId[]; to: CoinId[] }
+export function contractedEdges(chain: Chain, cl: Clustering): ContractedEdge[] {
+  const out: ContractedEdge[] = [];
+  for (const tid of chain.order) {
+    const tx = chain.txs.get(tid)!;
+    const from = [...new Set(tx.inputs.map((i) => cl.rep.get(i)!))];
+    const fromSet = new Set(from);
+    const to = [...new Set(tx.outputs.map((o) => cl.rep.get(o)!))].filter((r) => !fromSet.has(r));
+    if (to.length === 0) continue;
+    out.push({ tid, from, to });
+  }
+  return out;
 }
 
 /** Ring layout: every partition vertex — multi-coin clusters and the
@@ -188,7 +225,7 @@ export function layoutClusterGraph(
   // gap, a singleton's just its own footprint plus a sliver
   const items = order.map((rep) => {
     const size = cl.members.get(rep)!.length;
-    const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
+    const r = discRadius(size);
     return { rep, r, size, width: 2 * r + (size >= 2 ? 90 : 12) };
   });
 
@@ -246,7 +283,7 @@ export function layoutClusterColumns(
 
   const slotH = (rep: CoinId): number => {
     const size = cl.members.get(rep)!.length;
-    const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
+    const r = discRadius(size);
     return 2 * r + (size >= 2 ? 64 : 14);
   };
 
@@ -273,14 +310,12 @@ export function layoutClusterColumns(
       if (!m) adj.set(a, (m = new Map()));
       m.set(b, (m.get(b) ?? 0) + 1);
     };
-    for (const tid of chain.order) {
-      const tx = chain.txs.get(tid)!;
-      const from = cl.rep.get(tx.inputs[0]!)!;
-      for (const out of tx.outputs) {
-        const to = cl.rep.get(out)!;
-        if (to === from) continue;
-        bump(from, to);
-        bump(to, from);
+    for (const e of contractedEdges(chain, cl)) {
+      for (const from of e.from) {
+        for (const to of e.to) {
+          bump(from, to);
+          bump(to, from);
+        }
       }
     }
     for (let sweep = 0; sweep < 8; sweep++) {
@@ -339,7 +374,7 @@ export function layoutClusterColumns(
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const rep of reps) {
     const size = cl.members.get(rep)!.length;
-    const r = size >= 2 ? 12 + 7 * Math.sqrt(size) : 5;
+    const r = discRadius(size);
     const a = acc.get(rep) ?? { sx: 0, sy: 0, n: 1 };
     const x = a.sx / Math.max(1, a.n), y = a.sy / Math.max(1, a.n);
     nodes.set(rep, { rep, x, y, r, size, lanes: lanes.get(rep) ?? [0] });
@@ -368,14 +403,12 @@ function crossingMinimizedOrder(cl: Clustering, chain: Chain, start: CoinId[]): 
     if (!m) adj.set(a, (m = new Map()));
     m.set(b, (m.get(b) ?? 0) + 1);
   };
-  for (const tid of chain.order) {
-    const tx = chain.txs.get(tid)!;
-    const from = cl.rep.get(tx.inputs[0]!)!;
-    for (const out of tx.outputs) {
-      const to = cl.rep.get(out)!;
-      if (to === from) continue;
-      bump(from, to);
-      bump(to, from);
+  for (const e of contractedEdges(chain, cl)) {
+    for (const from of e.from) {
+      for (const to of e.to) {
+        bump(from, to);
+        bump(to, from);
+      }
     }
   }
   let order = start;
@@ -406,12 +439,22 @@ function crossingMinimizedOrder(cl: Clustering, chain: Chain, start: CoinId[]): 
   return order;
 }
 
-function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): { tx: number; ty: number } {
+function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, cx: number, cy: number): { tx: number; ty: number } {
   // bow transfer edges gently toward the ring's center so parallel edges
   // read — gently, so short rim-neighbor edges (the common case once the
   // ring is seriated by edge weight) hug the rim instead of all diving
-  // through the middle
-  const mx = ((x0 + x1) / 2) * 0.72, my = ((y0 + y1) / 2) * 0.72;
+  // through the middle. The center is the LAYOUT's center: the ring is
+  // laid out around the origin but then fit to wherever the camera was
+  // looking, and a bow toward the world origin would drag every edge
+  // sideways out of the circle. The bow's depth follows the edge's own
+  // length — a fixed fraction of the radius scallops rim-neighbor edges
+  // deep into the middle once the ring is large — capped at the center
+  // so a long chord never overshoots to the far side.
+  const mx0 = (x0 + x1) / 2, my0 = (y0 + y1) / 2;
+  const dx = cx - mx0, dy = cy - my0;
+  const dc = Math.hypot(dx, dy) || 1;
+  const depth = Math.min(0.3 * Math.hypot(x1 - x0, y1 - y0), dc);
+  const mx = mx0 + (dx / dc) * depth, my = my0 + (dy / dc) * depth;
   ctx.beginPath();
   ctx.moveTo(x0, y0);
   ctx.quadraticCurveTo(mx, my, x1, y1);
@@ -501,15 +544,11 @@ export function drawContraction(
   const hov = hover !== undefined && clay.nodes.has(hover) ? hover : undefined;
   const neighbors = new Set<CoinId>();
   if (hov !== undefined) {
-    for (const tid of chain.order) {
-      const tx = chain.txs.get(tid)!;
-      const from = cl.rep.get(tx.inputs[0]!)!;
-      for (const out of tx.outputs) {
-        const to = cl.rep.get(out)!;
-        if (to === from) continue;
-        if (from === hov) neighbors.add(to);
-        else if (to === hov) neighbors.add(from);
-      }
+    for (const e of contractedEdges(chain, cl)) {
+      const touches = e.from.includes(hov) || e.to.includes(hov);
+      if (!touches) continue;
+      for (const r of e.from) if (r !== hov) neighbors.add(r);
+      for (const r of e.to) if (r !== hov) neighbors.add(r);
     }
   }
 
@@ -568,7 +607,8 @@ export function drawContraction(
     const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
     const node = nodeOf(id);
     const off = pileOffset(pileIdx.get(id) ?? 0);
-    const px = node.x + off.dx, py = node.y + off.dy;
+    const pk = pileScale(node.size, node.r);
+    const px = node.x + off.dx * pk, py = node.y + off.dy * pk;
     const slot = ring?.nodes.get(id);
     let out: { x: number; y: number; w: number; h: number };
     if (slot) {
@@ -606,15 +646,25 @@ export function drawContraction(
       ctx.save();
       ctx.globalAlpha = coinEdgeA;
       ctx.lineWidth = 1.2;
+      // each tx pinches to a junction between its flying coins: every
+      // input feeds one strand in, every output takes one strand out —
+      // a coin never grows edges its spends don't justify, and no
+      // co-funding input is left dangling
       for (const tid of chain.order) {
         const tx = chain.txs.get(tid)!;
-        const p0 = coinPos(tx.inputs[0]!);
+        let jx = 0, jy = 0;
+        const ends = [...tx.inputs, ...tx.outputs];
+        for (const id of ends) {
+          const p = coinPos(id);
+          jx += p.x; jy += p.y;
+        }
+        jx /= ends.length; jy /= ends.length;
         ctx.strokeStyle = paint.color(tx.inputs[0]!);
-        for (const out of tx.outputs) {
-          const p1 = coinPos(out);
+        for (const id of ends) {
+          const p = coinPos(id);
           ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p1.x, p1.y);
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(jx, jy);
           ctx.stroke();
         }
       }
@@ -622,37 +672,82 @@ export function drawContraction(
     }
   }
 
-  // residual transfer edges (one per tx output whose source differs);
-  // during a repartition tween they ride the discs, dimming only a
-  // little while everything is in flight
+  // residual transfer edges: each tx contracts to a junction — every
+  // distinct input cluster feeds it, it fans out to every output
+  // cluster the inputs don't own (contractedEdges). During a
+  // repartition tween they ride the discs, dimming only a little while
+  // everything is in flight
   ctx.save();
   ctx.globalAlpha = Math.max(0, discT * 0.75) * (0.5 + 0.5 * transT);
-  for (const tid of chain.order) {
-    const tx = chain.txs.get(tid)!;
-    const from = nodeOf(tx.inputs[0]!);
-    for (const out of tx.outputs) {
-      const to = nodeOf(out);
-      if (to === from) continue; // self-transfer (same inferred cluster) contracts away
-      const touched = hov !== undefined && (from.rep === hov || to.rep === hov);
-      const p0 = posOf(from), p1 = posOf(to);
-      const sameLane = from.lanes !== undefined && to.lanes !== undefined &&
-        from.lanes.length === 1 && to.lanes.length === 1 && from.lanes[0] === to.lanes[0];
-      const bowSign = sameLane && from.lanes![0]! < (maxLane + 1) / 2 ? -1 : 1;
-      const tan = columns
-        ? columnEdge(ctx, p0.x, p0.y, p1.x, p1.y, sameLane, bowSign)
-        : bezier(ctx, p0.x, p0.y, p1.x, p1.y);
-      const color = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
-      ctx.strokeStyle = color;
-      ctx.lineWidth = touched ? 2.6 : 1.6;
+  const ccx = clay.bounds.x + clay.bounds.w / 2, ccy = clay.bounds.y + clay.bounds.h / 2;
+  for (const e of contractedEdges(chain, cl)) {
+    const tx = chain.txs.get(e.tid)!;
+    const touched = hov !== undefined && (e.from.includes(hov) || e.to.includes(hov));
+    const color = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = touched ? 2.6 : 1.6;
+    const fromN = e.from.map((r) => clay.nodes.get(r)!);
+    const toN = e.to.map((r) => clay.nodes.get(r)!);
+    if (columns) {
+      // the column layout keeps its lane-aware pair shapes, one edge
+      // per (input cluster, output cluster) pair
+      for (const fn of fromN) {
+        const p0 = posOf(fn);
+        for (const tn of toN) {
+          const p1 = posOf(tn);
+          const sameLane = fn.lanes !== undefined && tn.lanes !== undefined &&
+            fn.lanes.length === 1 && tn.lanes.length === 1 && fn.lanes[0] === tn.lanes[0];
+          const bowSign = sameLane && fn.lanes![0]! < (maxLane + 1) / 2 ? -1 : 1;
+          const tan = columnEdge(ctx, p0.x, p0.y, p1.x, p1.y, sameLane, bowSign);
+          ctx.stroke();
+          const d = Math.hypot(tan.tx, tan.ty) || 1;
+          arrowAt(ctx,
+            p1.x - (tan.tx / d) * (tn.r + 3), p1.y - (tan.ty / d) * (tn.r + 3),
+            tan.tx, tan.ty);
+        }
+      }
+      continue;
+    }
+    if (fromN.length === 1 && toN.length === 1) {
+      // the dominant shape — one cluster paying another — stays a
+      // single unbroken curve
+      const p0 = posOf(fromN[0]!), p1 = posOf(toN[0]!);
+      const tan = bezier(ctx, p0.x, p0.y, p1.x, p1.y, ccx, ccy);
       ctx.stroke();
-      // flow-of-funds arrow, parked on the receiving disc's rim so the
-      // disc painted on top doesn't swallow it
       const d = Math.hypot(tan.tx, tan.ty) || 1;
-      ctx.fillStyle = color;
       arrowAt(ctx,
-        p1.x - (tan.tx / d) * (to.r + 3), p1.y - (tan.ty / d) * (to.r + 3),
+        p1.x - (tan.tx / d) * (toN[0]!.r + 3), p1.y - (tan.ty / d) * (toN[0]!.r + 3),
+        tan.tx, tan.ty);
+      continue;
+    }
+    // several parties in, several out: legs meet at the junction where
+    // the tx vertex pinched shut — drawn as a small square so the
+    // meeting point reads as the transaction it is, not as edges
+    // kinking around an invisible vertex
+    let jx = 0, jy = 0;
+    for (const n of [...fromN, ...toN]) { const p = posOf(n); jx += p.x; jy += p.y; }
+    jx /= fromN.length + toN.length; jy /= fromN.length + toN.length;
+    for (const fn of fromN) {
+      const p0 = posOf(fn);
+      bezier(ctx, p0.x, p0.y, jx, jy, ccx, ccy);
+      ctx.stroke();
+    }
+    for (const tn of toN) {
+      const p1 = posOf(tn);
+      const tan = bezier(ctx, jx, jy, p1.x, p1.y, ccx, ccy);
+      ctx.stroke();
+      const d = Math.hypot(tan.tx, tan.ty) || 1;
+      arrowAt(ctx,
+        p1.x - (tan.tx / d) * (tn.r + 3), p1.y - (tan.ty / d) * (tn.r + 3),
         tan.tx, tan.ty);
     }
+    const js = 4;
+    ctx.beginPath();
+    ctx.roundRect(jx - js, jy - js, 2 * js, 2 * js, 2);
+    ctx.fillStyle = "#26292f";
+    ctx.fill();
+    ctx.stroke();
   }
   ctx.restore();
 
@@ -669,14 +764,20 @@ export function drawContraction(
       ctx.fillStyle = paint.color(coin.id);
       ctx.fill();
     }
-    // tx squares fade toward the midpoint of their (moving) endpoints —
-    // a transaction is not a coin, so it alone contracts away
+    // tx squares fade toward the junction of their (moving) endpoints —
+    // the same centroid the edge strands meet at — a transaction is not
+    // a coin, so it alone contracts away
     ctx.globalAlpha = 1 - t;
     for (const tid of chain.order) {
       const tx = chain.txs.get(tid)!;
       const from = txRectAt(block, bip, tid, morphT)!;
-      const a = coinPos(tx.inputs[0]!), b = coinPos(tx.outputs[0]!);
-      const tx2 = (a.x + b.x) / 2, ty2 = (a.y + b.y) / 2;
+      let tx2 = 0, ty2 = 0;
+      const ends = [...tx.inputs, ...tx.outputs];
+      for (const id of ends) {
+        const p = coinPos(id);
+        tx2 += p.x; ty2 += p.y;
+      }
+      tx2 /= ends.length; ty2 /= ends.length;
       const x = from.x + (tx2 - (from.x + from.w / 2)) * t;
       const y = from.y + (ty2 - (from.y + from.h / 2)) * t;
       ctx.beginPath();
@@ -694,9 +795,9 @@ export function drawContraction(
   // sunflower pile inside a rim that marks the partition (#95). Paint is
   // the ground truth per coin, so a wrongly-merged cluster shows mixed
   // colors dot by dot.
-  const dot = (x: number, y: number, color: string): void => {
+  const dot = (x: number, y: number, color: string, r = 5): void => {
     ctx.beginPath();
-    ctx.arc(x, y, 5, 0, 2 * Math.PI);
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
     ctx.fillStyle = color;
     ctx.fill();
   };
@@ -713,22 +814,27 @@ export function drawContraction(
     // fading in or out of existence
     if (t >= 0.98) {
       ctx.globalAlpha = focus;
+      // the pile (and its dots) shrink with the plateauing disc so a
+      // large stack still fits inside its rim
+      const pk = pileScale(node.size, node.r);
+      const dotR = Math.max(1.8, 5 * pk);
       if (frags && frags.length > 0) {
         for (const f of frags) {
+          const pk0 = pileScale(f.coins.length, f.r);
           f.coins.forEach((id, i) => {
             const o0 = pileOffset(i);
             const o1 = pileOffset(pileIdx.get(id) ?? 0);
-            const x0 = f.x + o0.dx, y0 = f.y + o0.dy;
-            const x1 = node.x + o1.dx, y1 = node.y + o1.dy;
+            const x0 = f.x + o0.dx * pk0, y0 = f.y + o0.dy * pk0;
+            const x1 = node.x + o1.dx * pk, y1 = node.y + o1.dy * pk;
             const p = columns ? { x: x0 + (x1 - x0) * transT, y: y0 + (y1 - y0) * transT }
               : arcLerp(x0, y0, x1, y1, transT);
-            dot(p.x, p.y, paint.color(id));
+            dot(p.x, p.y, paint.color(id), dotR);
           });
         }
       } else {
         for (const id of members) {
           const o = pileOffset(pileIdx.get(id) ?? 0);
-          dot(node.x + o.dx, node.y + o.dy, paint.color(id));
+          dot(node.x + o.dx * pk, node.y + o.dy * pk, paint.color(id), dotR);
         }
       }
     }
