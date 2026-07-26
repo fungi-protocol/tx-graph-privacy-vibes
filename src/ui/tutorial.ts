@@ -33,6 +33,13 @@ export interface TutorialStep {
    * step that set it (default none — the plain observer), same rule as
    * `overlays` so jumps land on the walked path's value */
   grants?: [number, number];
+  /** lens 1: whether the statistical-fingerprinting analysis runs;
+   * undefined = inherit from the last step that set it (default off),
+   * same walked-path rule as `overlays` */
+  nf?: boolean;
+  /** lens 1: whether the social-network analysis runs; same walked-path
+   * rule and default as `nf` */
+  ns?: boolean;
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
@@ -59,6 +66,10 @@ export interface TutorialCallbacks {
   onChangeTells?: (mask: number) => void;
   /** observer-lens steps set the knowledge grant, after overlays */
   onGrants?: (kyc: number, aux: number) => void;
+  /** observer-lens steps stage the statistical-fingerprinting analysis */
+  onNf?: (on: boolean) => void;
+  /** observer-lens steps stage the social-network analysis */
+  onNs?: (on: boolean) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
   /** steps that trace something fire this after lens, before focus */
@@ -133,6 +144,8 @@ export class Tutorial {
       const [kyc, aux] = this.grantsAt(this.index);
       this.cb.onGrants?.(kyc, aux);
     }
+    if (animate) this.cb.onNf?.(this.flagAt(this.index, "nf"));
+    if (animate) this.cb.onNs?.(this.flagAt(this.index, "ns"));
     if (animate && step.select) {
       const sel = step.select();
       if (sel !== undefined) this.cb.onSelect?.(sel);
@@ -164,6 +177,16 @@ export class Tutorial {
       if (t !== undefined) return t;
     }
     return 15;
+  }
+
+  /** effective propagation-analysis flag (`nf` or `ns`) at a step, same
+   *  walked-path rule as overlaysAt; before any step declares one, off */
+  private flagAt(index: number, key: "nf" | "ns"): boolean {
+    for (let i = index; i >= 0; i--) {
+      const v = this.steps[i]![key];
+      if (v !== undefined) return v;
+    }
+    return false;
   }
 
   /** effective knowledge grant at a step, same walked-path rule as

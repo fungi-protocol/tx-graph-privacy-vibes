@@ -18,8 +18,9 @@ import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activ
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
 import { layoutClusterGraph, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { observerSteps } from "./scenario/observerSteps";
-import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, type PayjoinDetection } from "./scenario/payjoinSteps";
+import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
+import { nsSocialSteps } from "./scenario/nssocialSteps";
 import { coinjoinSteps } from "./scenario/coinjoinSteps";
 import { intersectionSteps, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
 import { auxInfoDecay, observerGrants, grantAttribution, grantMerges, clusterGrantOwners, type AuxDecay } from "./analysis/auxinfo";
@@ -306,9 +307,12 @@ function chainKey(): string {
   }
   return `${id}#${c.order.length}`;
 }
-/** everything the observer's base map is a function of */
+/** everything the observer's base map is a function of — the
+ *  statistical-fingerprinting knob included, since its intra-transaction
+ *  reading (divergent input fingerprints veto the one-owner welds)
+ *  reshapes the base clustering, not just the overlay run */
 function mapSig(): string {
-  return `${chainKey()}§${overlays}|${ciohMax}|${changeEvidence}|${changeTells}|${grantSig()}`;
+  return `${chainKey()}§${overlays}|${ciohMax}|${changeEvidence}|${changeTells}|${nfOn ? 1 : 0}|${grantSig()}`;
 }
 
 const mistakeMemo = memoLRU<Map<string, Mistake[]>>(16);
@@ -329,6 +333,7 @@ function analysisKnobs(): AnalysisKnobs {
     ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
     ...(changeEvidence > 1 ? { changeEvidence } : {}),
     ...(changeTells !== TELL_ALL ? { changeTells } : {}),
+    ...(nfOn ? { fingerprints: true } : {}),
     kycObs,
     auxFrac,
   };
@@ -1228,7 +1233,7 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
     </div>
     <div id="nsproposal"></div>
   </div>
-  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, feerates absolute and relative to the day's prevailing rate, address script families, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
+  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, feerates absolute and relative to the day's prevailing rate, address script families, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script families in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
   <div id="nsnfcontrols" style="display:none">
     <div class="ovslider" title="similarity a pair must clear to be matched (mean cosine over the feature blocks); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
       <span>threshold</span>
@@ -1807,6 +1812,11 @@ function setNsSocial(on: boolean): void {
       else nsSetPlaying(false);
       nsSecond = null;
     });
+    // the landing can race a tutorial camera move: the columns were fit
+    // to whatever rect the camera showed at that instant, which a flyTo
+    // in flight is about to leave — settle the disagreement by framing
+    // the fitted layout (a no-op when the camera never moved)
+    if (on && collapsed) flyTo(clusterLayout().bounds);
   }, { nsFull: on });
 }
 function nsSetPlaying(on: boolean): void {
@@ -2510,6 +2520,10 @@ const steps = [
     },
     payjoinExhibit,
     payjoinExhibitDetection,
+    () => {
+      const tid = payjoinExhibit();
+      return tid ? inputFamilies(active().chain, tid) : [];
+    },
   ),
   ...settlementSteps(
     () => active().bip.bounds,
@@ -2528,6 +2542,10 @@ const steps = [
       const ev = firstSettlement();
       return ev ? settlementVerdict(eco!.chain, ev.tid) : undefined;
     },
+  ),
+  ...nsSocialSteps(
+    () => clusterLayout().bounds,
+    () => ({ matches: nsRun().length, parts: nsParts }),
   ),
   ...coinjoinSteps(
     () => active().bip.bounds,
@@ -2803,13 +2821,15 @@ const tutorial = new Tutorial(steps, {
     // commits, so mid-flight one commit's value pairs with another's
     // still pending and rows the story has not introduced yet would
     // read as running
-    let ov = 3, ct = TELL_ALL, kyc = 0, aux = 0;
+    let ov = 3, ct = TELL_ALL, kyc = 0, aux = 0, nf = false, ns = false;
     for (let i = 0; i <= index; i++) {
       const s = steps[i];
       if (!s) continue;
       if (s.overlays !== undefined) ov = s.overlays;
       if (s.changeTells !== undefined) ct = s.changeTells;
       if (s.grants !== undefined) [kyc, aux] = s.grants;
+      if (s.nf !== undefined) nf = s.nf;
+      if (s.ns !== undefined) ns = s.ns;
       for (const r of s.reveals ?? []) seenRows.add(r as PanelRow);
       if (s.lens !== 1) continue;
       const eo = (ov & OV_SUBSUM) !== 0 ? ov | OV_CIOH : ov;
@@ -2825,6 +2845,8 @@ const tutorial = new Tutorial(steps, {
       }
       if (kyc !== 0 || aux > 0) seenRows.add("kyc");
       if (aux > 0) seenRows.add("aux");
+      if (nf) seenRows.add("nsnf");
+      if (ns) seenRows.add("nssoc");
     }
     reflectOverlays();
     // the hide filter ("h") outlives selections; combined with a step
@@ -2853,6 +2875,8 @@ const tutorial = new Tutorial(steps, {
   onGrants: (kyc, aux) => {
     if ((kyc === 1) !== kycObs || aux / 100 !== auxFrac) setGrants(kyc === 1, aux / 100);
   },
+  onNf: (on) => setNf(on),
+  onNs: (on) => setNsSocial(on),
   onScene: (s, minDay) => setScene(s, minDay, true),
   onSelect: (sel) => {
     if (sel === null) clearSelection();

@@ -62,6 +62,7 @@ export function settlementSteps(
       focus: () => pad(settleFocus()),
       view: 0,
       lens: 0,
+      nf: false, // plain CIOH first: the check re-enters the prose at "What still shows"
       scene: 1,
       minDay: 60,
     },
@@ -91,9 +92,11 @@ export function settlementSteps(
             : `Run it on the settlement in front of you and it finds a
               unique split — an unlucky coincidence of amounts; most
               settlements give it nothing.`;
-        return `<p>Flip to the observer. CIOH reads this as one entity's
-        spend and merges <b>all</b> the participants into a single cluster
-        — wronger than ever.</p>
+        return `<p>Flip to the observer — with the fingerprint check set
+        aside for a moment, to see what the plain heuristics make of
+        this shape. CIOH reads it as one entity's spend and merges
+        <b>all</b> the participants into a single cluster — wronger than
+        ever.</p>
         <p>Worse for the observer: with a cycle inside, a participant's net
         can land anywhere, <b>including near zero</b>. In a payjoin the
         payment amount at least still constrained the guesses; here the
@@ -154,9 +157,14 @@ export function settlementSteps(
         any of them offset. For all the observer knows any of these may
         be happening — which removes constraints from the
         sub-transaction analysis, potentially leaving every
-        amount-consistent reading plausible. Other indicators — wallet
-        fingerprints, the graph around the transaction — can still
-        inform it.</p>
+        amount-consistent reading plausible. Other indicators can still
+        inform it: when the participants' wallets differ, the
+        fingerprint check from the last chapter flags the settlement as
+        collaborative and spares the observer the everyone-in-one-cluster
+        merge — but where detecting the payjoin collapsed it back to one
+        reading, detecting a settlement <b>decomposes nothing</b>: the
+        amounts still refuse to pair inputs with outputs. And the graph
+        around the transaction says more than the transaction does.</p>
         <p>Settlements happen between people who already do business,
         so recurring relationships repeat on chain: over time the
         community structure of the cluster graph becomes apparent in

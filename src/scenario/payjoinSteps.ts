@@ -9,7 +9,11 @@
 // map, and a careful observer reads the contradiction as detection —
 // two clusters cooperating — which almost certainly breaks the payjoin
 // retroactively (Yuval's steer superseding the old "doubt spreads"
-// step, whose claim ran the wrong way). The chapter closes with the
+// step, whose claim ran the wrong way). Then the second detection
+// channel (#103, per Sabouri 2026): wallet fingerprints — the observer
+// switches statistical fingerprinting on, and inputs sitting on two
+// script families read as two wallets' coins in one transaction, so
+// CIOH abstains instead of welding the lie. The chapter closes with the
 // generalization ladder the town skips (NS1R, NSNR — writeup's
 // many-senders sections) on the way to the general form.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
@@ -51,6 +55,23 @@ export function detectionFires(d: PayjoinDetection | undefined): boolean {
   return !!d && d.distinct && d.sizes.every((s) => s >= 2);
 }
 
+/** the script families the exhibit's inputs sit on, in input order —
+ *  the intra-transaction fingerprint signal (Sabouri 2026): a wallet
+ *  keeps its addresses in one family, so two families among one
+ *  transaction's inputs read as two wallets' coins in one spend.
+ *  Observer-computable: script families are public on the face of
+ *  every output. */
+export function inputFamilies(chain: Chain, tid: TxId): string[] {
+  const tx = chain.txs.get(tid);
+  if (!tx) return [];
+  const out: string[] = [];
+  for (const i of tx.inputs) {
+    const s = chain.coins.get(i)!.addr?.script;
+    if (s !== undefined) out.push(s);
+  }
+  return out;
+}
+
 /** the chapter's exhibit: prefer a 2-input payjoin the rest of the
  *  record DETECTS (the contradiction beat lands hardest on a live
  *  positive), then any 2-input payjoin, then whatever exists. Selection
@@ -74,6 +95,7 @@ export function payjoinSteps(
   payjoinFocus: () => Rect,
   payjoinTx: () => string | undefined,
   detection: () => PayjoinDetection | undefined,
+  families: () => string[],
 ): TutorialStep[] {
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
   // the chapter's exhibit is one concrete transaction: keep it selected
@@ -224,6 +246,82 @@ export function payjoinSteps(
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 1,
+      scene: 1,
+      minDay: 35,
+      select: selectIt,
+    },
+    {
+      id: "wallets-sign-their-work",
+      title: "Wallets sign their work",
+      html: () => {
+        const f = families();
+        const kinds = [...new Set(f)];
+        const reading = kinds.length >= 2
+          ? `they sit on <b>two families</b> — ${kinds.join(" and ")}. A
+          wallet keeps its addresses in one family, so two families among
+          one transaction's inputs read like <b>two wallets' coins in one
+          spend</b>.`
+          : kinds.length === 1
+            ? `both sit on <b>${kinds[0]}</b> — one family, so on this
+          axis the record is mute about how many wallets built the
+          transaction.`
+            : `the intro scene's coins carry no named wallet, so the
+          record is mute here.`;
+        return `<p>The record holds one more layer this story has so far
+        only mentioned in passing. Every wallet product ships a bundle
+        of defaults, and each one is written into the transactions it
+        builds: the <b>script family</b> its addresses pay to (public on
+        the face of every output), the <b>nLockTime</b> its drafts
+        carry, the <b>size of its signatures</b> — some wallets grind
+        every signature a byte smaller, the rest leave sizes mixed. None
+        of this is secret. It is formatting, and formatting is a
+        <b>fingerprint</b>.</p>
+        <p>Read this transaction's inputs that way: ${reading}</p>`;
+      },
+      focus: () => pad(payjoinFocus()),
+      view: 0,
+      lens: 1,
+      scene: 1,
+      minDay: 35,
+      select: selectIt,
+    },
+    {
+      id: "the-fingerprint-check",
+      title: "Acting on the fingerprints",
+      html: () => {
+        const f = families();
+        const divergent = new Set(f).size >= 2;
+        const setup = `<p><i>Statistical fingerprinting</i> just joined
+        the panel on the left, switched on. With it, the observer acts
+        on what the last step read: a transaction whose inputs sit on
+        different script families is taken as <b>probable
+        collaboration</b> — two wallets, two people — and CIOH
+        <b>abstains</b> rather than record the one-owner reading it
+        knows is suspect.</p>`;
+        const verdict = divergent
+          ? `<p>On this transaction the check <b>fires</b>: the false
+        merge this chapter opened with never forms, and the payer's and
+        payee's coins sit apart on the observer's map with no
+        contradiction to notice retroactively.</p>`
+          : `<p>On this transaction the check stays <b>quiet</b>: the
+        inputs share one family, nothing marks the spend as two wallets'
+        work, and the merge stands. That is the defense's actual shape —
+        a payjoin's cover extends exactly as far as the participants'
+        fingerprints agree, and these two happen to match.</p>`;
+        return `${setup}${verdict}
+        <p>The check is a heuristic like the others, and its failure
+        mode is the mirror image of CIOH's: a user who migrated wallets
+        spends their own coins from two families in one transaction, and
+        the check misreads that housekeeping as collaboration — the
+        observer then <i>misses</i> a true link. One buys the mistake of
+        welding strangers, the other of losing a user's own thread; the
+        observer picks which error to spend.</p>`;
+      },
+      focus: () => pad(payjoinFocus()),
+      view: 0,
+      lens: 1,
+      nf: true,
+      reveals: ["nsnf"],
       scene: 1,
       minDay: 35,
       select: selectIt,

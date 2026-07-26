@@ -164,6 +164,19 @@ export interface Heuristics {
    *  wallets rarely co-spend that many coins while collaborative
    *  transactions routinely do. Undefined = no cap. */
   ciohMaxInputs?: number;
+  /** read wallet fingerprints (the statistical-fingerprinting knob):
+   *  a wallet keeps its addresses in one script family, so a spend
+   *  whose INPUTS sit on two families reads as two wallets' coins in
+   *  one transaction — probable collaboration (Sabouri 2026: fingerprints
+   *  that partition the inputs restore what the payjoin broke; Ghesmati
+   *  et al. 2022 for the detection framing). Every one-owner reading of
+   *  such a transaction is suspect, so CIOH and the sub-transaction
+   *  analysis's one-owner-per-part welds abstain on it. A heuristic,
+   *  not a proof: a wallet migration puts one user's own coins on two
+   *  families, and co-spending them misfires this check — the observer
+   *  then MISSES a true link (an abstention, so the mistakes grading,
+   *  which judges only welds made, never flags it). */
+  fingerprints?: boolean;
   /** transactions whose evidence is set aside entirely — the map "the
    *  rest of the record" builds without them. Used to ask whether one
    *  transaction's CIOH reading contradicts everything else the
@@ -247,6 +260,22 @@ export function clusterObserver(
       if (g === undefined) continue;
       if (!any) { seen = g; any = true; }
       else if (g !== seen) return true;
+    }
+    return false;
+  };
+  // the fingerprint reading (Heuristics.fingerprints): inputs sitting on
+  // two script families read as two wallets' coins in one transaction,
+  // so every one-owner reading of it is suspect and the welds abstain
+  const fp = heuristics.fingerprints ?? false;
+  const mixedWallets = (ins: readonly CoinId[]): boolean => {
+    if (!fp) return false;
+    let seen: string | undefined;
+    let any = false;
+    for (const c of ins) {
+      const s = chain.coins.get(c)!.addr?.script;
+      if (s === undefined) continue;
+      if (!any) { seen = s; any = true; }
+      else if (s !== seen) return true;
     }
     return false;
   };
@@ -431,8 +460,9 @@ export function clusterObserver(
           ];
           // attributions naming two owners inside the part refute the
           // one-owner-per-part assumption for that part (the flow
-          // verdict stands; the ownership weld does not)
-          if (refuted(coins)) {
+          // verdict stands; the ownership weld does not) — and so do
+          // divergent wallet fingerprints across the part's inputs
+          if (refuted(coins) || mixedWallets(part.ins.map((i) => tx.inputs[i]!))) {
             if (change) {
               identifyAndLink(part.outs.map((o) => tx.outputs[o]!),
                 part.ins.map((i) => tx.inputs[i]!), anchor, false);
@@ -482,10 +512,12 @@ export function clusterObserver(
       // atomic: no way to split it — fall through to plain CIOH
     }
     // CIOH: all inputs of one transaction, one owner — unless the input
-    // count exceeds the observer's cap, where the heuristic abstains
+    // count exceeds the observer's cap, where the heuristic abstains,
+    // or the inputs' wallet fingerprints diverge, which reads as
+    // probable collaboration and vetoes the one-owner reading
     if (cioh && tx.inputs.length >= 2 &&
         tx.inputs.length <= (heuristics.ciohMaxInputs ?? Infinity) &&
-        !refuted(tx.inputs)) {
+        !refuted(tx.inputs) && !mixedWallets(tx.inputs)) {
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
       welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }

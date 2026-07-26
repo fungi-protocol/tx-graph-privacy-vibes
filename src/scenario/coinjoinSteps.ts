@@ -34,6 +34,7 @@ export function coinjoinSteps(
       focus: () => pad(naiveFocus()),
       view: 0,
       lens: 0,
+      ns: false, // the epoch columns fold back before this chapter's exhibits
       scene: 1,
       minDay: 90,
     },

@@ -27,6 +27,9 @@ export interface AnalysisKnobs {
   changeEvidence?: number;
   /** absent = all tells enabled */
   changeTells?: number;
+  /** the statistical-fingerprinting knob's intra-transaction reading:
+   *  divergent input fingerprints veto the one-owner welds */
+  fingerprints?: boolean;
   kycObs: boolean;
   auxFrac: number;
 }
@@ -77,6 +80,7 @@ export function observerOpts(
     ...(knobs.ciohMaxInputs !== undefined ? { ciohMaxInputs: knobs.ciohMaxInputs } : {}),
     ...(knobs.changeEvidence !== undefined ? { changeEvidence: knobs.changeEvidence } : {}),
     ...(knobs.changeTells !== undefined ? { changeTells: knobs.changeTells } : {}),
+    ...(knobs.fingerprints ? { fingerprints: true } : {}),
     ...(grants ? { grants } : {}),
   };
 }

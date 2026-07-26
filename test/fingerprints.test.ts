@@ -128,3 +128,69 @@ test("ns-netflix vectors carry script families and building habits", () => {
   assert.ok(scripted > 0, "no cluster carries a script fingerprint");
   assert.ok(habitual > 0, "no cluster carries a habit fingerprint");
 });
+
+test("fingerprint veto: divergent input families make CIOH abstain (#103)", () => {
+  const c = new Chain();
+  const fee = txfee(2, 2, 2);
+  c.addRoot("a", 1_000_000, 0);
+  c.addRoot("b", 500_000, 1);
+  // two owners' coins in one spend, both outputs amount-mute
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 1, value: 623_457 },
+    { owner: 0, value: 876_543 - fee },
+  ], 2);
+  c.assignAddresses(new Set(), (who) => (who === 0 ? "segwit" : "taproot"));
+  // without the fingerprint knob CIOH welds the payjoin's lie
+  const naive = clusterObserver(c, at);
+  assert.equal(naive.rep.get("a"), naive.rep.get("b"));
+  assert.ok(naive.welds.some((w) => w.method === "cioh" && w.tx === "t1"));
+  // with it, two families in one spend read as two wallets: abstention
+  const sharp = clusterObserver(c, at, { fingerprints: true });
+  assert.notEqual(sharp.rep.get("a"), sharp.rep.get("b"));
+  assert.ok(!sharp.welds.some((w) => w.method === "cioh" && w.tx === "t1"));
+});
+
+test("fingerprint veto: homogeneous families keep CIOH, and a migration misfires (#103)", () => {
+  // same-family inputs: the check is quiet, the weld stands — a payjoin
+  // between users of one product keeps its cover
+  const c = new Chain();
+  const fee = txfee(2, 2, 2);
+  c.addRoot("a", 1_000_000, 0);
+  c.addRoot("b", 500_000, 1);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 1, value: 623_457 },
+    { owner: 0, value: 876_543 - fee },
+  ], 2);
+  c.assignAddresses(new Set(), () => "segwit");
+  const cl = clusterObserver(c, at, { fingerprints: true });
+  assert.equal(cl.rep.get("a"), cl.rep.get("b"));
+  // the misfire: ONE user co-spends coins from their old and new
+  // wallets, and the check misreads the migration as collaboration —
+  // the observer misses a true link (an abstention, so nothing for the
+  // mistakes grading to flag)
+  const d = new Chain();
+  d.addRoot("old", 1_000_000, 0);
+  d.addRoot("new", 500_000, 0);
+  d.addTx("t1", 1, ["old", "new"], [
+    { owner: 1, value: 623_457 },
+    { owner: 0, value: 876_543 - fee },
+  ], 2);
+  d.assignAddresses(new Set(), (_who, _day, root) => (root ? "segwit" : "taproot"));
+  // hand-tune: the two roots sit on different families (old savings vs
+  // fresh wallet), as Dave's migration leaves them
+  d.coins.get("new")!.addr!.script = "taproot";
+  d.coins.get("old")!.addr!.script = "segwit";
+  const mig = clusterObserver(d, at, { fingerprints: true });
+  assert.notEqual(mig.rep.get("old"), mig.rep.get("new"));
+});
+
+test("ns-social has matches to show at the post-settlement chapter across tutorial seeds (#103)", async () => {
+  const { nsSocialRun } = await import("../src/analysis/nssocial");
+  for (const seed of ["golden", "welcome", "silver", "alpha"]) {
+    const eco = new Economy(seed);
+    eco.runTo(60);
+    const cl = clusterObserver(eco.chain, (d) => eco.prices[d]!);
+    const run = nsSocialRun(cl, eco.chain, 0.5, 2);
+    assert.ok(run.length >= 1, `seed ${seed}: no ns-social matches at day 60`);
+  }
+});
