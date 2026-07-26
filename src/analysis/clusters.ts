@@ -50,6 +50,16 @@
 //     outputs — together (stronger than CIOH); several valid partitions
 //     mean the mapping is underdetermined, and a careful observer
 //     declines to weld anything at all.
+//   - repeated co-membership (#105): inputs of a coinjoin-shaped
+//     transaction that were issued by ONE earlier coinjoin-shaped
+//     transaction. Peers are drawn from anywhere, so two users landing
+//     in the same two sessions by chance is the unlikely reading; the
+//     plain one is a single participant bringing their own coins back,
+//     and the group is welded. The group also counts as one combined
+//     input in the sub-transaction search, striking every balanced
+//     reading that splits it — which is why re-consolidating coins
+//     from one session inside another buys several inputs' block
+//     space and one combined coin's ambiguity.
 // Heuristics, not proofs: the change guess can be wrong, and when it is
 // wrong it welds a stranger's coin into the cluster. That failure mode is
 // left in on purpose.
@@ -74,10 +84,13 @@ import { subTransactionMapping, forcedLinks } from "./subsetsum";
  *  general evidence ledger — the underlying flow verdicts live in the
  *  sub-transaction analysis itself. */
 export interface Weld {
-  method: "reuse" | "cioh" | "change" | "subtx";
+  method: "reuse" | "cioh" | "change" | "subtx" | "remeet";
   /** the base observation: the transaction the method looked at. Absent
    *  on reuse welds, whose observation is an address, not a transaction. */
   tx?: TxId;
+  /** on a remeet weld, the earlier session the welded coins were all
+   *  issued by — the observation spans two transactions */
+  via?: TxId;
   /** the reused address a reuse weld rests on (its base observation) */
   addr?: string;
   /** the coins this single observation welds into one owner */
@@ -132,6 +145,14 @@ export interface Heuristics {
   cioh?: boolean;
   change?: boolean;
   subsum?: boolean;
+  /** link inputs of a coinjoin-shaped transaction that were issued by
+   *  one earlier coinjoin-shaped transaction (repeated co-membership):
+   *  distinct users landing in the same two sessions by chance is the
+   *  unlikely reading, one participant bringing their own coins back
+   *  the plain one. The linked group also counts as one combined input
+   *  in the sub-transaction analysis. A heuristic, not a proof: in a
+   *  town this small the same users genuinely do re-meet by chance. */
+  remeet?: boolean;
   /** which of the change heuristic's payment-identification tells run
    *  (a bitmask of the TELL_* bits); all of them by default. Each is
    *  one member of the real-world family — switching one off shows the
@@ -190,6 +211,50 @@ export interface Heuristics {
  *  a script family none of the inputs use reads as the payment. */
 export const TELL_USD = 1, TELL_BTC = 2, TELL_AUX = 4, TELL_SCRIPT = 8, TELL_ALL = 15;
 
+/** the shape the observer reads as a likely coinjoin between
+ *  strangers: several inputs, and some menu denomination repeated
+ *  among the outputs — the same whole-transaction radix read the
+ *  change heuristic's self-spend inversion rests on */
+export function sessionShape(chain: Chain, tid: TxId): boolean {
+  const tx = chain.txs.get(tid);
+  if (!tx || tx.inputs.length < 2) return false;
+  const seen = new Set<Sats>();
+  for (const o of tx.outputs) {
+    const v = chain.coins.get(o)!.value;
+    if (!isDenomination(v)) continue;
+    if (seen.has(v)) return true;
+    seen.add(v);
+  }
+  return false;
+}
+
+/** merge the grouped positions of `ivs` into one combined value per
+ *  group (kept at the group's first position); `expand` maps each
+ *  merged index back to the original input indices, so a partition of
+ *  the merged values can be read back onto the real inputs */
+export function mergeInputs(
+  ivs: Sats[],
+  groups: number[][],
+): { vals: Sats[]; expand: number[][] } {
+  if (groups.length === 0) return { vals: [...ivs], expand: ivs.map((_, i) => [i]) };
+  const headOf = new Map<number, number[]>();
+  const rest = new Set<number>();
+  for (const g of groups) {
+    const s = [...g].sort((a, b) => a - b);
+    headOf.set(s[0]!, s);
+    for (const i of s.slice(1)) rest.add(i);
+  }
+  const vals: Sats[] = [];
+  const expand: number[][] = [];
+  ivs.forEach((v, i) => {
+    if (rest.has(i)) return;
+    const g = headOf.get(i);
+    vals.push(g ? g.reduce((a, j) => a + ivs[j]!, 0) : v);
+    expand.push(g ?? [i]);
+  });
+  return { vals, expand };
+}
+
 /** decimal hamming weight: how many nonzero digits the integer has */
 function decHW(n: number): number {
   let w = 0;
@@ -242,7 +307,7 @@ export function clusterObserver(
   usdPrice?: (day: number) => number | undefined,
   heuristics: Heuristics = {},
 ): Clustering {
-  const { reuse = true, cioh = true, change = true, subsum = true } = heuristics;
+  const { reuse = true, cioh = true, change = true, subsum = true, remeet = true } = heuristics;
   const bar = heuristics.changeEvidence ?? 1;
   const tellsOn = heuristics.changeTells ?? TELL_ALL;
   // the grant is read as a payment identifier only through the aux tell
@@ -298,6 +363,17 @@ export function clusterObserver(
   const changeGuess = new Map<TxId, CoinId[]>();
   const payGuess = new Map<TxId, CoinId[]>();
   const welds: Weld[] = [];
+  // the repeated-co-membership read asks the same shape question of a
+  // coin's producer over and over — memoized once per transaction
+  const shapeMemo = new Map<TxId, boolean>();
+  const isSession = (tid: TxId): boolean => {
+    let s = shapeMemo.get(tid);
+    if (s === undefined) {
+      s = sessionShape(chain, tid);
+      shapeMemo.set(tid, s);
+    }
+    return s;
+  };
   // address reuse first: the observer's address index is complete before a
   // single transaction is read. Coins paid to the same address are
   // controlled by the same key, so linking them is reading the record, not
@@ -441,6 +517,36 @@ export function clusterObserver(
         welds.push({ method: "change", tx: tid, coins: [guess, anchor], basis: "residue" });
       }
     };
+    // repeated co-membership (#105): inputs of this coinjoin-shaped
+    // transaction that were all issued by ONE earlier coinjoin-shaped
+    // transaction. Peers are drawn from anywhere, so distinct users
+    // landing in the same two sessions by chance is the unlikely
+    // reading; the plain one is a single participant bringing their own
+    // coins back — the group is welded, and counts as one combined
+    // input in the sub-transaction search below, striking every
+    // balanced reading that splits it
+    const regroups: number[][] = [];
+    if (remeet && isSession(tid)) {
+      const byProducer = new Map<TxId, number[]>();
+      tx.inputs.forEach((c, i) => {
+        const p = chain.coins.get(c)!.producer;
+        if (p === null || !isSession(p)) return;
+        const l = byProducer.get(p);
+        if (l) l.push(i);
+        else byProducer.set(p, [i]);
+      });
+      for (const [via, g] of byProducer) {
+        if (g.length < 2) continue;
+        const coins = g.map((i) => tx.inputs[i]!);
+        // the same vetoes as every other one-owner reading: known
+        // divergent owners refute it, divergent wallet fingerprints
+        // mark probable collaboration inside the group
+        if (refuted(coins) || mixedWallets(coins)) continue;
+        regroups.push(g);
+        for (let i = 1; i < coins.length; i++) union(coins[i]!, coins[0]!);
+        welds.push({ method: "remeet", tx: tid, via, coins });
+      }
+    }
     // multi-output spends get the sub-transaction treatment first: a unique
     // sub-transaction partition beats CIOH (and identifies outputs too);
     // an underdetermined one suspends it — outputs link to inputs only
@@ -450,22 +556,27 @@ export function clusterObserver(
     // CIOH, but no form here produces that shape
     if (subsum && tx.inputs.length >= 2 && tx.outputs.length >= 3) {
       const value = (id: CoinId): number => chain.coins.get(id)!.value;
-      const map = subTransactionMapping(tx.inputs.map(value), tx.outputs.map(value), tx.fee);
+      // re-met groups enter the search as one combined input each; a
+      // partition of the merged values expands back onto the inputs
+      const { vals: ivs, expand } = mergeInputs(tx.inputs.map(value), regroups);
+      const ovs = tx.outputs.map(value);
+      const map = subTransactionMapping(ivs, ovs, tx.fee);
       if (map.kind === "unique") {
         for (const part of map.parts) {
-          const anchor = tx.inputs[part.ins[0]!]!;
+          const partIns = part.ins.flatMap((i) => expand[i]!);
+          const anchor = tx.inputs[partIns[0]!]!;
           const coins = [
-            ...part.ins.map((i) => tx.inputs[i]!),
+            ...partIns.map((i) => tx.inputs[i]!),
             ...part.outs.map((o) => tx.outputs[o]!),
           ];
           // attributions naming two owners inside the part refute the
           // one-owner-per-part assumption for that part (the flow
           // verdict stands; the ownership weld does not) — and so do
           // divergent wallet fingerprints across the part's inputs
-          if (refuted(coins) || mixedWallets(part.ins.map((i) => tx.inputs[i]!))) {
+          if (refuted(coins) || mixedWallets(partIns.map((i) => tx.inputs[i]!))) {
             if (change) {
               identifyAndLink(part.outs.map((o) => tx.outputs[o]!),
-                part.ins.map((i) => tx.inputs[i]!), anchor, false);
+                partIns.map((i) => tx.inputs[i]!), anchor, false);
             }
             continue;
           }
@@ -484,7 +595,7 @@ export function clusterObserver(
           // unknown, if any, is suspected as its change
           if (change) {
             identifyAndLink(part.outs.map((o) => tx.outputs[o]!),
-              part.ins.map((i) => tx.inputs[i]!), anchor, true);
+              partIns.map((i) => tx.inputs[i]!), anchor, true);
           }
         }
         continue;
@@ -500,11 +611,12 @@ export function clusterObserver(
       // (an auxiliary attribution can name a payment inside a session
       // whose mapping the amounts leave open)
       if (map.kind === "ambiguous" || map.kind === "inconclusive") {
-        for (const f of forcedLinks(tx.inputs.map(value), tx.outputs.map(value), tx.fee)) {
-          const a = tx.inputs[f.in]!, b = tx.outputs[f.out]!;
-          if (refuted([a, b])) continue; // forced flow, refuted ownership
-          union(b, a);
-          welds.push({ method: "subtx", tx: tid, coins: [a, b], assumption: "one-owner-per-part", basis: "bound" });
+        for (const f of forcedLinks(ivs, ovs, tx.fee)) {
+          const ins = expand[f.in]!.map((i) => tx.inputs[i]!);
+          const b = tx.outputs[f.out]!;
+          if (refuted([...ins, b])) continue; // forced flow, refuted ownership
+          union(b, ins[0]!);
+          welds.push({ method: "subtx", tx: tid, coins: [...ins, b], assumption: "one-owner-per-part", basis: "bound" });
         }
         if (change) identifyAndLink(tx.outputs, tx.inputs, tx.inputs[0]!, false);
         continue;
@@ -588,9 +700,11 @@ export function gradeWelds(chain: Chain, welds: Weld[]): Map<TxId, Mistake[]> {
           : "the change guess picked another user's payment")
         : w.method === "cioh"
           ? `CIOH read ${owners.size} users' inputs as one owner`
-          : w.basis === "bound"
-            ? "an output only one input could fund was that input's owner paying someone else"
-            : "a balanced part combines different users' coins";
+          : w.method === "remeet"
+            ? `${owners.size} users really did land in the same two sessions — the co-membership reading took their coins for one participant's`
+            : w.basis === "bound"
+              ? "an output only one input could fund was that input's owner paying someone else"
+              : "a balanced part combines different users' coins";
     const l = out.get(w.tx);
     if (l) l.push({ tx: w.tx, method: w.method, note });
     else out.set(w.tx, [{ tx: w.tx, method: w.method, note }]);

@@ -21,7 +21,7 @@ import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { nsSocialSteps } from "./scenario/nssocialSteps";
-import { coinjoinSteps, selectDenseCoinjoin } from "./scenario/coinjoinSteps";
+import { coinjoinSteps, selectDenseCoinjoin, remeetExhibit, type RemeetExhibit } from "./scenario/coinjoinSteps";
 import { intersectionSteps, freshOrigin, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
 import { auxInfoDecay, observerGrants, grantAttribution, grantMerges, clusterGrantOwners, type AuxDecay } from "./analysis/auxinfo";
 import { observerOpts, type AnalysisKnobs, type AnalysisBundle } from "./analysis/pipeline";
@@ -223,7 +223,7 @@ let lensAgent: number | null = null;
 // default all of them.
 // With all off the union-find never fires, every coin is a singleton, and
 // the observer's map degrades honestly into the bare public structure.
-const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_ALL = 15;
+const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_REMEET = 16, OV_ALL = 31;
 let overlays = OV_ALL;
 // what the analysis actually runs: the sub-transaction analysis
 // GENERALIZES CIOH (an unsplittable transaction reads as one user's
@@ -330,6 +330,7 @@ function analysisKnobs(): AnalysisKnobs {
     cioh: (effOverlays() & OV_CIOH) !== 0,
     change: (overlays & OV_CHANGE) !== 0,
     subsum: (overlays & OV_SUBSUM) !== 0,
+    remeet: (overlays & OV_REMEET) !== 0,
     ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
     ...(changeEvidence > 1 ? { changeEvidence } : {}),
     ...(changeTells !== TELL_ALL ? { changeTells } : {}),
@@ -1235,6 +1236,7 @@ const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_CIOH, label: "common-input ownership", title: "inputs spent together — probably one owner" },
   { bit: OV_CHANGE, label: "change/payment identification", title: "two steps: identify the payment outputs first (a round dollar or BTC amount, or a disclosed owner), then read what remains — exactly one unidentified output is suspected change and linked to the spender; several read as a batch payment and the observer abstains; a transaction whose repeated menu denominations mark it as a likely coinjoin between strangers is presumed to move no net value between them, so denominated outputs read as self-spends" },
   { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition links each sub-transaction's coins together; even when several partitions balance, an output larger than the rest of the inputs combined is linked to the one input that could fund it" },
+  { bit: OV_REMEET, label: "repeated co-membership", title: "inputs of a likely coinjoin that are outputs of one earlier likely coinjoin — peers are drawn from anywhere, so the same owners landing in the same two sessions by chance is the unlikely reading, and one participant bringing their own coins back is the plain one. The linked coins also count as one combined input in the sub-transaction analysis, striking every balanced reading that splits them" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
   `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>` +
@@ -1312,7 +1314,7 @@ overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
 // stays, even through the remove-one-clue rerun. A step can also unhide
 // a row it only points at (TutorialStep.reveals), and leaving the tour
 // — done or skip — or arriving on a tourless link reveals everything.
-type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "nssoc" | "nsnf" | "kyc" | "aux" | "grading"
+type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "remeet" | "nssoc" | "nsnf" | "kyc" | "aux" | "grading"
   | "chusd" | "chbtc" | "chscript" | "chaux";
 const seenRows = new Set<PanelRow>();
 let allRowsSeen = false;
@@ -1323,6 +1325,7 @@ function rowsOnNow(): Record<PanelRow, boolean> {
     cioh: (eo & OV_CIOH) !== 0,
     change: (eo & OV_CHANGE) !== 0,
     subsum: (overlays & OV_SUBSUM) !== 0,
+    remeet: (overlays & OV_REMEET) !== 0,
     nssoc: nsSocial,
     nsnf: nfOn,
     // the exchange's records and the random leaks are separate rows so
@@ -1353,6 +1356,7 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     case "cioh": return [byBit(OV_CIOH), document.getElementById("ciohmax")?.closest(".ovslider") ?? null];
     case "change": return [byBit(OV_CHANGE), document.getElementById("chtells")];
     case "subsum": return [byBit(OV_SUBSUM)];
+    case "remeet": return [byBit(OV_REMEET)];
     case "nssoc": return [byId("nssoc")];
     case "nsnf": return [byId("nsnf")];
     case "kyc": return [h3[1] ?? null, byId("kycobs")];
@@ -2623,6 +2627,12 @@ const steps = [
       const owner = first ? eco?.chain.coins.get(first)?.owner : undefined;
       return owner ?? undefined;
     },
+    () => remeetView(),
+    () => {
+      // both sessions and the re-met coins between them, in one frame
+      const x = remeetView();
+      return x ? traceBounds(x.coins, [x.tid, x.via]) : active().bip.bounds;
+    },
   ),
   ...intersectionSteps(
     () => active().bip.bounds,
@@ -2656,6 +2666,20 @@ function txRect(tid: string | undefined): Rect {
 }
 function denseCoinjoin(): string | undefined {
   return eco ? selectDenseCoinjoin(eco.coinjoins, eco.naiveTid ?? undefined) : undefined;
+}
+// the repeated-co-membership exhibit (#105): the finder re-runs the
+// sub-transaction search per candidate session, so it is cached per
+// grown chain like the chapter-7 moments
+let remeetCache: { rev: number; ex?: RemeetExhibit } | null = null;
+function remeetView(): RemeetExhibit | undefined {
+  const chain = eco?.chain;
+  if (!chain) return undefined;
+  if (remeetCache && remeetCache.rev === simRev) return remeetCache.ex;
+  remeetCache = {
+    rev: simRev,
+    ex: remeetExhibit(chain, (id) => chain.coins.get(id)?.owner ?? null),
+  };
+  return remeetCache.ex;
 }
 /** bounding box over a set of coins and txs in the bipartite layout */
 function traceBounds(coins: Iterable<string>, txs: Iterable<string>): Rect {
@@ -2919,6 +2943,7 @@ const tutorial = new Tutorial(steps, {
       if ((eo & OV_REUSE) !== 0) seenRows.add("reuse");
       if ((eo & OV_CIOH) !== 0) seenRows.add("cioh");
       if ((eo & OV_SUBSUM) !== 0) seenRows.add("subsum");
+      if ((eo & OV_REMEET) !== 0) seenRows.add("remeet");
       if ((eo & OV_CHANGE) !== 0) {
         seenRows.add("change");
         if ((ct & TELL_USD) !== 0) seenRows.add("chusd");

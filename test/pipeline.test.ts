@@ -24,7 +24,7 @@ function economy(days = 60): Economy {
 }
 
 const ALL_ON: AnalysisKnobs = {
-  reuse: true, cioh: true, change: true, subsum: true,
+  reuse: true, cioh: true, change: true, subsum: true, remeet: true,
   kycObs: false, auxFrac: 0,
 };
 

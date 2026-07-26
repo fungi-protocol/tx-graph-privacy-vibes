@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Chain } from "../src/model/chain";
 import { txfee } from "../src/core/sats";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, TELL_USD, TELL_BTC, TELL_AUX } from "../src/analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, gradeWelds, mergeInputs, TELL_USD, TELL_BTC, TELL_AUX } from "../src/analysis/clusters";
+import { subTransactionMapping } from "../src/analysis/subsetsum";
 import { Economy } from "../src/engine/economy";
 
 const PRICE = 100_000; // $100k/BTC: 1000 sats = $1
@@ -563,4 +564,97 @@ test("the force ring order pulls transfer neighbors together", async () => {
   };
   assert.ok(cost(force) < cost(time),
     `force ${Math.round(cost(force))} should beat time ${Math.round(cost(time))}`);
+});
+
+// --- repeated co-membership (#105): inputs of a coinjoin-shaped
+// transaction issued by one earlier coinjoin-shaped transaction read as
+// one participant's coins coming back, and count as one combined input
+// in the sub-transaction search.
+
+// two sessions: s1 issues two 100k menu outputs (owners per `owners`),
+// both of which come back together in s2 beside a stranger's coin.
+// Both transactions carry the session shape (a repeated denomination).
+function remeetChain(owners: [number, number]): Chain {
+  const c = new Chain();
+  const f1 = txfee(2, 2, 2);
+  c.addRoot("a", 100_000 + f1, 0);
+  c.addRoot("b", 100_000, 1);
+  c.addTx("s1", 1, ["a", "b"], [
+    { owner: owners[0], value: 100_000 },
+    { owner: owners[1], value: 100_000 },
+  ], 2);
+  const f2 = txfee(3, 3, 2);
+  c.addRoot("d", 200_000 + f2, 2);
+  c.addTx("s2", 2, ["s1o1", "s1o2", "d"], [
+    { owner: owners[0], value: 100_000 },
+    { owner: owners[0], value: 100_000 },
+    { owner: 2, value: 200_000 },
+  ], 2);
+  return c;
+}
+// every other heuristic off, so the welds under test stand alone
+const ONLY_REMEET = { reuse: false, cioh: false, change: false, subsum: false, remeet: true };
+
+test("repeated co-membership welds a session's returning coins; off, they stay apart (#105)", () => {
+  const c = remeetChain([0, 0]);
+  const on = clusterObserver(c, undefined, ONLY_REMEET);
+  assert.equal(on.rep.get("s1o1"), on.rep.get("s1o2"));
+  const w = on.welds.find((x) => x.method === "remeet");
+  assert.ok(w, "no remeet weld recorded");
+  assert.equal(w!.tx, "s2");
+  assert.equal(w!.via, "s1");
+  assert.deepEqual([...w!.coins].sort(), ["s1o1", "s1o2"]);
+  const off = clusterObserver(c, undefined, { ...ONLY_REMEET, remeet: false });
+  assert.notEqual(off.rep.get("s1o1"), off.rep.get("s1o2"));
+  assert.equal(off.welds.length, 0);
+});
+
+test("repeated co-membership needs the session shape on both transactions (#105)", () => {
+  // s1's outputs are distinct non-menu values: no repeated
+  // denomination, so nothing marks it as a session and the coins'
+  // return is an ordinary consolidation, not a re-meeting
+  const c = new Chain();
+  const f1 = txfee(2, 2, 2);
+  c.addRoot("a", 99_800 + f1, 0);
+  c.addRoot("b", 110_200, 0);
+  c.addTx("s1", 1, ["a", "b"], [
+    { owner: 0, value: 99_800 },
+    { owner: 0, value: 110_200 },
+  ], 2);
+  const f2 = txfee(3, 3, 2);
+  c.addRoot("d", 190_000 + f2, 2);
+  c.addTx("s2", 2, ["s1o1", "s1o2", "d"], [
+    { owner: 0, value: 100_000 },
+    { owner: 0, value: 100_000 },
+    { owner: 2, value: 200_000 },
+  ], 2);
+  const cl = clusterObserver(c, undefined, ONLY_REMEET);
+  assert.ok(cl.welds.every((w) => w.method !== "remeet"));
+});
+
+test("a re-meeting that really was two users grades as a mistake, one user's does not (#105)", () => {
+  const wrong = clusterObserver(remeetChain([0, 1]), undefined, ONLY_REMEET);
+  const flagged = gradeWelds(remeetChain([0, 1]), wrong.welds);
+  const notes = flagged.get("s2") ?? [];
+  assert.ok(notes.some((m) => m.method === "remeet"),
+    "the two-user re-meeting should grade as a mistake");
+  const right = clusterObserver(remeetChain([0, 0]), undefined, ONLY_REMEET);
+  const clean = gradeWelds(remeetChain([0, 0]), right.welds);
+  assert.equal(clean.size, 0);
+});
+
+test("a re-met group counts as one combined input and can collapse the mapping to unique (#105)", () => {
+  // alone, two readings balance: {1,2 | 3},{3,4 | 7} and {3 | 3},{1,2,4 | 7};
+  // with 2 and 4 combined into 6, only {3 | 3},{1,6 | 7} survives
+  const ivs = [100_000, 200_000, 300_000, 400_000];
+  const ovs = [300_000, 700_000];
+  assert.equal(subTransactionMapping(ivs, ovs, 0).kind, "ambiguous");
+  const { vals, expand } = mergeInputs(ivs, [[1, 3]]);
+  assert.deepEqual(vals, [100_000, 600_000, 300_000]);
+  assert.deepEqual(expand, [[0], [1, 3], [2]]);
+  const m = subTransactionMapping(vals, ovs, 0);
+  assert.equal(m.kind, "unique");
+  // the merged part expands back onto the real inputs: {0,1,3} fund the 700k
+  const part = m.kind === "unique" ? m.parts.find((p) => p.outs.includes(1))! : undefined!;
+  assert.deepEqual(part.ins.flatMap((i) => expand[i]!).sort(), [0, 1, 3]);
 });

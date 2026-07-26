@@ -30,9 +30,19 @@ test("observer heuristics bitmask round-trips and is clamped", async () => {
   const craft = (state: unknown): Promise<unknown> =>
     encodeFragment(state as Parameters<typeof encodeFragment>[0]).then(decodeFragment);
   const wild = await craft({ seed: "ok", ov: 999 }) as Record<string, unknown>;
-  assert.equal(wild.ov, 15);
+  assert.equal(wild.ov, 31);
   const neg = await craft({ seed: "ok", ov: -4 }) as Record<string, unknown>;
   assert.equal(neg.ov, 0);
+});
+
+test("v3 fragments: the old all-heuristics mask migrates to the widened all 31 (#105)", () => {
+  // pre-v4 "every heuristic on" spelled 15; the intent survives the
+  // new bit (repeated co-membership joined the panel)
+  assert.equal(sanitize({ seed: "ok", sv: 3, ov: 15 })!.ov, 31);
+  // a deliberate subset stays a subset — no bit invented for it
+  assert.equal(sanitize({ seed: "ok", sv: 3, ov: 11 })!.ov, 11);
+  // a v4 fragment saying 15 means co-membership off on purpose
+  assert.equal(sanitize({ seed: "ok", sv: 4, ov: 15 })!.ov, 15);
 });
 
 test("knowledge grant round-trips and is clamped", async () => {

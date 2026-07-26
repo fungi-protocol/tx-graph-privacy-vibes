@@ -300,7 +300,7 @@ export function synthesisSteps(
       select: selNaive,
       view: 1,
       lens: 1,
-      overlays: 11, // the rerun keeps every other linkage, reuse included
+      overlays: 27, // the rerun keeps every other linkage, reuse and co-membership included
       scene: 1,
       minDay: 115,
     },
@@ -344,7 +344,7 @@ export function synthesisSteps(
       select: () => null,
       view: 2,
       lens: 1,
-      overlays: 7, // the remove-one-clue rerun is over; full analysis resumes
+      overlays: 23, // the remove-one-clue rerun is over; full analysis resumes
       scene: 1,
       minDay: 115,
     },

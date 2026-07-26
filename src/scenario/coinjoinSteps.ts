@@ -7,8 +7,9 @@
 // combinatorics dictate — countable, quantifiable as entropy — and a
 // past is blended into many plausible pasts, never severed.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
-import { type TxId } from "../model/chain";
-import { type SubMapping } from "../analysis/subsetsum";
+import { type Chain, type CoinId, type TxId } from "../model/chain";
+import { subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
+import { sessionShape, mergeInputs } from "../analysis/clusters";
 
 /** the chapter's denominated exhibit: prefer a session whose mapping is
  *  PROVEN underdetermined (two balanced readings exhibited); fall back
@@ -30,11 +31,77 @@ export function selectDenseCoinjoin(
   return unresolved ?? any;
 }
 
+/** the repeated-co-membership exhibit (#105): a coinjoin-shaped
+ *  transaction several of whose inputs were issued by one earlier
+ *  coinjoin-shaped transaction, plus the sub-transaction verdicts with
+ *  and without the group counted as one combined input. */
+export interface RemeetExhibit {
+  /** the later session, where the coins meet again */
+  tid: TxId;
+  /** the earlier session that issued them */
+  via: TxId;
+  /** the featured re-met inputs */
+  coins: CoinId[];
+  /** how many inputs the later session has in all */
+  inputs: number;
+  /** the sub-transaction verdict on the session's inputs as they are */
+  alone: SubMapping["kind"];
+  /** the verdict with every re-met group counted as one combined input */
+  grouped: SubMapping["kind"];
+}
+
+/** Find the chapter's re-meeting exhibit. Staging reads the hidden
+ *  truth ONLY to prefer a group that really is one participant's (the
+ *  step must not open on a coincidence) and to prefer a session whose
+ *  regrouped verdict is conclusive; the exhibit's displayed facts are
+ *  all the observer's own. Earliest qualifying session wins, so the
+ *  pick is stable as the town grows. */
+export function remeetExhibit(
+  chain: Chain,
+  ownerOf: (id: CoinId) => number | null,
+): RemeetExhibit | undefined {
+  let best: RemeetExhibit | undefined;
+  let bestTier = -1;
+  for (const tid of chain.order) {
+    if (!sessionShape(chain, tid)) continue;
+    const tx = chain.txs.get(tid)!;
+    const byProducer = new Map<TxId, number[]>();
+    tx.inputs.forEach((c, i) => {
+      const p = chain.coins.get(c)!.producer;
+      if (p === null || !sessionShape(chain, p)) return;
+      const l = byProducer.get(p);
+      if (l) l.push(i);
+      else byProducer.set(p, [i]);
+    });
+    const groups = [...byProducer.entries()].filter(([, g]) => g.length >= 2);
+    if (groups.length === 0) continue;
+    // feature the largest single-owner group; fall back to the largest
+    const owned = groups.filter(([, g]) =>
+      new Set(g.map((i) => ownerOf(tx.inputs[i]!))).size === 1);
+    const pool = owned.length > 0 ? owned : groups;
+    const [via, g] = pool.reduce((a, b) => (b[1].length > a[1].length ? b : a));
+    const value = (id: CoinId): number => chain.coins.get(id)!.value;
+    const ovs = tx.outputs.map(value);
+    const alone = subTransactionMapping(tx.inputs.map(value), ovs, tx.fee).kind;
+    const merged = mergeInputs(tx.inputs.map(value), groups.map(([, gr]) => gr));
+    const grouped = subTransactionMapping(merged.vals, ovs, tx.fee).kind;
+    const tier = (owned.length > 0 ? 2 : 0) + (grouped !== "inconclusive" ? 1 : 0);
+    if (tier > bestTier) {
+      bestTier = tier;
+      best = { tid, via, coins: g.map((i) => tx.inputs[i]!), inputs: tx.inputs.length, alone, grouped };
+      if (tier === 3) break; // earliest fully-qualifying session wins
+    }
+  }
+  return best;
+}
+
 export function coinjoinSteps(
   bipBounds: () => Rect,
   naiveFocus: () => Rect,
   denseFocus: () => Rect,
   denseAgent: () => number | undefined,
+  remeet: () => RemeetExhibit | undefined,
+  remeetFocus: () => Rect,
 ): TutorialStep[] {
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
   return [
@@ -203,6 +270,68 @@ export function coinjoinSteps(
       agent: denseAgent,
       scene: 1,
       minDay: 100,
+    },
+    {
+      id: "the-same-stranger-twice",
+      title: "The same stranger twice",
+      html: () => {
+        const x = remeet();
+        if (!x) {
+          return `<p>One more reading before leaving the sessions — this
+        one about the graph, not any single transaction. When several
+        inputs of one session are outputs of one <b>earlier</b> session,
+        the coins' owners would have had to land in the same session
+        twice by chance. The plainer reading is a single participant
+        bringing coins back from the last session, so the observer links
+        such inputs — the <b>repeated co-membership</b> box on the
+        panel. No session on this run's record shows the pattern yet;
+        it appears as the sessions keep drawing from the same town.</p>`;
+        }
+        const k = x.coins.length;
+        const verdictLine =
+          x.grouped === "unique"
+            ? `On ${x.tid} that is decisive: with the group combined,
+        exactly <b>one</b> reading balances and the session is fully
+        partitioned.`
+            : x.grouped === "ambiguous" && x.alone === "inconclusive"
+              ? `${x.tid} was too wide even to search before; combining
+        the group shrinks it enough to settle — several readings still
+        balance, but every one that split the group is gone.`
+              : x.grouped === "ambiguous"
+                ? `On ${x.tid} several readings still balance with the
+        group combined — the ambiguity got thinner, not gone.`
+                : `${x.tid} stays too wide for the full search either
+        way, but the struck readings are struck regardless: whatever
+        balances must keep the group together.`;
+        return `<p>One more reading before leaving the sessions — this
+        one about the graph, not any single transaction. <b>${k} of
+        ${x.tid}'s ${x.inputs} inputs are outputs of one earlier
+        session, ${x.via}</b>. Peers are drawn from anywhere, so for
+        those coins to belong to different users, their owners would
+        have had to land in the same session twice by chance. The
+        plainer reading is a single participant, bringing coins back
+        from the last session — so the observer links the ${k} coins
+        and everything already clustered with them: the <b>repeated
+        co-membership</b> box, new on the panel. A heuristic like the
+        others, not a proof — in a town this small the same users do
+        sometimes re-meet by chance, and the mistakes grading judges
+        every link this reading makes.</p>
+        <p>The link reaches into the session's arithmetic too: coins
+        read as one owner count as <b>one combined input</b> in the
+        sub-transaction analysis, and every balanced reading that split
+        them is struck. ${verdictLine} Note what the participant paid:
+        block space for ${k} inputs, buying the ambiguity of a single
+        combined coin — a lose-lose. Consolidating fragments among
+        strangers was the whole point of bringing several coins; coins
+        that <b>share a session past</b> are the ones that undo it when
+        they travel together.</p>`;
+      },
+      focus: () => remeetFocus(),
+      view: 1,
+      lens: 1,
+      overlays: 31, // the repeated co-membership reading joins the panel
+      scene: 1,
+      minDay: 105,
     },
     {
       id: "no-panacea",

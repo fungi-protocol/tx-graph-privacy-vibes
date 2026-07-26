@@ -4,9 +4,10 @@ import { Chain } from "../src/model/chain";
 import { txfee } from "../src/core/sats";
 import { Economy, COINJOIN_DAY, type EconomyEvent } from "../src/engine/economy";
 import { PERSONAS } from "../src/scenario/cast";
-import { clusterObserver } from "../src/analysis/clusters";
+import { clusterObserver, sessionShape } from "../src/analysis/clusters";
 import { agentKnowledge } from "../src/analysis/knowledge";
 import { isDenomination } from "../src/denom/denominations";
+import { remeetExhibit } from "../src/scenario/coinjoinSteps";
 
 let cached: Economy | null = null;
 function eco115(): Economy {
@@ -213,4 +214,34 @@ test("wealth is conserved through the coinjoin era, less fees", () => {
   const roots = [...eco.chain.coins.values()].filter((c) => c.producer === null)
     .reduce((s, c) => s + c.value, 0);
   assert.equal(total + fees, roots);
+});
+
+test("the re-meeting exhibit is stageable on every tutorial seed at the step's day (#105)", () => {
+  // "The same stranger twice" opens on a session several of whose
+  // inputs came from one earlier session. The step lands at minDay 105
+  // and the chapter runs on past 115 — at both days every seed must
+  // offer a group that really is one participant's (the step must not
+  // open on a coincidence) with a conclusive regrouped verdict
+  for (const seed of ["welcome", "golden", "gamma", "alpha", "silver"]) {
+    for (const day of [105, 115]) {
+      const eco = new Economy(seed);
+      eco.runTo(day);
+      const chain = eco.chain;
+      const ex = remeetExhibit(chain, (id) => chain.coins.get(id)?.owner ?? null);
+      assert.ok(ex, `${seed}@${day}: no re-meeting exhibit`);
+      assert.ok(ex!.coins.length >= 2, `${seed}@${day}: group of ${ex!.coins.length}`);
+      const owners = new Set(ex!.coins.map((c) => chain.coins.get(c)!.owner));
+      assert.equal(owners.size, 1, `${seed}@${day}: featured group mixes owners`);
+      assert.notEqual(ex!.grouped, "inconclusive",
+        `${seed}@${day}: regrouped verdict should be conclusive`);
+      // the displayed facts are the observer's own: the coins really
+      // are inputs of tid issued by via, and both carry session shape
+      const tx = chain.txs.get(ex!.tid)!;
+      for (const c of ex!.coins) {
+        assert.ok(tx.inputs.includes(c), `${seed}@${day}: ${c} not an input of ${ex!.tid}`);
+        assert.equal(chain.coins.get(c)!.producer, ex!.via);
+      }
+      assert.ok(sessionShape(chain, ex!.tid) && sessionShape(chain, ex!.via));
+    }
+  }
 });

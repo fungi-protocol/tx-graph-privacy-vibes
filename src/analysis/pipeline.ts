@@ -21,6 +21,11 @@ export interface AnalysisKnobs {
   cioh: boolean;
   change: boolean;
   subsum: boolean;
+  /** repeated co-membership: inputs of a coinjoin-shaped transaction
+   *  issued by one earlier coinjoin-shaped transaction read as one
+   *  participant's, and count as one combined input in the
+   *  sub-transaction search */
+  remeet: boolean;
   /** absent = no cap */
   ciohMaxInputs?: number;
   /** absent = a single tell decides */
@@ -77,6 +82,7 @@ export function observerOpts(
     cioh: knobs.cioh,
     change: knobs.change,
     subsum: knobs.subsum,
+    remeet: knobs.remeet,
     ...(knobs.ciohMaxInputs !== undefined ? { ciohMaxInputs: knobs.ciohMaxInputs } : {}),
     ...(knobs.changeEvidence !== undefined ? { changeEvidence: knobs.changeEvidence } : {}),
     ...(knobs.changeTells !== undefined ? { changeTells: knobs.changeTells } : {}),

@@ -13,12 +13,14 @@
  * History: v1 = pre-M10 interventions as 5-tuples matched by (memo, due) —
  * structurally distinguishable, dropped; v2 = interventions as
  * [day, schedule id, plan]; v3 = `ct` gains the script-type tell (bit 8),
- * so a v2 all-tells mask (7) migrates to the new all-tells mask (15).
+ * so a v2 all-tells mask (7) migrates to the new all-tells mask (15);
+ * v4 = `ov` gains repeated co-membership (bit 16), so an earlier
+ * all-heuristics mask (15) migrates to the new all-heuristics mask (31).
  * Fragments without `sv` are v2 (the last pre-versioning schema);
  * fragments claiming a future version are parsed best-effort — unknown
  * fields are ignored anyway.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export interface FragmentState {
   seed: string;
@@ -168,6 +170,9 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (sv < 2) delete r.i; // v1 interventions matched by (memo, due): unreplayable
   // v2's all-tells mask was 7; the intent "every tell on" now spells 15
   if (sv < 3 && r.ct === 7) r.ct = 15;
+  // v3's all-heuristics mask was 15; the intent "everything on" now
+  // spells 31 (repeated co-membership joined the panel)
+  if (sv < 4 && r.ov === 15) r.ov = 31;
   const seed = str(r.seed, 64);
   if (seed === undefined || seed.length === 0) return null;
   const out: FragmentState = { seed };
@@ -237,7 +242,7 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (l !== undefined) out.l = l;
   const a = num(r.a, 0, MAX_AGENT, true);
   if (a !== undefined) out.a = a;
-  const ov = num(r.ov, 0, 15, true);
+  const ov = num(r.ov, 0, 31, true);
   if (ov !== undefined) out.ov = ov;
   const cm = num(r.cm, 2, 64, true);
   if (cm !== undefined) out.cm = cm;

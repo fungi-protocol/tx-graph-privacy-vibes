@@ -89,7 +89,7 @@ export function support(cl: Clustering, a: CoinId, b: CoinId): Weld[] | null {
 }
 
 export type Method = Weld["method"];
-export const METHODS: Method[] = ["reuse", "cioh", "change", "subtx"];
+export const METHODS: Method[] = ["reuse", "cioh", "change", "subtx", "remeet"];
 
 /** Does the claim that `a` and `b` share an owner survive re-analysis
  *  with `method` disabled? A deterministic full re-run, not a DAG
@@ -106,11 +106,12 @@ export function withoutMethod(
   a: CoinId,
   b: CoinId,
 ): boolean {
-  const h: Heuristics = { reuse: true, cioh: true, change: true, subsum: true };
+  const h: Heuristics = { reuse: true, cioh: true, change: true, subsum: true, remeet: true };
   if (method === "reuse") h.reuse = false;
   if (method === "cioh") h.cioh = false;
   if (method === "change") h.change = false;
   if (method === "subtx") h.subsum = false;
+  if (method === "remeet") h.remeet = false;
   const cl = clusterObserver(chain, usdPrice, h);
   const ra = cl.rep.get(a);
   return ra !== undefined && ra === cl.rep.get(b);

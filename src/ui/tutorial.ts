@@ -127,10 +127,14 @@ export class Tutorial {
     const step = this.steps[this.index]!;
     this.title.textContent = step.title;
     this.progress.textContent = `${this.index + 1} / ${this.steps.length}`;
+    // advance the scene (and the economy, to the step's minDay) before
+    // rendering the body: html() closures that stage an exhibit off the
+    // record must read the chain the step is written for, not whatever
+    // day a fragment jump happens to restore into
+    if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     this.body.innerHTML = typeof step.html === "function" ? step.html() : step.html;
     this.prevBtn.disabled = this.index === 0;
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";
-    if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
     if (animate && step.view !== undefined) this.cb.onView?.(step.view);
     if (animate) this.cb.onLens?.(step.lens ?? 0, step.agent?.());
     // the family mask lands before the change row turns on: the two
