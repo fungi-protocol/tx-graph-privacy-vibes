@@ -48,6 +48,8 @@ export interface FragmentState {
   a?: number;
   /** lens 1 only: observer heuristics bitmask (1 CIOH, 2 change, 4 subset-sum) */
   ov?: number;
+  /** lens 1 only: CIOH max-inputs cap (absent = no cap) */
+  cm?: number;
   /** lens 1 only: 1 = grade the observer's welds, flagging wrong inferences */
   mi?: number;
   /** graph-view layout: 0 = layered left-to-right (default), 1 = force-directed */
@@ -193,6 +195,8 @@ export function sanitize(raw: unknown): FragmentState | null {
   if (a !== undefined) out.a = a;
   const ov = num(r.ov, 0, 7, true);
   if (ov !== undefined) out.ov = ov;
+  const cm = num(r.cm, 2, 64, true);
+  if (cm !== undefined) out.cm = cm;
   const mi = num(r.mi, 0, 1, true);
   if (mi !== undefined) out.mi = mi;
   const fd = num(r.fd, 0, 1, true);

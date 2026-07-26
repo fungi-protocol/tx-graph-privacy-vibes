@@ -59,8 +59,11 @@ export interface Clustering {
   members: Map<CoinId, CoinId[]>;
   /** representative -> 1-based rank by cluster size (1 = largest) */
   rank: Map<CoinId, number>;
-  /** tx -> the output the observer guessed to be change */
-  changeGuess: Map<TxId, CoinId>;
+  /** tx -> the outputs the observer guessed to be change; a plain
+   *  2-output payment yields at most one, but a uniquely partitioned
+   *  transaction gets the same rule per sub-transaction, so one tx can
+   *  carry several guesses */
+  changeGuess: Map<TxId, CoinId[]>;
   /** the ownership-weld ledger — deliberately narrow, NOT a general
    *  evidence ledger (it cannot hold rejected candidates, seeds,
    *  relationship features, or propagation decisions; those get their
@@ -76,6 +79,11 @@ export interface Heuristics {
   cioh?: boolean;
   change?: boolean;
   subsum?: boolean;
+  /** CIOH abstains on transactions with more inputs than this: a cheap
+   *  guard against the heuristic's worst failure mode, since honest
+   *  wallets rarely co-spend that many coins while collaborative
+   *  transactions routinely do. Undefined = no cap. */
+  ciohMaxInputs?: number;
   /** transactions whose evidence is set aside entirely — the map "the
    *  rest of the record" builds without them. Used to ask whether one
    *  transaction's CIOH reading contradicts everything else the
@@ -112,11 +120,33 @@ export function clusterObserver(
     parent.set(find(a), find(b));
   };
 
-  const changeGuess = new Map<TxId, CoinId>();
+  const changeGuess = new Map<TxId, CoinId[]>();
   const welds: Weld[] = [];
   for (const tid of chain.order) {
     if (heuristics.except?.has(tid)) continue;
     const tx = chain.txs.get(tid)!;
+    const price = change ? usdPrice?.(tx.timestep) : undefined;
+    // the round-USD rule, shared between the plain 2-output payment and
+    // each 2-output sub-transaction of a unique partition: if exactly
+    // one of the two outputs lands on a round $10 amount it is probably
+    // the payment, so the other is probably the change and belongs with
+    // the inputs (`anchor` stands in for them — co-welded by the caller)
+    const guessRoundChange = (outs: [CoinId, CoinId], anchor: CoinId): void => {
+      if (price === undefined) return;
+      const looksRound = outs.map((o) => {
+        const usd = (chain.coins.get(o)!.value * price) / 1e8;
+        return Math.abs(usd - Math.round(usd / 10) * 10) < 0.05;
+      });
+      const guess = looksRound[0] && !looksRound[1] ? outs[1]
+        : looksRound[1] && !looksRound[0] ? outs[0]
+        : null;
+      if (!guess) return;
+      const g = changeGuess.get(tid);
+      if (g) g.push(guess);
+      else changeGuess.set(tid, [guess]);
+      union(guess, anchor);
+      welds.push({ method: "change", tx: tid, coins: [guess, anchor] });
+    };
     // multi-output spends get the sub-transaction treatment first: a unique
     // sub-transaction partition beats CIOH (and identifies outputs too);
     // an underdetermined one suspends it — outputs link to inputs only
@@ -142,6 +172,14 @@ export function clusterObserver(
           // fallible in general — and named on the weld so the ledger
           // never attributes the ownership conclusion to the model itself
           welds.push({ method: "subtx", tx: tid, coins, assumption: "one-owner-per-part" });
+          // change identification applies to each sub-transaction
+          // separately, with the same rule as the plain payment: the
+          // part already reads as one spender (the weld above), so a
+          // 2-output part with exactly one round-USD output marks the
+          // other as its change
+          if (part.outs.length === 2) {
+            guessRoundChange([tx.outputs[part.outs[0]!]!, tx.outputs[part.outs[1]!]!], anchor);
+          }
         }
         continue;
       }
@@ -150,8 +188,10 @@ export function clusterObserver(
       if (map.kind === "ambiguous" || map.kind === "inconclusive") continue;
       // atomic: no way to split it — fall through to plain CIOH
     }
-    // CIOH: all inputs of one transaction, one owner
-    if (cioh && tx.inputs.length >= 2) {
+    // CIOH: all inputs of one transaction, one owner — unless the input
+    // count exceeds the observer's cap, where the heuristic abstains
+    if (cioh && tx.inputs.length >= 2 &&
+        tx.inputs.length <= (heuristics.ciohMaxInputs ?? Infinity)) {
       for (let i = 1; i < tx.inputs.length; i++) union(tx.inputs[i]!, tx.inputs[0]!);
       welds.push({ method: "cioh", tx: tid, coins: [...tx.inputs] });
     }
@@ -161,21 +201,9 @@ export function clusterObserver(
     // input sits in the same apparent cluster by this point in the scan,
     // the weld would arbitrarily link the guess to one input among
     // several candidate owners, and the observer abstains
-    const price = change ? usdPrice?.(tx.timestep) : undefined;
     const oneSpender = tx.inputs.every((i) => find(i) === find(tx.inputs[0]!));
-    if (price !== undefined && oneSpender && tx.outputs.length === 2) {
-      const looksRound = tx.outputs.map((o) => {
-        const usd = (chain.coins.get(o)!.value * price) / 1e8;
-        return Math.abs(usd - Math.round(usd / 10) * 10) < 0.05;
-      });
-      const change = looksRound[0] && !looksRound[1] ? tx.outputs[1]!
-        : looksRound[1] && !looksRound[0] ? tx.outputs[0]!
-        : null;
-      if (change) {
-        changeGuess.set(tid, change);
-        union(change, tx.inputs[0]!);
-        welds.push({ method: "change", tx: tid, coins: [change, tx.inputs[0]!] });
-      }
+    if (oneSpender && tx.outputs.length === 2) {
+      guessRoundChange([tx.outputs[0]!, tx.outputs[1]!], tx.inputs[0]!);
     }
   }
 

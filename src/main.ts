@@ -196,6 +196,10 @@ let lensAgent: number | null = null;
 // the observer's map degrades honestly into the bare public structure.
 const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_ALL = 7;
 let overlays = OV_ALL;
+// CIOH's max-inputs cap: transactions with more inputs than this are
+// not welded by CIOH. The slider's top position means "no cap".
+const CIOH_MAX_OFF = 12;
+let ciohMax = CIOH_MAX_OFF;
 // grading toggle: mark transactions where a heuristic's local inference
 // is wrong against the hidden truth (storyteller's grading — latent
 // truth flows only toward the learner's display, never into analysis)
@@ -216,6 +220,7 @@ function clustering(): Clustering {
       cioh: (overlays & OV_CIOH) !== 0,
       change: (overlays & OV_CHANGE) !== 0,
       subsum: (overlays & OV_SUBSUM) !== 0,
+      ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
     });
     clCache = { rev: simRev, cl };
   }
@@ -690,7 +695,14 @@ const OVERLAY_DEFS: { bit: number; label: string; title: string }[] = [
   { bit: OV_SUBSUM, label: "sub-transaction analysis", title: "a unique balancing partition welds its sub-transactions together" },
 ];
 overlaysPanel.innerHTML = `<h3>heuristics</h3>` + OVERLAY_DEFS.map((d) =>
-  `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>`).join("") +
+  `<label title="${d.title}"><input type="checkbox" data-bit="${d.bit}"> ${d.label}</label>` +
+  (d.bit === OV_CIOH
+    ? `<div class="ovslider" title="CIOH abstains on transactions with more inputs than this — honest wallets rarely co-spend that many coins, collaborative transactions routinely do">
+        <span>max inputs</span>
+        <input type="range" id="ciohmax" min="2" max="${CIOH_MAX_OFF}" step="1" value="${CIOH_MAX_OFF}">
+        <output id="ciohmaxv">off</output>
+      </div>`
+    : "")).join("") +
   `<h3>grading</h3>
   <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
 // the panel grows with the story: the sub-transaction row stays off the
@@ -705,6 +717,16 @@ function reflectOverlays(): void {
   const subRow = overlaysPanel.querySelector(`input[data-bit="${OV_SUBSUM}"]`)!
     .closest("label") as HTMLElement;
   subRow.style.display = subsumSeen || (overlays & OV_SUBSUM) !== 0 ? "" : "none";
+  // the sub-transaction analysis GENERALIZES CIOH (an unsplittable
+  // transaction reads as one user's spend), so running it without CIOH
+  // is incoherent: while it is on, CIOH is forced on and greyed out
+  const ciohBox = overlaysPanel.querySelector(`input[data-bit="${OV_CIOH}"]`) as HTMLInputElement;
+  ciohBox.disabled = (overlays & OV_SUBSUM) !== 0;
+  const slider = document.getElementById("ciohmax") as HTMLInputElement;
+  slider.value = String(ciohMax);
+  slider.disabled = (overlays & OV_CIOH) === 0;
+  (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
+    ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
   (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
 }
 reflectOverlays();
@@ -724,6 +746,7 @@ document.getElementById("mistakes")!.addEventListener("change", (e) => {
 function setOverlays(mask: number): void {
   const before = collapsed && collapseT > 0.9 && collapseCache
     ? { cl: collapseCache.cl, clay: collapseCache.clay } : null;
+  if ((mask & OV_SUBSUM) !== 0) mask |= OV_CIOH; // sub-tx analysis forces its base
   overlays = mask & OV_ALL;
   if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
   simRev += 1; // the observer's map — and every lens seeded from it — changes
@@ -744,8 +767,19 @@ function setOverlays(mask: number): void {
   draw();
   void syncFragment();
 }
+// the cap slider re-runs the observer's map live; "input" fires per
+// notch so dragging shows clusters splitting and re-welding as it moves
+document.getElementById("ciohmax")!.addEventListener("input", (e) => {
+  ciohMax = Number((e.target as HTMLInputElement).value);
+  simRev += 1; // the observer's map changes
+  reflectOverlays();
+  recomputeTrace();
+  draw();
+  syncFragmentSoon();
+});
 overlaysPanel.addEventListener("change", (e) => {
-  if ((e.target as HTMLElement).id === "mistakes") return; // its own handler
+  const id = (e.target as HTMLElement).id;
+  if (id === "mistakes" || id === "ciohmax") return; // their own handlers
   // a hand on the panel keeps the sub-transaction row: unchecking a
   // visible heuristic must not make it vanish from under the pointer
   if ((overlays & OV_SUBSUM) !== 0) subsumSeen = true;
@@ -1658,6 +1692,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
   if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
+  if (lens === 1 && ciohMax < CIOH_MAX_OFF) state.cm = ciohMax;
   if (lens === 1 && showMistakes) state.mi = 1;
   if (forceLayout) state.fd = 1;
   if (scene === 1) {
@@ -1808,6 +1843,12 @@ async function init(): Promise<void> {
   if (session.manual !== null) setManual(session.manual); // light the decisions panel
   if (state?.ov !== undefined) {
     overlays = state.ov & OV_ALL;
+    if ((overlays & OV_SUBSUM) !== 0) overlays |= OV_CIOH; // sub-tx forces its base
+    simRev += 1;
+    reflectOverlays();
+  }
+  if (state?.cm !== undefined) {
+    ciohMax = Math.min(state.cm, CIOH_MAX_OFF);
     simRev += 1;
     reflectOverlays();
   }

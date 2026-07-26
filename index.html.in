@@ -58,6 +58,10 @@
             text-transform: uppercase; letter-spacing: 0.04em; }
   #overlays label { display: block; margin: 6px 0; opacity: 0.85; cursor: pointer; }
   #overlays input { margin-right: 6px; }
+  #overlays .ovslider { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 20px;
+            font-size: 12px; opacity: 0.75; }
+  #overlays .ovslider input[type="range"] { flex: 1; margin: 0; min-width: 0; }
+  #overlays .ovslider output { min-width: 22px; text-align: right; }
   #decisions { position: fixed; right: 16px; bottom: 64px; display: none; width: 330px;
             max-height: 46vh; overflow-y: auto; background: #24262cf2;
             border: 1px solid #3a3e46; border-radius: 10px; padding: 10px 12px;

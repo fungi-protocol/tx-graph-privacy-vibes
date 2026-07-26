@@ -34,7 +34,7 @@ test("round-USD output marks the other output as change", () => {
   ], 2);
   const cl = clusterObserver(c, at);
   const guess = cl.changeGuess.get("t1");
-  assert.equal(guess, "t1o2");
+  assert.deepEqual(guess, ["t1o2"]);
   assert.equal(cl.rep.get("a"), cl.rep.get("t1o2"));
   assert.notEqual(cl.rep.get("a"), cl.rep.get("t1o1"));
 });
@@ -88,9 +88,11 @@ test("on the economy, change guesses are mostly right but not gospel", () => {
   eco.runTo(60);
   const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
   let right = 0, wrong = 0;
-  for (const [, guess] of cl.changeGuess) {
-    if (eco.chain.coins.get(guess)!.label === "change") right += 1;
-    else wrong += 1;
+  for (const [, guesses] of cl.changeGuess) {
+    for (const guess of guesses) {
+      if (eco.chain.coins.get(guess)!.label === "change") right += 1;
+      else wrong += 1;
+    }
   }
   assert.ok(right + wrong >= 10, `only ${right + wrong} change guesses in 60 days`);
   assert.ok(right / (right + wrong) >= 0.8,
@@ -141,7 +143,7 @@ test("heuristic toggles gate their unions independently", () => {
   // both on: CIOH welds the inputs first, the tx reads unilateral, and
   // only then does the change guess fire
   const both = clusterObserver(c, at);
-  assert.equal(both.changeGuess.get("t1"), "t1o2");
+  assert.deepEqual(both.changeGuess.get("t1"), ["t1o2"]);
   // change off: the co-spend still welds, no output joins the inputs
   const noChange = clusterObserver(c, at, { change: false });
   assert.equal(noChange.rep.get("a"), noChange.rep.get("b"));
@@ -214,4 +216,52 @@ test("a participant's partition: facts and suspicions fuse apart, the rest stay 
   assert.notEqual(cl.rep.get("a"), cl.rep.get("b"));
   // the unattributed coin is an anonymous singleton
   assert.equal(cl.members.get(cl.rep.get("d")!)!.length, 1);
+});
+
+test("CIOH abstains above the max-inputs cap", () => {
+  const c = new Chain();
+  c.addRoot("a", 200_000, 0);
+  c.addRoot("b", 300_000, 0);
+  c.addRoot("d", 400_000, 0);
+  const fee = txfee(3, 2, 2);
+  c.addTx("t1", 1, ["a", "b", "d"], [
+    { owner: 1, value: 500_000 },
+    { owner: 0, value: 400_000 - fee },
+  ], 2);
+  const capped = clusterObserver(c, undefined, { ciohMaxInputs: 2 });
+  assert.notEqual(capped.rep.get("a"), capped.rep.get("b"));
+  assert.notEqual(capped.rep.get("b"), capped.rep.get("d"));
+  assert.equal(capped.welds.filter((w) => w.method === "cioh").length, 0);
+  const roomy = clusterObserver(c, undefined, { ciohMaxInputs: 3 });
+  assert.equal(roomy.rep.get("a"), roomy.rep.get("b"));
+  assert.equal(roomy.rep.get("b"), roomy.rep.get("d"));
+});
+
+test("change identification applies per sub-transaction of a unique partition", () => {
+  const c = new Chain();
+  const fee = txfee(2, 3, 2);
+  // part A: a -> $100 payment (round) + $130.50 change; part B: b -> $777,
+  // paying the fee. The only balancing partition, so the mapping is unique
+  c.addRoot("a", 230_500, 0);
+  c.addRoot("b", 777_000 + fee, 2);
+  c.addTx("t1", 1, ["a", "b"], [
+    { owner: 1, value: 100_000 },
+    { owner: 0, value: 130_500 },
+    { owner: 2, value: 777_000 },
+  ], 2);
+  const cl = clusterObserver(c, at);
+  // the sub-transaction analysis welds each part...
+  assert.equal(cl.rep.get("a"), cl.rep.get("t1o1"));
+  assert.equal(cl.rep.get("a"), cl.rep.get("t1o2"));
+  assert.equal(cl.rep.get("b"), cl.rep.get("t1o3"));
+  assert.notEqual(cl.rep.get("a"), cl.rep.get("b"));
+  // ...and the round-USD rule runs inside part A: $100 reads as the
+  // payment, so the other output is guessed to be its change
+  assert.deepEqual(cl.changeGuess.get("t1"), ["t1o2"]);
+  const changeWelds = cl.welds.filter((w) => w.method === "change" && w.tx === "t1");
+  assert.equal(changeWelds.length, 1);
+  assert.ok(changeWelds[0]!.coins.includes("t1o2"));
+  // with the change toggle off, the part welds stay but no guess is made
+  const noChange = clusterObserver(c, at, { change: false });
+  assert.equal(noChange.changeGuess.size, 0);
 });
