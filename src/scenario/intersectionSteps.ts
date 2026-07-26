@@ -273,7 +273,7 @@ export function intersectionSteps(
     {
       id: "twenty-questions-in-coins",
       title: "Twenty questions, in coins",
-      html: `<p>This is the arithmetic behind "bounded ambiguity". A coinjoin
+      html: `<p>This is the ambiguity arithmetic in miniature. A coinjoin
         among a handful of strangers adds a few candidates — a couple of
         answered questions' worth. An observer who can link spends,
         intersect candidate sets, and bring in what it already knows

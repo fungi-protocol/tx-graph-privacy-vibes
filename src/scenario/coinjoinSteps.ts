@@ -2,9 +2,10 @@
 // to pass between the parties, so peers can come from anywhere; whether
 // anything is hidden comes down to the amounts. Carelessly chosen values
 // are fully partitioned by the sub-transaction analysis; values drawn
-// from a shared denomination menu leave the mapping underdetermined. Honest limits
-// stay in frame: bounded ambiguity, and a past that is blended into
-// many plausible pasts — never severed.
+// from a shared denomination menu leave the mapping underdetermined.
+// Honest limits stay in frame: ambiguity is what the sub-transaction
+// combinatorics dictate — countable, quantifiable as entropy — and a
+// past is blended into many plausible pasts, never severed.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
 export function coinjoinSteps(
@@ -118,28 +119,32 @@ export function coinjoinSteps(
     },
     {
       id: "the-null-hypothesis-flips",
-      title: "The null hypothesis flips",
-      html: `<p>Look at what the menu does to <b>change/payment
-        identification</b>.
-        In an ordinary spend, a round amount reads as a payment. But
-        repeated denominations are exactly what <i>taking your own
-        balance back</i> looks like — so where a transaction's outputs
-        carry that structure (menu values, some of them repeated), the
-        presumption inverts: a denominated output's null hypothesis is a
-        <b>self-spend</b>, treated like change — belonging with the
-        inputs that funded it — unless there is evidence it is a
-        payment. The round-amount heuristic that would have called every
-        denomination a payment goes quiet.</p>
-        <p>That inversion is why the inline payment rides along <b>in the
-        same denominations</b>: cut into menu values, it looks like
-        someone's balance coming back, and the self-spend presumption
-        covers it. Note what the inversion does <i>not</i> hand over
-        here: linking a self-spend to "its" inputs needs the inputs to
-        read as one cluster first, and in this underdetermined session
-        they never merged — the presumption stands ready with nothing to
-        link. Where a session's amounts betray it, as Frank and Ivan's
-        did, each part already reads as a single spender, and the
-        presumption plays out inside the part.</p>`,
+      title: "A presumption of strangers",
+      html: `<p>An observer who recognizes this shape — many inputs,
+        outputs in repeated menu values — can simply presume what the
+        shape suggests: a <b>coinjoin between strangers</b>, which is
+        more or less to presume that <b>no net value moves between the
+        users</b>. Under that presumption the outputs are balances
+        coming back, so a denominated output reads as a
+        <b>self-spend</b> by default — grouped with whichever inputs
+        funded it — and the payment reads go quiet. They were weak to
+        begin with: in an ordinary spend a round-ish dollar figure leans
+        toward "payment", but only leans, and a round BTC value can as
+        easily be cold storage being parceled out.</p>
+        <p>The presumption costs the observer something and costs the
+        participants something. It gives up the settlement chapter's
+        shelter in reverse: there, the visible nets proved nothing,
+        because obligations can offset to make them arbitrary — presume
+        no net transfers and the amounts are taken at face value, as
+        balances. And the participants must reckon with the presumption
+        being <b>available, and possibly right</b>: they cannot hide
+        behind amounts that might-have-been offsets, so ambiguity has to
+        be <b>forced</b> — values chosen so the sub-transaction instance
+        is overtly underdetermined, which is exactly what the menu
+        arranged. (Linking a self-spend to "its" inputs also needs those
+        inputs to read as one cluster first; in an underdetermined
+        session they never merge, so the presumption stands ready with
+        nothing to link.)</p>`,
       focus: () => pad(denseFocus()),
       view: 1,
       lens: 1,
@@ -149,22 +154,26 @@ export function coinjoinSteps(
     {
       id: "even-insiders-are-blinded",
       title: "Even insiders are blinded",
-      html: `<p>Here is what the earlier forms could not offer. A payjoin
-        counterparty knew exactly whose coins were whose — two parties,
-        no protocol can help. What a settlement insider learns depends
-        on the protocol used to construct the transaction; this town
-        builds its settlements by anonymous broadcast, so theirs are
-        blinded too. A coinjoin makes the
-        guarantee explicit: a participant eliminates their own coins
-        and faces the same puzzle as everyone else — <b>several
-        strangers, and no reading they can single out</b>. That takes
-        arranging: these sessions are set up so nobody learns whose
-        outputs are whose, the strongest honest version of the idea, a
-        <b>protocol choice</b> this town discloses.</p>
-        <p>You are looking through a participant's eyes: their own coins,
-        the session they took part in — and gray where even an insider has
-        nothing. Only a payment made through the session is known to its
-        two ends, as any payment is.</p>`,
+      html: `<p>You are looking through a participant's eyes: their own
+        coins, the session they took part in — and gray where even an
+        insider has nothing. This town makes one standing assumption
+        about every collaborative form, settlements and coinjoins alike:
+        the transaction is <b>constructed so a participant learns no
+        more than the transaction itself tells the world</b>. How peers
+        find each other, and what keeps a dishonest one from cheating,
+        are protocol questions outside this simulation — and none of
+        them shows up in the on-chain structure.</p>
+        <p>Under that assumption, what an insider holds over the outside
+        observer is the power to <b>eliminate their own coins</b>, and
+        nothing else. With two parties that is everything: a payjoin
+        payee strikes out their own coins and exactly the payer's
+        remain — no protocol can help that. Among many strangers it is
+        almost nothing: strike your own from an underdetermined session
+        and several readings still balance. At this level a coinjoin and
+        a net settlement differ only in <b>what the participants chose
+        to do with the same instrument</b> — offset real obligations, or
+        take their own balances back. Only a payment made through the
+        session is known to its two ends, as any payment is.</p>`,
       focus: () => pad(denseFocus()),
       view: 1,
       lens: 2,
@@ -175,13 +184,20 @@ export function coinjoinSteps(
     {
       id: "no-panacea",
       title: "No panacea",
-      html: `<p>One coinjoin buys <b>bounded ambiguity</b>, not a clean
-        slate. The amounts are only part of the picture: an observer can
-        bring in the surrounding graph, timing, and whatever they already
-        know; paying the same people through session after session still
-        traces the same relationships. And a counterparty who handed you
-        the coins in the first place recognizes their descendants when
-        they come back to it — across any number of joins.</p>
+      html: `<p>What did the session actually buy? Exactly the ambiguity
+        the <b>sub-transaction model's combinatorics dictate</b>: the
+        balanced readings can be counted — even totted up as entropy,
+        which is what the Boltzmann analysis does — and no more. Two
+        separate roads lead beyond that. First, even a transaction read
+        <b>in isolation</b> is not read from its amounts alone: scripts,
+        timing, and whatever the observer already knows about particular
+        coins feed the same per-transaction verdict, and can strike
+        readings the amounts left open. Second — a different matter —
+        the transaction sits in a <b>graph</b>: paying the same people
+        session after session traces the same relationships, and a
+        counterparty who handed you coins in the first place recognizes
+        their descendants when they come back, across any number of
+        joins.</p>
         <p>And ambiguity decays: every later spend says a little more, and
         whenever two post-coinjoin coins are linked, their candidate
         origins can be <b>intersected</b> — the sets shrink fast.</p>`,

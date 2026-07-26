@@ -366,8 +366,8 @@ const ARCHETYPES: Archetype[] = [
       name: "Max", role: "privacy maximalist", income: "consulting retainer", arrives: 106,
       concern: "Treats every link as a leak: coordinates whenever the menu " +
         "offers it, never declines a session, never consolidates. The town's " +
-        "counterexample — and a reminder that even discipline only buys " +
-        "bounded ambiguity.",
+        "counterexample — and a reminder that discipline buys ambiguity you " +
+        "can count, and every later linkage spends it.",
       roots: [1_700_000, 900_000, 420_000],
       wallet: "foxglove",
       walletWhy: "of course; he filed three of the fingerprinting issues on its tracker",
