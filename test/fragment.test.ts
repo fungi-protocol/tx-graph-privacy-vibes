@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { encodeFragment, decodeFragment, sanitize, SCHEMA_VERSION } from "../src/ui/fragment";
+import { encodeFragment, decodeFragment, sanitize, parseRefSel, SCHEMA_VERSION } from "../src/ui/fragment";
 
 test("fragment round-trip", async () => {
   const fragment = await encodeFragment({ seed: "the naked economy" });
@@ -22,6 +22,18 @@ test("fragment round-trip with camera, tutorial step, and reference", async () =
     ref: { wx: 521, wy: 100, sel: "coin:t1o2" },
   };
   assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+});
+
+test("parseRefSel: kind:id selectors parse for boot-time restore; junk is rejected (#121)", () => {
+  assert.deepEqual(parseRefSel("coin:t1o2"), { kind: "coin", id: "t1o2" });
+  assert.deepEqual(parseRefSel("tx:t14"), { kind: "tx", id: "t14" });
+  assert.deepEqual(parseRefSel("cluster:r0"), { kind: "cluster", id: "r0" });
+  // ids may themselves contain a colon; only the first splits
+  assert.deepEqual(parseRefSel("tx:a:b"), { kind: "tx", id: "a:b" });
+  assert.equal(parseRefSel("panel:tour"), null); // unknown kind
+  assert.equal(parseRefSel("coin:"), null); // empty id
+  assert.equal(parseRefSel(":t1o2"), null); // empty kind
+  assert.equal(parseRefSel("t1o2"), null); // no separator
 });
 
 test("v5: tutorial position by stable step id; old indexes resolve through the v4 order (#127)", async () => {

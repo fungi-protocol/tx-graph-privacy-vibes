@@ -2,7 +2,7 @@
 // drawn in either the block-explorer or bipartite view, with pan/zoom,
 // hover, click-to-trace ancestry, a guided tour, day stepping, a cast
 // panel, and the right-click "copy reference" reviewing aid.
-import { encodeFragment, decodeFragment, type FragmentState } from "./ui/fragment";
+import { encodeFragment, decodeFragment, parseRefSel, type FragmentState } from "./ui/fragment";
 import { type Camera, worldToScreen, screenToWorld, zoomAt } from "./ui/camera";
 import { buildIntroChain } from "./scenario/intro";
 import { introSteps } from "./scenario/introSteps";
@@ -3548,7 +3548,20 @@ async function init(): Promise<void> {
   }
 
   if (state?.ref) {
-    const { wx, wy } = state.ref;
+    const { wx, wy, sel } = state.ref;
+    // the recorded element selector re-applies as a selection (#121): the
+    // id names what sat under the sharer's cursor, so the reference stays
+    // meaningful even where a rebuilt layout moved it away from (wx, wy).
+    // Same validity guards the live click path enforces: the entity must
+    // exist, and a cluster only names anything on a collapsed map.
+    const hit = sel !== undefined ? parseRefSel(sel) : null;
+    if (hit) {
+      const chain = active().chain;
+      const ok = hit.kind === "coin" ? chain.coins.has(hit.id)
+        : hit.kind === "tx" ? chain.txs.has(hit.id)
+        : collapsed && lensClustering().members.has(hit.id);
+      if (ok) applySelection(hit);
+    }
     if (!state.cam) flyTo({ x: wx - 300, y: wy - 200, w: 600, h: 400 });
     setTimeout(() => playPing(wx, wy), state.cam ? 300 : 800);
   }

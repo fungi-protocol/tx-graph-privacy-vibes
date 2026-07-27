@@ -219,6 +219,17 @@ function str(v: unknown, maxLen: number): string | undefined {
   return typeof v === "string" && v.length <= maxLen ? v : undefined;
 }
 
+/** parse a copy-reference element selector ("kind:id") into a hit-shaped
+ *  descriptor; null when malformed. Existence checks are the caller's —
+ *  the codec cannot know the chain (#121). */
+export function parseRefSel(sel: string): { kind: "coin" | "tx" | "cluster"; id: string } | null {
+  const at = sel.indexOf(":");
+  if (at <= 0 || at === sel.length - 1) return null;
+  const kind = sel.slice(0, at);
+  if (kind !== "coin" && kind !== "tx" && kind !== "cluster") return null;
+  return { kind, id: sel.slice(at + 1) };
+}
+
 export function sanitize(raw: unknown): FragmentState | null {
   if (typeof raw !== "object" || raw === null) return null;
   const r = { ...(raw as Record<string, unknown>) };
