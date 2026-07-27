@@ -57,6 +57,27 @@ export interface TutorialStep {
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
+/** the stageable top-level controls: the view/layout/grouping knobs,
+ *  the clusters shortcut, and the lens cycler */
+export type TutorialWidget = "view" | "layout" | "cluster" | "uncluster" | "lens";
+
+/** which controls the walked path has introduced by `index` (#116):
+ *  the graph knobs appear with the first step drawn in the graph, the
+ *  contraction controls with the first step that flattens it, the lens
+ *  with the first step seen through other eyes. A prefix property, so
+ *  a jump to any step reveals exactly what walking there would have —
+ *  and re-scanning after a back-step can only re-add, never hide. */
+export function widgetRevealsAt(steps: TutorialStep[], index: number): Set<TutorialWidget> {
+  const out = new Set<TutorialWidget>();
+  for (let i = 0; i <= Math.min(index, steps.length - 1); i++) {
+    const s = steps[i]!;
+    if (s.view !== undefined && s.view >= 1) { out.add("view"); out.add("layout"); }
+    if (s.view === 2 || s.view === 3) { out.add("cluster"); out.add("uncluster"); }
+    if (s.lens === 1 || s.lens === 2) out.add("lens");
+  }
+  return out;
+}
+
 export interface TutorialCallbacks {
   onFocus: (focus: Rect) => void;
   onStepChange?: (index: number) => void;

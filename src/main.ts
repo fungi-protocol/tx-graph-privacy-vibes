@@ -39,7 +39,7 @@ import { layoutForce } from "./ui/force";
 import { drawMorph, hitTestMorph, coinRectAt, txRectAt } from "./ui/morph";
 import { blendLayout, blendBip } from "./ui/blend";
 import { commonInputFill, type Paint } from "./ui/paint";
-import { Tutorial } from "./ui/tutorial";
+import { Tutorial, widgetRevealsAt, type TutorialWidget } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
 import { type Chain, addrKey, addrText } from "./model/chain";
@@ -1338,7 +1338,9 @@ function syncKnobButtons(): void {
   clusterBtn.textContent = contracted(cur) ? "expand" : "clusters";
   // action-labeled: the button names the grouping a click switches to
   unclusterBtn.textContent = k.grouping === "unclustered" ? "clustered" : "unclustered";
-  unclusterBtn.style.display = cur.view === "graph" ? "block" : "none";
+  unclusterBtn.style.display =
+    cur.view === "graph" && (allRowsSeen || seenWidgets.has("uncluster"))
+      ? "block" : "none";
 }
 /** the repartition/re-arrangement tween shared by every in-map change:
  *  discs glide from where the old arrangement drew them to the new
@@ -1527,6 +1529,20 @@ type PanelRow = "reuse" | "cioh" | "change" | "subsum" | "remeet" | "nssoc" | "n
   | "chusd" | "chbtc" | "chscript" | "chaux";
 const seenRows = new Set<PanelRow>();
 let allRowsSeen = false;
+// staged introductions (#116): the top-level controls stay put until
+// the chapter that gives them meaning — same monotone walked-path rule
+// as the heuristics-panel rows; done/skip/tourless reveal everything
+const seenWidgets = new Set<TutorialWidget>();
+function reflectStagedWidgets(): void {
+  const show = (el: HTMLElement, on: boolean): void => {
+    el.style.display = on ? "block" : "none";
+  };
+  show(viewBtn, allRowsSeen || seenWidgets.has("view"));
+  show(layoutBtn, allRowsSeen || seenWidgets.has("layout"));
+  show(clusterBtn, allRowsSeen || seenWidgets.has("cluster"));
+  show(lensBtn, allRowsSeen || seenWidgets.has("lens"));
+  syncKnobButtons(); // the grouping button folds staging into its view rule
+}
 function rowsOnNow(): Record<PanelRow, boolean> {
   const eo = effOverlays();
   return {
@@ -3137,6 +3153,7 @@ const tutorial = new Tutorial(steps, {
   onDone: () => {
     allRowsSeen = true; // the town is theirs — the whole panel with it
     reflectOverlays();
+    reflectStagedWidgets();
     readableHandoff();
   },
   // leaving the tour hands over the full toolbox: every heuristic on
@@ -3144,6 +3161,7 @@ const tutorial = new Tutorial(steps, {
   // intro must not leave the time controls hidden with the cards scene
   onSkip: () => {
     allRowsSeen = true;
+    reflectStagedWidgets();
     synthSpot = 0; // leaving mid-chapter must not strand the spotlight
     setScene(1, eco ? economy().day : 0);
     setOverlays(OV_ALL);
@@ -3188,6 +3206,10 @@ const tutorial = new Tutorial(steps, {
       if (ns) seenRows.add("nssoc");
     }
     reflectOverlays();
+    // staged controls follow the same prefix scan; the set only grows,
+    // so walking back never hides a control already introduced
+    for (const w of widgetRevealsAt(steps, index)) seenWidgets.add(w);
+    reflectStagedWidgets();
     // #104: the synthesis map steps get their spotlight (seeds first,
     // the sweep's acceptances one step later); any other step clears it
     const cur = steps[index];
@@ -3434,6 +3456,9 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   };
   const t = tutorial.currentIndex;
   if (t >= 0) state.ts = steps[t]!.id;
+  // a dismissed tour stays dismissed: without the sentinel, reloading a
+  // skipped session would restart the story at step 0 (#116)
+  else state.t = -1;
   // v/fd/uc through the model (#115); v = 2 keeps the old third-view
   // reading for old links, v = 3 is the clustered map uncurled
   const vf = fragmentView(currentViewState());
@@ -3693,9 +3718,10 @@ async function init(): Promise<void> {
   else {
     // an id this tour no longer knows, the explicit hidden sentinel, or a
     // bare reference link: no tour — and with no story to unfold, the
-    // whole heuristics panel is available at once
+    // whole heuristics panel and every staged control are available at once
     allRowsSeen = true;
     reflectOverlays();
+    reflectStagedWidgets();
     tutorial.hide();
   }
 

@@ -45,6 +45,8 @@
   #layoutbtn { top: 56px; }
   #clusterbtn { top: 96px; }
   #unclusterbtn { left: 104px; top: 96px; display: none; }
+  /* staged introductions (#116): the story reveals these; boot decides */
+  #viewtoggle, #layoutbtn, #clusterbtn, #lens { display: none; }
   #lens { top: 136px; }
   #paramsbtn { bottom: 76px; }
   #viewtoggle:hover, #layoutbtn:hover, #clusterbtn:hover, #unclusterbtn:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
