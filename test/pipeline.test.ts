@@ -83,11 +83,12 @@ test("grant + matchers: the same composition, in the same order, on the same fus
 });
 
 test("nf replay position: a partial ns prefix changes the matcher's base the same way the display's cursor does", () => {
-  const eco = economy();
+  const eco = economy(100);
   const priceAt = (d: number): number | undefined => eco.prices[d];
-  // threshold 0.3: golden at the app default 0.5 stalls honestly since
-  // #132 (every candidate an exact tie), and this test only needs a run
-  // long enough to cut a prefix from
+  // threshold 0.3 at day 100: the #131 epoch-correspondence landscape
+  // on golden needs a longer record before the gate admits pairs (the
+  // shorter days are tie-saturated and abstain), and this test only
+  // needs a run long enough to cut a prefix from
   const full = runAnalysis(eco.chain, priceAt, SEED, ALL_ON, {
     ns: { threshold: 0.3, parts: 2 },
     nf: { threshold: 0.65, applyNs: true, nsCursor: Number.MAX_SAFE_INTEGER, nsManual: [] },

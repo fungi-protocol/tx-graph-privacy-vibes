@@ -3,31 +3,39 @@
 // setting matches two different graphs of the same people — an anonymous
 // one and an auxiliary one — by structure alone: nodes whose neighbors
 // map to each other are probably the same person. Here the observer
-// plays that game against their own map: the cluster graph is PARTITIONED
-// (default: into two halves by time, an earlier and a later epoch), and
-// the algorithm asks which vertex in one column is the same entity as a
-// vertex in another, scoring candidate pairs by how much their
-// neighborhoods agree once prior matches are taken into account. A match
-// is a claim of shared ownership, so accepting one MERGES the two
-// clusters. The iteration revisits its own conclusions: a merge changes
-// every neighborhood it touches, so later sweeps can push a previously
-// accepted pair back below the threshold and split it apart again.
+// plays that game against their own record (#131, writeup :593-605):
+// the TRANSACTION history is cut into contiguous epochs and each
+// epoch's subgraph is contracted separately, so every epoch presents a
+// somewhat different view of the pseudonym graph. A cluster active in
+// several epochs appears in several views, and the observer's own
+// clustering already links those appearances — the epoch-spanning
+// clusters are the SEEDS the propagation grows from (KYC-grant fusions
+// ride in the same way, through the base clustering). The algorithm
+// then asks which vertex of one epoch's view is the same entity as a
+// vertex of another, scoring candidate pairs by how much their
+// per-epoch neighborhoods agree once seeds and prior matches are taken
+// into account. A match is a claim of shared ownership, so accepting
+// one MERGES the two clusters. The iteration revisits its own
+// conclusions: a merge changes every neighborhood it touches, so later
+// sweeps can push a previously accepted pair back below the threshold
+// and split it apart again.
 //
-// The propagation works on the cartesian product of the unmapped nodes —
-// O(n²) score evaluations per sweep. Acceptance is the paper's own
-// gate (see matching.ts, the #112 criterion registered with the
-// reviewers): a pair is accepted only when the two sides are each
-// other's unique best partner AND each best stands clear of its
-// runner-up by the eccentricity bar. All of a sweep's decisions are
-// made against the sweep-start state and applied together, so the
-// accepted match set is a pure function of the scores — representative
-// labels and evaluation order never enter it, and label/order-
-// sensitive candidates (exact ties, flat score sets) abstain.
+// The propagation works on the cartesian product of the per-epoch
+// component profiles — O((n·k)²) score evaluations per sweep.
+// Acceptance is the paper's own gate (see matching.ts, the #112
+// criterion registered with the reviewers): a pair is accepted only
+// when the two sides are each other's unique best partner AND each
+// best stands clear of its runner-up by the eccentricity bar. All of a
+// sweep's decisions are made against the sweep-start state and applied
+// together, so the accepted match set is a pure function of the
+// scores — representative labels and evaluation order never enter it,
+// and label/order-sensitive candidates (exact ties, flat score sets)
+// abstain.
 //
 // Match decisions are their own typed records (NsEvent), NOT Links: the
 // link ledger holds single-transaction observations, while a match rests
 // on the whole shape of the graph and can be retracted.
-import { type Chain, type CoinId } from "../model/chain";
+import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { type Clustering } from "./clusters";
 import { acceptReciprocal, type ScoredPair } from "./matching";
 
@@ -117,6 +125,54 @@ export function clusterAdjacency(
     }
   }
   return adj;
+}
+
+/** deterministic epoch assignment (#131): the transaction history in
+ *  chain order, cut into `parts` equal-count runs — balanced by
+ *  activity, contiguous in time, and free of any labeling choice */
+export function txEpochs(chain: Chain, parts: number): Map<TxId, number> {
+  const k = Math.max(1, Math.floor(parts));
+  const n = Math.max(1, chain.order.length);
+  const out = new Map<TxId, number>();
+  chain.order.forEach((tid, i) => out.set(tid, Math.min(k - 1, Math.floor((i * k) / n))));
+  return out;
+}
+
+/** the writeup's "contract each subgraph separately" (#131): one
+ *  weighted adjacency per epoch, holding only that epoch's
+ *  transactions' edges (same multi-input rule as clusterAdjacency). A
+ *  cluster active in several epochs appears in several maps — those
+ *  are the epoch-spanning vertices whose known correspondence seeds
+ *  the propagation. */
+export function epochAdjacency(
+  cl: Clustering,
+  chain: Chain,
+  epochOf: Map<TxId, number>,
+  parts: number,
+): Map<CoinId, Map<CoinId, number>>[] {
+  const k = Math.max(1, Math.floor(parts));
+  const adjs: Map<CoinId, Map<CoinId, number>>[] = [];
+  for (let e = 0; e < k; e++) adjs.push(new Map());
+  const bump = (adj: Map<CoinId, Map<CoinId, number>>, a: CoinId, b: CoinId): void => {
+    let m = adj.get(a);
+    if (!m) adj.set(a, (m = new Map()));
+    m.set(b, (m.get(b) ?? 0) + 1);
+  };
+  for (const tid of chain.order) {
+    const adj = adjs[epochOf.get(tid)!]!;
+    const tx = chain.txs.get(tid)!;
+    const froms = new Set<CoinId>();
+    for (const i of tx.inputs) froms.add(cl.rep.get(i)!);
+    for (const out of tx.outputs) {
+      const to = cl.rep.get(out)!;
+      for (const from of froms) {
+        if (to === from) continue;
+        bump(adj, from, to);
+        bump(adj, to, from);
+      }
+    }
+  }
+  return adjs;
 }
 
 /** the match state at any point of a replay: which merges are active */
@@ -211,83 +267,111 @@ export function matchState(
   return { comp, membersOf: (leader) => byLeader.get(leader) ?? [leader] };
 }
 
-/**
- * The full deterministic run. Each sweep is decided wholesale against
- * the sweep-start state: first every active match is re-judged as if it
- * were still open (components with only that edge removed) under the
- * SAME acceptance gate a new match must pass — scored against the
- * current alternatives, reciprocal unique best, eccentricity — and all
- * the ones that could not be re-accepted split together (accuracy/048:
- * asymmetric accept/retain criteria would make the fixed point depend
- * on the order evidence arrived, the defect class the #112 criterion
- * bans; the paper's revisitation applies the same match logic when it
- * revises earlier mappings). Then every unordered pair of column-
- * disjoint components is scored and the gate (matching.ts) admits its
- * matches together. Repeat until a sweep changes nothing.
- *
- * The dynamics need not have a fixed point: two matches accepted
- * together can each fail the gate once the OTHER is applied (the
- * other's fusion raises a runner-up into contest), so "both matched"
- * and "neither" can alternate forever. When a sweep-start state
- * repeats, the run stops at the just-split state — the matches whose
- * standing depends on which of their competitors is currently applied
- * are exactly the contested ones, and the gate's answer to contest is
- * abstention. Components only pair up when their column sets are
- * disjoint: two vertices of one column are two pseudonyms of the SAME
- * epoch, and this analysis has no evidence language for merging those.
- */
-export function nsSocialRun(
-  cl: Clustering,
-  chain: Chain,
-  threshold: number,
-  parts = 2,
-): NsEvent[] {
-  const col = partitionColumns(cl, chain, parts);
-  const adj = clusterAdjacency(cl, chain);
-  const events: NsEvent[] = [];
-  // the full cross-column candidate list under a given match state —
-  // one scoring rule for both passes, so "keep" and "accept" can never
-  // drift apart
-  const scoredUnder = (
+/** everything one run position needs to score candidates: the
+ *  per-(component, epoch) neighbor vectors, neighbors read through the
+ *  current match state. A component's epoch-e vector sums its base
+ *  reps' epoch-e edges; components silent in an epoch have no vector
+ *  there. */
+function epochProfiles(
+  adjs: Map<CoinId, Map<CoinId, number>>[],
+  comp: Map<CoinId, CoinId>,
+  membersOf: (leader: CoinId) => CoinId[],
+): Map<CoinId, (Map<CoinId, number> | null)[]> {
+  const leaders = [...new Set(comp.values())].sort();
+  const out = new Map<CoinId, (Map<CoinId, number> | null)[]>();
+  for (const l of leaders) {
+    const perEpoch: (Map<CoinId, number> | null)[] = [];
+    for (const adj of adjs) {
+      let v: Map<CoinId, number> | null = null;
+      for (const rep of membersOf(l)) {
+        const nbrs = adj.get(rep);
+        if (!nbrs) continue;
+        if (!v) v = new Map();
+        for (const [o, w] of nbrs) {
+          const c = comp.get(o) ?? o;
+          v.set(c, (v.get(c) ?? 0) + w);
+        }
+      }
+      perEpoch.push(v);
+    }
+    out.set(l, perEpoch);
+  }
+  return out;
+}
+
+/** cosine of two epoch profiles with the two candidate components
+ *  excluded from both — a direct transfer between the candidates is
+ *  not self-evidence, exactly as in nsSimilarity */
+function profileCosine(
+  va: Map<CoinId, number>,
+  vb: Map<CoinId, number>,
+  a: CoinId,
+  b: CoinId,
+): number {
+  let dot = 0, na = 0, nb = 0;
+  for (const [k, w] of va) {
+    if (k === a || k === b) continue;
+    na += w * w;
+    const u = vb.get(k);
+    if (u !== undefined) dot += w * u;
+  }
+  for (const [k, w] of vb) {
+    if (k === a || k === b) continue;
+    nb += w * w;
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / Math.sqrt(na * nb);
+}
+
+/** one scoring rule for accept and keep alike, so the two can never
+ *  drift apart: every cross-epoch profile pair of distinct components,
+ *  gate-keyed by "epoch:leader" */
+function makeScoredUnder(
+  adjs: Map<CoinId, Map<CoinId, number>>[],
+  k: number,
+): (comp: Map<CoinId, CoinId>, membersOf: (leader: CoinId) => CoinId[]) => ScoredPair[] {
+  return (
     comp: Map<CoinId, CoinId>,
     membersOf: (leader: CoinId) => CoinId[],
   ): ScoredPair[] => {
-    const leaders = [...new Set(comp.values())].sort();
-    const colsOf = new Map<CoinId, Set<number>>();
-    for (const l of leaders) colsOf.set(l, new Set(membersOf(l).map((r) => col.get(r)!)));
+    const prof = epochProfiles(adjs, comp, membersOf);
+    const leaders = [...prof.keys()];
     const scored: ScoredPair[] = [];
     for (let i = 0; i < leaders.length - 1; i++) {
       for (let j = i + 1; j < leaders.length; j++) {
         const a = leaders[i]!, b = leaders[j]!;
-        const colsA = colsOf.get(a)!;
-        if ([...colsOf.get(b)!].some((c) => colsA.has(c))) continue;
-        const s = nsSimilarity(adj, comp, membersOf, a, b);
-        if (s > 0) scored.push({ a, b, score: s });
+        const pa = prof.get(a)!, pb = prof.get(b)!;
+        for (let e = 0; e < k; e++) {
+          for (let f = 0; f < k; f++) {
+            if (e === f) continue;
+            const va = pa[e], vb = pb[f];
+            if (!va || !vb) continue;
+            const s = profileCosine(va, vb, a, b);
+            if (s > 0) scored.push({ a: `${e}:${a}`, b: `${f}:${b}`, score: s });
+          }
+        }
       }
     }
     return scored;
   };
-  const MAX_SWEEPS = 8;
-  const visited = new Set<string>();
-  for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
-    let changed = false;
+}
 
-    // split pass: every active match re-judged as if still open, all
-    // against the same sweep-start pair set, splits applied together.
-    // A kept match must clear the FULL gate against the current
-    // alternatives, exactly as a new match would.
-    const active = activePairs(events);
+/** an accepted gate pair names two per-epoch profiles; the component
+ *  leaders behind them are the merge claim */
+const leaderOf = (key: string): CoinId => key.slice(key.indexOf(":") + 1) as CoinId;
 
-    // a sweep-start state seen before means the dynamics cycle (merges
-    // and splits undoing each other); stop here, on the just-split
-    // side of the cycle — contested matches abstain
-    const key = active
-      .map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`))
-      .sort()
-      .join(";");
-    if (visited.has(key)) break;
-    visited.add(key);
-
+/** the split pass: every active match re-judged as if still open, all
+ *  against the same start state, splits applied together. A kept
+ *  match must clear the FULL gate against the current alternatives —
+ *  through ANY cross-epoch profile pair — exactly as a new match would. */
+function makeSplitPass(
+  cl: Clustering,
+  adjs: Map<CoinId, Map<CoinId, number>>[],
+  k: number,
+  threshold: number,
+): (active: [CoinId, CoinId][]) => NsEvent[] {
+  const scoredUnder = makeScoredUnder(adjs, k);
+  return (active: [CoinId, CoinId][]): NsEvent[] => {
     const splits: NsEvent[] = [];
     for (const [a, b] of active) {
       const others = active.filter(([x, y]) => !(x === a && y === b) && !(x === b && y === a));
@@ -300,27 +384,135 @@ export function nsSocialRun(
       }
       const membersOf = (l: CoinId): CoinId[] => byLeader.get(l) ?? [l];
       const la = compWo.get(a)!, lb = compWo.get(b)!;
-      const [lo, hi] = la < lb ? [la, lb] : [lb, la];
-      const kept = acceptReciprocal(scoredUnder(compWo, membersOf), threshold)
-        .some((p) => p.a === lo && p.b === hi);
+      let best = 0;
+      let kept = false;
+      for (const p of acceptReciprocal(scoredUnder(compWo, membersOf), threshold)) {
+        const pa = leaderOf(p.a), pb = leaderOf(p.b);
+        if ((pa === la && pb === lb) || (pa === lb && pb === la)) {
+          kept = true;
+          best = Math.max(best, p.score);
+        }
+      }
       if (!kept) {
-        splits.push({ kind: "split", a, b, score: nsSimilarity(adj, compWo, membersOf, la, lb) });
+        // the score recorded on the retraction: the pair's best
+        // remaining cross-epoch agreement, the value that failed
+        for (const p of scoredUnder(compWo, membersOf)) {
+          const pa = leaderOf(p.a), pb = leaderOf(p.b);
+          if ((pa === la && pb === lb) || (pa === lb && pb === la)) best = Math.max(best, p.score);
+        }
+        splits.push({ kind: "split", a, b, score: best });
       }
     }
+    return splits;
+  };
+}
+
+/** the splits one split pass would emit from `events`' final state —
+ *  empty means the state is stable: no active match the gate would
+ *  refuse to re-accept. Exposed so the capped-run exit contract
+ *  (accuracy/049) is testable against the public surface. */
+export function nsRejudge(
+  cl: Clustering,
+  chain: Chain,
+  threshold: number,
+  parts: number,
+  events: NsEvent[],
+): NsEvent[] {
+  const k = Math.max(1, Math.floor(parts));
+  const adjs = epochAdjacency(cl, chain, txEpochs(chain, k), k);
+  return makeSplitPass(cl, adjs, k, threshold)(activePairs(events));
+}
+
+/**
+ * The full deterministic run (#131 epoch-correspondence model). Each
+ * sweep is decided wholesale against the sweep-start state: first
+ * every active match is re-judged as if it were still open (components
+ * with only that edge removed) under the SAME acceptance gate a new
+ * match must pass — scored against the current alternatives,
+ * reciprocal unique best, eccentricity — and all the ones that could
+ * not be re-accepted split together (accuracy/048: asymmetric
+ * accept/retain criteria would make the fixed point depend on the
+ * order evidence arrived, the defect class the #112 criterion bans;
+ * the paper's revisitation applies the same match logic when it
+ * revises earlier mappings). Then the merge pass scores every
+ * CROSS-EPOCH pair of component profiles — (C₁ as epoch e saw it,
+ * C₂ as a DIFFERENT epoch e′ saw it), never two views from the same
+ * epoch, which is the same record twice, not two views — and the gate
+ * (matching.ts) admits its matches together; an accepted profile pair
+ * is a claim its two components are one user, so the event stays a
+ * merge of base representatives. Repeat until a sweep changes nothing.
+ *
+ * The dynamics need not have a fixed point: two matches accepted
+ * together can each fail the gate once the OTHER is applied (the
+ * other's fusion raises a runner-up into contest), so "both matched"
+ * and "neither" can alternate forever. When a sweep-start state
+ * repeats, the run stops at the just-split state — the matches whose
+ * standing depends on which of their competitors is currently applied
+ * are exactly the contested ones, and the gate's answer to contest is
+ * abstention. And when the sweep budget runs out instead (accuracy/049
+ * rider), the run exits through final split passes, so the returned
+ * state never holds a match the gate would not re-accept.
+ */
+export function nsSocialRun(
+  cl: Clustering,
+  chain: Chain,
+  threshold: number,
+  parts = 2,
+  maxSweeps = 8,
+): NsEvent[] {
+  const k = Math.max(1, Math.floor(parts));
+  const adjs = epochAdjacency(cl, chain, txEpochs(chain, k), k);
+  const events: NsEvent[] = [];
+  const scoredUnder = makeScoredUnder(adjs, k);
+  const splitPass = makeSplitPass(cl, adjs, k, threshold);
+  const visited = new Set<string>();
+  for (let sweep = 0; sweep < maxSweeps; sweep++) {
+    const active = activePairs(events);
+
+    // a sweep-start state seen before means the dynamics cycle (merges
+    // and splits undoing each other); stop here, on the just-split
+    // side of the cycle — contested matches abstain
+    const key = active
+      .map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`))
+      .sort()
+      .join(";");
+    if (visited.has(key)) break;
+    visited.add(key);
+
+    const splits = splitPass(active);
     if (splits.length > 0) {
       events.push(...splits);
       continue; // re-derive the state before merging further
     }
 
-    // merge pass: score every unordered cross-column pair of components
-    // against the sweep-start state, then let the acceptance gate admit
-    // the reciprocal-best pairs together
+    // merge pass: gate the cross-epoch profile pairs against the
+    // sweep-start state, then apply the admitted merges together —
+    // several profile pairs may back the same component pair, which
+    // merges once, on its best score
     const state = matchState(cl, events);
+    const admitted = new Map<string, NsEvent>();
     for (const p of acceptReciprocal(scoredUnder(state.comp, state.membersOf), threshold)) {
-      events.push({ kind: "merge", a: p.a as CoinId, b: p.b as CoinId, score: p.score });
-      changed = true;
+      const la = leaderOf(p.a), lb = leaderOf(p.b);
+      const [lo, hi] = la < lb ? [la, lb] : [lb, la];
+      const prev = admitted.get(`${lo}|${hi}`);
+      if (!prev || p.score > prev.score) {
+        admitted.set(`${lo}|${hi}`, { kind: "merge", a: lo, b: hi, score: p.score });
+      }
     }
-    if (!changed) break;
+    if (admitted.size === 0) break;
+    events.push(...[...admitted.keys()].sort().map((kk) => admitted.get(kk)!));
+  }
+  // exit through split passes (accuracy/049): when the sweep budget ran
+  // out mid-flight the last merges were never re-judged, and a cycle
+  // stop can in principle land on a state carrying a contested match.
+  // Split passes alone are removal-only, so this terminates — and on a
+  // state that is already stable (the ordinary fixed-point exit) the
+  // first pass is empty. The returned state never holds a match the
+  // gate would not re-accept.
+  for (;;) {
+    const splits = splitPass(activePairs(events));
+    if (splits.length === 0) break;
+    events.push(...splits);
   }
   return events;
 }

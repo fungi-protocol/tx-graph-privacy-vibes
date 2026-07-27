@@ -6,7 +6,8 @@ import { txfee } from "../src/core/sats";
 import { clusterObserver } from "../src/analysis/clusters";
 import {
   partitionColumns, clusterAdjacency, nsSimilarity, nsSocialRun, nsApply,
-  matchComponents, matchState, activePairs, type NsEvent,
+  matchComponents, matchState, activePairs, txEpochs, epochAdjacency,
+  nsRejudge, type NsEvent,
 } from "../src/analysis/nssocial";
 import { fromGroups, join, samePartition } from "../src/analysis/partition";
 import { layoutClusterColumns } from "../src/ui/clusterview";
@@ -73,30 +74,106 @@ test("ns-social: a threshold above cosine's ceiling admits nothing", () => {
   assert.equal(events.length, 0);
 });
 
-test("ns-social: the run is deterministic and merges only across columns", () => {
-  const { eco, cl } = golden(80);
+test("ns-social: the run is deterministic and every merge clears the threshold on cross-epoch evidence", () => {
+  const { eco, cl } = golden(110);
   const a = nsSocialRun(cl, eco.chain, 0.4);
   const b = nsSocialRun(cl, eco.chain, 0.4);
   assert.deepEqual(a, b);
-  const col = partitionColumns(cl, eco.chain, 2);
-  // replay: at every merge, the two components' column sets are disjoint
-  const seen: NsEvent[] = [];
+  // the merge pass only scores CROSS-epoch profile pairs (#131), so an
+  // unforced merge's recorded score is cross-epoch agreement — and it
+  // must have cleared the bar
   for (const e of a) {
-    if (e.kind === "merge") {
-      const { comp, membersOf } = matchState(cl, seen);
-      const cols = (l: string) => new Set(membersOf(comp.get(l)!).map((r) => col.get(r)!));
-      const ca = cols(e.a), cb = cols(e.b);
-      for (const c of cb) assert.ok(!ca.has(c), `merge ${e.a}+${e.b} shares column ${c}`);
+    if (e.kind === "merge" && !e.forced) {
+      assert.ok(e.score >= 0.4, `merge ${e.a}+${e.b} scored ${e.score} below the threshold`);
     }
-    seen.push(e);
   }
 });
 
 test("ns-social: a moderate threshold finds at least one match on golden", () => {
-  const { eco, cl } = golden(80);
+  const { eco, cl } = golden(110);
   const events = nsSocialRun(cl, eco.chain, 0.4);
   assert.ok(events.some((e) => e.kind === "merge"),
     "expected the propagation to admit at least one pair at 0.4");
+});
+
+test("ns-social: epoch-spanning clusters exist and seed the correspondence (#131)", () => {
+  const { eco, cl } = golden(80);
+  const epochOf = txEpochs(eco.chain, 2);
+  // the epoch cut is contiguous in chain order and both halves are real
+  let last = 0;
+  const counts = [0, 0];
+  for (const tid of eco.chain.order) {
+    const e = epochOf.get(tid)!;
+    assert.ok(e >= last, "epochs must be contiguous in chain order");
+    last = e;
+    counts[e]!++;
+  }
+  assert.ok(counts[0]! > 0 && counts[1]! > 0);
+  assert.ok(Math.abs(counts[0]! - counts[1]!) <= 1);
+  // some clusters are active in BOTH epoch views — the seeds the old
+  // whole-cluster-to-one-column model could not express
+  const adjs = epochAdjacency(cl, eco.chain, epochOf, 2);
+  const spanning = [...cl.members.keys()].filter((r) => adjs[0]!.has(r) && adjs[1]!.has(r));
+  assert.ok(spanning.length > 0, "expected at least one epoch-spanning cluster");
+  // and the per-epoch adjacencies decompose the global one: summing a
+  // rep's epoch edges gives exactly its clusterAdjacency row
+  const whole = clusterAdjacency(cl, eco.chain);
+  for (const rep of cl.members.keys()) {
+    const sum = new Map<string, number>();
+    for (const adj of adjs) {
+      for (const [o, w] of adj.get(rep) ?? []) sum.set(o, (sum.get(o) ?? 0) + w);
+    }
+    assert.deepEqual(
+      [...sum.entries()].sort(),
+      [...(whole.get(rep) ?? new Map()).entries()].sort(),
+      `epoch adjacencies of ${rep} do not sum to the whole`);
+  }
+});
+
+test("ns-social: the accepted match set is invariant under relabeling and shuffled order (#112)", () => {
+  const { eco, cl } = golden(110);
+  // (a) random representative relabeling: rename every cluster after
+  // its LARGEST member instead of the smallest, and (b) shuffle the
+  // map insertion order (deterministically, by reversed sort) so any
+  // iteration-order sensitivity would surface
+  const relabeled: typeof cl = (() => {
+    const entries = [...cl.members.entries()].map(([, ids]) => {
+      const sorted = [...ids].sort((a, b) => (a < b ? -1 : 1));
+      const newRep = sorted[sorted.length - 1]!;
+      return [newRep, sorted] as const;
+    });
+    entries.sort((a, b) => (a[0] < b[0] ? 1 : -1)); // reversed insertion order
+    const members = new Map(entries.map(([r, ids]) => [r, [...ids]]));
+    const rep = new Map<string, string>();
+    for (const [r, ids] of members) for (const id of ids) rep.set(id, r);
+    const rank = new Map<string, number>();
+    [...members.keys()].forEach((r, i) => rank.set(r, i + 1));
+    return { rep, members, rank, changeGuess: cl.changeGuess, payGuess: cl.payGuess, changeReads: cl.changeReads, links: cl.links } as typeof cl;
+  })();
+  const signature = (c: typeof cl, evs: NsEvent[]): string =>
+    [...nsApply(c, evs).members.values()]
+      .map((m) => [...m].sort().join(",")).sort().join(";");
+  const evA = nsSocialRun(cl, eco.chain, 0.4, 2);
+  const evB = nsSocialRun(relabeled, eco.chain, 0.4, 2);
+  assert.ok(activePairs(evA).length > 0, "need a non-trivial accepted set to pin");
+  assert.equal(signature(cl, evA), signature(relabeled, evB),
+    "the accepted match partition changed under relabeling/reordering");
+});
+
+test("ns-social: a capped run exits through the split pass — no match survives the gate would refuse (#131 rider, accuracy/049)", () => {
+  const { eco, cl } = golden(80);
+  // 4 epochs at a low bar produces contested dynamics (merges whose
+  // standing depends on each other); cap the sweeps so the run cannot
+  // reach its fixed point and must exit through the final split passes
+  for (const maxSweeps of [1, 2, 3]) {
+    const events = nsSocialRun(cl, eco.chain, 0.4, 4, maxSweeps);
+    const leftover = nsRejudge(cl, eco.chain, 0.4, 4, events);
+    assert.deepEqual(leftover, [],
+      `maxSweeps=${maxSweeps}: the capped run returned matches the gate would retract`);
+  }
+  // and the uncapped run's fixed point (or cycle stop) is stable too
+  const full = nsSocialRun(cl, eco.chain, 0.4, 4);
+  assert.deepEqual(nsRejudge(cl, eco.chain, 0.4, 4, full), []);
 });
 
 test("ns-social: nsApply fuses matched clusters and preserves every coin", () => {
@@ -235,15 +312,15 @@ test("ns-social: nsApply IS the lattice join of the base partition with the matc
 });
 
 test("ns-social: a contested match is retracted by the same gate, and the cycle stops (#132)", () => {
-  // golden at day 60, threshold 0.3: one clear merge propagates two
-  // more, but those two contest each other — each fails eccentricity
-  // once the other is applied. The split pass re-runs the FULL
-  // acceptance gate (accuracy/044 §ns-social, /047, /048), so both are
-  // retracted; re-merging them would revisit a seen state, so the run
-  // stops on the just-split, conservative side instead of churning to
-  // the sweep bound.
-  const { eco, cl } = golden(60);
-  const events = nsSocialRun(cl, eco.chain, 0.3, 2);
+  // golden at day 80 with 4 epochs, threshold 0.4: the propagation
+  // accepts several matches whose fusions then contest one of them —
+  // it fails the gate once the others are applied. The split pass
+  // re-runs the FULL acceptance gate (accuracy/044 §ns-social, /047,
+  // /048), so the contested match is retracted; re-merging it would
+  // revisit a seen state, so the run stops on the just-split,
+  // conservative side instead of churning to the sweep bound.
+  const { eco, cl } = golden(80);
+  const events = nsSocialRun(cl, eco.chain, 0.4, 4);
   const key = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
   const merged = new Set<string>();
   for (const e of events) {
