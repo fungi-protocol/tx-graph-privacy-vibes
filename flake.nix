@@ -9,7 +9,9 @@
 
   outputs = inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      # no x86_64-darwin: nixpkgs 26.11 dropped the platform, so listing it
+      # makes every whole-flake eval (nix flake show/check) fail on the assert
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
 
       perSystem = { pkgs, lib, self', ... }:
         let
