@@ -7,15 +7,17 @@
 // first (the honest size of the win, the rest of the graph's answer,
 // fingerprints), and only then the counterparty's view: the record
 // cannot settle an outsider's suspicion, but the payee simply knows.
-// Within the observer beats: the honest SIZE of the win (the
-// writeup's entropy footnote: a couple of readings, ~1.58 bits at best
-// for the 2-in-2-out shape, in isolation), and the way context spends
-// it: when the rest of the record already attributes the two inputs to
-// two different clusters, CIOH's one-owner reading CONTRADICTS the
-// map, and a careful observer reads the contradiction as detection —
-// two clusters cooperating — which almost certainly breaks the payjoin
-// retroactively (Yuval's steer superseding the old "doubt spreads"
-// step, whose claim ran the wrong way). Then the second detection
+// Within the observer beats: the honest SIZE of the win (#110: the
+// 2-in-2-out shape admits exactly THREE readings — one payer, or a
+// payjoin paired either way — at most log2(3) ≈ 1.6 bits, not
+// necessarily equiprobable), and the way context spends it: the
+// neighboring transactions, above all the ones spending this
+// transaction's outputs, are clustered by CIOH + change identification
+// with this transaction's own merge set aside; when the two inputs
+// land in distinct clusters with evidence of their own, the one-owner
+// reading loses to detection — two clusters cooperating — which breaks
+// the payjoin retroactively (Yuval's steer superseding the old "doubt
+// spreads" step, whose claim ran the wrong way). Then the second detection
 // channel (#103, per Sabouri 2026): wallet fingerprints — the observer
 // switches statistical fingerprinting on, and inputs sitting on two
 // script types read as two wallets' coins in one transaction, so
@@ -163,20 +165,26 @@ export function payjoinSteps(
     },
     {
       id: "how-big-is-the-doubt",
-      title: "How big is the doubt?",
-      html: `<p>Be honest about the size of the win. Take this transaction
-        in isolation: two inputs, two outputs. Counting its plausible
-        readings — one payer, or a payjoin; this output the payment, or
-        that one — gives only a <b>handful of interpretations</b>. In
-        information terms that is under two bits of uncertainty in the
-        best case, and the two-input, two-output shape is close to the
-        best a payjoin gets: piling on more inputs doesn't grow the
-        ambiguity the way the combinatorics might suggest, because
-        consolidated inputs read as one thing.</p>
-        <p>A couple of readings is real doubt — the change guess went
-        quiet, the cluster merge might be wrong — but it is <b>small</b>
-        doubt. And it was counted <i>ignoring the transaction's
-        context</i>. The next step puts the context back.</p>`,
+      title: "How much doubt?",
+      html: `<p>Be honest about the size of the win. Two inputs, two
+        outputs: the record admits exactly <b>three readings</b>. One
+        payer — both inputs one wallet's, one output the payment, the
+        other its change. Or a payjoin, paired one way — the first
+        input's owner takes the first output, the second the second. Or
+        a payjoin paired the other way. Three maps of who-owns-what,
+        each consistent with everything on the transaction's face —
+        though nothing says they are equally likely.</p>
+        <p>Three readings is at most log<sub>2</sub>3 ≈ 1.6 bits of
+        uncertainty. It is real doubt: in two of the three readings the
+        inputs belong to different people, so the one-owner merge is
+        wrong — and once the inputs are not one wallet's, the change
+        linkage has no single payer to hand the remainder to; it could
+        belong to either input's owner. But it is a <b>bounded</b>
+        doubt, counted on this transaction alone.</p>
+        <p>And piling on more inputs raises the count of readings
+        without buying cover to match: attacks later in this story —
+        the candidate origins, the intersections — feed on exactly
+        those extra inputs.</p>`,
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 1,
@@ -186,50 +194,54 @@ export function payjoinSteps(
     },
     {
       id: "the-map-fights-back",
-      title: "The map fights back",
+      title: "Evidence from neighboring transactions",
       html: () => {
         const d = detection();
         const fires = detectionFires(d);
         const setup = `<p>The observer holds more than this one
-          transaction: the <b>whole record</b>, clustered. So run the
-          check a careful observer runs — set this transaction's own
-          evidence aside and ask where everything <i>else</i> puts its two
-          inputs.</p>`;
+          transaction: the whole <b>transaction graph</b>, already
+          clustered by the heuristics you have. The transactions around
+          this one — above all the ones that <b>spend its outputs</b>,
+          its neighbors on the graph even when they are far apart in
+          time — carry evidence about which of the three readings is
+          right. So ask: setting this transaction's own CIOH merge
+          aside, where do CIOH and the change identification, run over
+          every <i>other</i> transaction, put its two inputs?</p>`;
         if (fires) {
           const [a, b] = d!.sizes;
           return `${setup}
-            <p>Here the rest of the record answers loudly: the two inputs
-            already sit in <b>two different clusters</b> (${a} and ${b}
-            coins of prior evidence). CIOH's one-owner reading
-            <b>contradicts the observer's own map</b> — and with solid
-            clustering on both sides, the natural resolution is not "my
-            clusters are wrong" but "<b>this is two people's coins in one
-            transaction</b>." The payjoin is detected, retroactively: the
-            handful of readings collapses back to one, the merge is
-            unwound, and the observer walks away with something new — an
-            <b>edge between two clusters</b>, a record that these two
-            pseudonyms transact. Strong evidence, not proof — the prior
-            map is itself built from heuristics — but it is the observer's
-            best explanation, and it usually holds.</p>
+            <p>Here they land in <b>two different clusters</b>, with ${a}
+            and ${b} coins of evidence behind them. The one-owner reading
+            now asks the observer to believe those two clusters were one
+            wallet all along; the payjoin readings ask nothing. With
+            independent evidence on both sides, the observer resolves it
+            as a <b>detection</b>: two people's coins in one transaction.
+            The false merge is unwound retroactively — and the observer
+            walks away with something new, an <b>edge between the two
+            clusters</b>, a record that these two pseudonyms transact.
+            Strong evidence, not proof — the prior clusters are
+            themselves built from heuristics — but it is the reading the
+            evidence favors.</p>
             <p>The lesson cuts against the last step's comfort: a
-            payjoin's few bits of cover are spent easily by <b>good prior
-            clustering</b> — and in this town, with scant address reuse and
-            simple wallets, the prior clustering is <i>worse</i> than a
-            real observer's.</p>`;
+            payjoin's ~1.6 bits are spent by <b>good prior clustering</b>
+            — and this town's, with scant address reuse and simple
+            wallets, is thinner than a real observer's.</p>`;
         }
         return `${setup}
-          <p>In this run the record happens to answer quietly: the rest of
-          the map doesn't attribute both inputs to established, distinct
-          clusters, so CIOH's one-owner reading stands
-          <b>uncontradicted</b> and the doubt survives. Don't read that as
-          the defense working — it is the prior clustering being
-          <b>thin</b>, luck rather than protection. On a busier chain,
+          <p>In this run the neighbors don't decide it: clustering every
+          other transaction does not put both inputs into distinct
+          clusters carrying evidence of their own, so the one-owner
+          reading stands and the three readings survive. Don't read that
+          as the defense working — the prior clustering in this small
+          town is <b>thin</b>, luck rather than protection. On a chain
           with address reuse and years of history, the two payers' coins
-          usually carry enough prior evidence that the one-owner reading
-          collides with the map — and a careful observer resolves the
-          collision as <b>detection</b>: two clusters cooperating, the
-          payjoin broken retroactively, and a new edge between the two
-          pseudonyms as the prize.</p>`;
+          usually arrive already clustered, and the same check resolves
+          the readings into a detection: two clusters cooperating, the
+          payjoin broken retroactively, a new edge between the two
+          pseudonyms as the prize.</p>
+          <p>And prior clustering is not the only channel: the next two
+          steps read evidence that needs no history at all — the
+          wallets' own fingerprints.</p>`;
       },
       focus: () => pad(payjoinFocus()),
       view: 0,
