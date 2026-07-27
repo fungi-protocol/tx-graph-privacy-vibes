@@ -93,14 +93,16 @@ export function nsSocialSteps(
       id: "what-structure-gives-away",
       title: "What structure gives away",
       html: `<p>Read that against the settlement chapter's result. The
-        netting removed every amount an outsider could use, and the
-        sub-transaction analysis had nothing to grab — an honest win.
-        The matching you just watched <b>never asked about amounts</b>.
-        Two clusters that settle with the same partners, at the same
-        cadence, wear the same neighborhood — and the neighborhood was
-        enough to claim them as one user. What settlement cannot fold
-        away is the <b>relationship itself</b>: recurring counterparties
-        are the leak, not the numbers.</p>
+        transaction's values are still public — netting hid the
+        <b>bills</b>: the record shows net residues that match no single
+        obligation, so the sub-transaction analysis had nothing to grab —
+        an honest win. The matching you just watched
+        <b>never asked about amounts</b>. Two clusters that settle with
+        the same partners, at the same cadence, wear the same
+        neighborhood — and the neighborhood was enough to claim them as
+        one user. What settlement cannot fold away is the
+        <b>relationship itself</b>: the recurring counterparties leak on
+        top of whatever the values still say.</p>
         <p>And the same honesty as every heuristic before it: a match is
         a <b>claim</b>, scored by similarity — the score is not a
         probability — and a wrong match links two strangers' histories
