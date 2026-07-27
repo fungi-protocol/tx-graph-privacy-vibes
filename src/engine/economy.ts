@@ -269,11 +269,14 @@ export class Economy {
   private routeExchange(): void {
     for (const c of this.chain.coins.values()) {
       if (c.producer !== null || c.kyc !== undefined) continue;
-      // pre-story savings never touched the exchange's counter — except
-      // Carol's, whose identified withdrawal is the story's baseline
+      // Carol's identified withdrawal is the story's baseline: always on
+      // the books. The rest of the town's pre-story savings were mostly
+      // bought somewhere too — about half at an exchange's counter
+      // (#117), so the books name far more than one careless neighbor.
+      // Income arriving during the story keeps a lower share.
       if (c.label === "exchange withdrawal") { c.kyc = true; continue; }
-      if (c.entered === undefined) { c.kyc = false; continue; }
-      c.kyc = new Rng(`${this.seed}/kyc/${c.id}`).next() < 0.2;
+      const share = c.entered === undefined ? 0.5 : 0.2;
+      c.kyc = new Rng(`${this.seed}/kyc/${c.id}`).next() < share;
       if (c.kyc) c.label = `${c.label ?? "outside income"} — via exchange`;
     }
     for (const ev of this.events) {

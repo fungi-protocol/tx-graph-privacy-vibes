@@ -48,6 +48,25 @@ test("exchange routing: withdrawals are always on the books, and the flag is sta
   }
 });
 
+test("about half the pre-story savings are on the exchange's books (#117)", () => {
+  // aggregated across seeds so one unlucky draw can't flip the check;
+  // per-coin dedicated streams make the draws independent between seeds
+  let onBooks = 0, savings = 0;
+  for (const seed of ["golden", "welcome", "silver"]) {
+    const eco = new Economy(seed);
+    eco.runTo(5);
+    for (const c of eco.chain.coins.values()) {
+      if (c.producer !== null || c.entered !== undefined) continue;
+      savings += 1;
+      if (c.kyc === true) onBooks += 1;
+    }
+  }
+  assert.ok(savings >= 20, `too few pre-story savings to judge (${savings})`);
+  const share = onBooks / savings;
+  assert.ok(share > 0.3 && share < 0.7,
+    `expected about half the savings on the books, got ${onBooks}/${savings}`);
+});
+
 test("kycGrants: exactly the books' coins, labeled with their true owners", () => {
   const eco = economy();
   const g = kycGrants(eco.chain);
