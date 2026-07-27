@@ -358,15 +358,55 @@ export class Chain {
     return c;
   }
 
-  /** Stable content digest input for determinism checks. */
+  /**
+   * Canonical line-oriented serialization of the PUBLIC record — the
+   * determinism golden's contract (#120). One line per root and one per
+   * transaction, in record order, folding in everything an observer can
+   * read off the chain: values, addresses (the script version rides in
+   * the address text), fee and feerate, the builder's nLockTime default,
+   * per-input low-R signature grinding, and the minute of day. Fields a
+   * retroactive walk hasn't assigned yet read "-", so a bare chain still
+   * serializes. Ground truth (owners, funders, private labels) is
+   * deliberately absent — that side digests via describeTruth(), so a
+   * public-record regression and a truth-only regression trip the golden
+   * on different lines.
+   */
   describe(): string {
-    const parts: string[] = [];
+    const a = (c: Coin): string => (c.addr ? addrText(c.addr) : "-");
+    const lines: string[] = [];
+    for (const c of this.coins.values()) {
+      if (c.producer !== null) continue;
+      lines.push(`root ${c.id} v${c.value} a${a(c)} e${c.entered ?? "-"}`);
+    }
     for (const tid of this.order) {
       const tx = this.txs.get(tid)!;
-      parts.push(`${tid}@${tx.timestep}[${tx.inputs.join("+")}=>${tx.outputs
-        .map((o) => `${o}:${this.coins.get(o)!.value}:${this.coins.get(o)!.owner ?? "x"}`)
-        .join(",")}]fee${tx.fee}`);
+      lines.push(
+        `tx ${tid} d${tx.timestep} m${tx.minute ?? "-"} r${tx.feerate} f${tx.fee}` +
+        ` l${tx.locktime ?? "-"}` +
+        ` s${tx.sigLowR ? tx.sigLowR.map((b) => (b ? "1" : "0")).join("") : "-"}` +
+        ` in[${tx.inputs.join(",")}]` +
+        ` out[${tx.outputs.map((o) => {
+          const c = this.coins.get(o)!;
+          return `${o}:${c.value}:${a(c)}`;
+        }).join(",")}]`);
     }
-    return parts.join(";");
+    return lines.join("\n");
+  }
+
+  /**
+   * The hidden truth alongside the record: owners, funders, narrative
+   * labels and memos, exchange-book flags. Digested SEPARATELY from
+   * describe() — same line-oriented discipline, disjoint fields.
+   */
+  describeTruth(): string {
+    const lines: string[] = [];
+    for (const c of this.coins.values()) {
+      lines.push(`coin ${c.id} o${c.owner ?? "x"} fu[${c.funders.join(",")}]` +
+        ` ${c.kyc ? "kyc" : "-"} ${c.label ?? "-"}`);
+    }
+    for (const tid of this.order) {
+      lines.push(`tx ${tid} ${this.txs.get(tid)!.memo ?? "-"}`);
+    }
+    return lines.join("\n");
   }
 }

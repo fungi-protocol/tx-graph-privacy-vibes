@@ -17,12 +17,14 @@ function main(): void {
   const agents = rng.fork("agents");
   for (let k = 0; k < 100; k++) parts.push(String(agents.poisson(2.5)));
 
-  // the full economy at the pinned seed: every transaction, coin value,
-  // and event folds into the digest, so any behaviour change trips the check
+  // the full economy at the pinned seed, digested on two separate lines
+  // (#120): the PUBLIC record (values, addresses/scripts, fees, locktime,
+  // signature grinding, minutes) and the hidden truth (owners, funders,
+  // labels, memos) — so a regression in either trips the check, and the
+  // diff says which side moved
   const eco = new Economy(seed);
   eco.runTo(130);
-  const world = [eco.chain.describe(),
-    ...eco.events.map((e) => `${e.day}/${e.tid}/${e.form}/${e.memo}`)];
+  const events = eco.events.map((e) => `${e.day}/${e.tid}/${e.form}/${e.memo}`);
 
   // wallet-shape characterization: execution realism means wallets hold a
   // spread of coins instead of collapsing into one endlessly peeled coin,
@@ -40,7 +42,8 @@ function main(): void {
 
   console.log(`seed ${seed}`);
   console.log(`rng-digest ${fnv1a(parts.join(","))}`);
-  console.log(`economy-digest day ${eco.day} txs ${eco.chain.order.length} ${fnv1a(world.join(";"))}`);
+  console.log(`record-digest day ${eco.day} txs ${eco.chain.order.length} ${fnv1a(eco.chain.describe())}`);
+  console.log(`truth-digest ${fnv1a([eco.chain.describeTruth(), ...events].join(";"))}`);
   console.log(`wallets min ${sizes[0]} median ${sizes[Math.floor(sizes.length / 2)]} multi-input spends ${multi}/${unil.length}`);
 }
 
