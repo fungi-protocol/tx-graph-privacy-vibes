@@ -7,18 +7,22 @@ import sys
 from playwright.sync_api import sync_playwright
 
 MUST_SEE = [
-    # one landmark per tutorial chapter: reaching all of them means the
-    # arc played end to end, fast-forwards and scripted moments included
-    "Meet Alice",
-    "Two drawings, one graph",
-    "The neighborhood",
-    "The observer's map",
-    "The neighborhood learns a trick",
-    "Settling up",
-    "Strangers share a transaction",
-    "Two coins meet",
-    "Rent day",
-    "The sandbox",
+    # one landmark per tutorial chapter, in play order: reaching all of
+    # them means the arc played end to end, fast-forwards and scripted
+    # moments included
+    "Meet Alice",  # intro (cards)
+    "Two drawings, one graph",  # intro (graph bridge)
+    "The neighborhood",  # the economy
+    "The observer's map",  # clustering heuristics
+    "A transaction built by two people",  # payjoin
+    "A cluster's fingerprint",  # ns-netflix
+    "Settling up",  # net settlement
+    "The shape remains",  # ns-social
+    "Strangers share a transaction",  # coinjoin
+    "Two coins meet",  # intersection attacks
+    "Judy's rent, many ways",  # synthesis
+    "Rent day",  # the game
+    "The sandbox",  # finale
 ]
 
 
@@ -28,10 +32,10 @@ def main() -> None:
         page = browser.new_page(viewport={"width": 1400, "height": 900})
         page.goto("http://127.0.0.1:8000/", wait_until="load")
         page.wait_for_timeout(1500)
-        assert "coins remember" in page.title(), page.title()
+        assert "transaction privacy vibes" in page.title(), page.title()
 
         seen: list[str] = []
-        for _ in range(80):  # 43 steps and generous slack
+        for _ in range(110):  # 75 steps and generous slack
             title = page.locator(".tut-title").first.inner_text().strip()
             if not seen or seen[-1] != title:
                 seen.append(title)
