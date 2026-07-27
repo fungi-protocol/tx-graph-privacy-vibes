@@ -2,19 +2,20 @@
 // then each linkage switched on in turn: address reuse (the most basic
 // clustering, inference-free, live in this town because Carol reuses;
 // everyone else's fresh addresses keep the floor framing honest), then
-// exchange KYC records named as a kind of observation that can happen
-// (description only — the checkbox waits for the chapter's close), then
-// CIOH, then two-step change identification (identify the payment
-// outputs first, then suspect the sole remainder; several remainders
-// read as a batch payment and the observer abstains) with its
-// real-world family of heuristics and the configurable evidence bar, cluster
-// contraction, and the pseudonym graph — which the chapter closes by
-// combining with the exchange's records: names seed clusters, links
-// spread names. The Scroll #2/#3 arc: familiar heuristics first, then
-// the honest caveat that attacks always get better, then the observer's
-// real product — a social graph. The random-leaks slider is deliberately
-// NOT here: it waits for the intersection chapter, after ambiguity and
-// errors, where its phase-transition lesson lands.
+// the exchange's KYC records switched ON as the second inference-free
+// observation (#114a absorbed the old chapter-closing combination step
+// into this one: names ride along from here, and the reader watches
+// each heuristic hand them more coverage as it lands), then CIOH, then
+// two-step change identification (identify the payment outputs first,
+// then suspect the sole remainder; several remainders read as a batch
+// payment and the observer abstains) with its real-world family of
+// heuristics and the configurable evidence bar, cluster contraction,
+// and the pseudonym graph — whose named stacks are the chapter's
+// closing payoff. The Scroll #2/#3 arc: familiar heuristics first,
+// then the honest caveat that attacks always get better, then the
+// observer's real product — a social graph. The random-leaks slider is
+// deliberately NOT here: it waits for the intersection chapter, after
+// ambiguity and errors, where its phase-transition lesson lands.
 //
 // The change-heuristic family step follows accuracy/030's constraints:
 // the ordering read is position-leaks-when-ordering-is-deterministic (with
@@ -85,27 +86,36 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       title: "Names from outside the chain",
       html: `<p>One more kind of observation before the guessing starts —
         one that is not an inference either. This town buys its bitcoin
-        somewhere: Carol withdrew hers from an <b>exchange</b>, some of
-        the town's income arrives through one, and some purchases are
-        deposits back into one. Nothing on the record marks any of that
-        — but the exchange keeps <b>private books</b> tying each of
-        those coins to a verified customer, because the law requires it
-        to know them.</p>
+        somewhere: about half of everyone's savings were withdrawn from
+        an <b>exchange</b>, some of the town's income arrives through
+        one, and some purchases are deposits back into one. Nothing on
+        the record marks any of that — but the exchange keeps
+        <b>private books</b> tying each of those coins to a verified
+        customer, because the law requires it to know them.</p>
         <p>An observer can simply <b>hold</b> those books — be the
-        exchange, buy from it, subpoena it. Where the record meets them,
-        a coin carries a true name: not a guess, a fact read off a
-        ledger. Keep this card in mind through everything that follows —
-        the guesses come next, and at the end of this chapter you will
-        see what names and guesses do to each other.</p>`,
+        exchange, buy from it, subpoena it. The <i>exchange records</i>
+        checkbox just switched on to hand this observer exactly that:
+        where the books meet the record, a coin carries a true name —
+        not a guess, a fact read off a ledger. Watch the captions:
+        named coins land on the map as <b>disclosed</b> knowledge.</p>
+        <p>So far each name covers one coin (and Carol's reused
+        address hands her name a head start). Keep watching them: the
+        guesses that come next build <b>clusters</b>, and a cluster
+        holding a named coin takes the name — everything a cluster
+        gathers, the name covers. The traffic runs the other way too: a
+        <b>wrong</b> link hands someone's coins to someone else's name —
+        unless two disagreeing names land in one cluster, in which case
+        the observer knows one of its own links is a lie, and the
+        cluster earns no name at all.</p>`,
       focus: () => pad(bipBounds()),
       view: 1,
       lens: 1,
       overlays: 8,
-      // the exchange-records checkbox surfaces here, unchecked: the
-      // reader meets the books before any heuristic, and may hold them
-      // from this card on — the story itself picks them up at the
-      // chapter's end
+      // the exchange-records checkbox surfaces here AND switches on
+      // (#114a): the reader holds the books through the whole chapter
+      // and watches every heuristic widen what the names cover
       reveals: ["kyc"],
+      grants: [1, 0],
       scene: 1,
       minDay: 21,
     },
@@ -246,11 +256,11 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         keeps a small square where its transaction pinched shut. Only
         the layout changed.</p>
         <p>Nothing is merged yet. The ring is the raw material every
-        clustering starts from: each dot a coin the observer has, so far,
-        no opinion about — which is why they all wear the same
-        noncommittal gray. This drawing shows only what the observer
-        believes, and right now it believes nothing. Watch what the
-        guesses do to it next.</p>`,
+        clustering starts from: most dots wear a noncommittal gray —
+        coins the observer has no opinion about — while the ones the
+        exchange's books disclosed keep their names. This drawing shows
+        only what the observer believes. Watch what the guesses do to
+        it next.</p>`,
       focus: () => pad(clusterBounds()),
       view: 3,
       lens: 1,
@@ -276,33 +286,12 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         wrongly merges two people, the stack looks as confident as any
         other — the observer cannot see its own mistakes, or it would not
         make them. Flip the heuristics on the left and watch the stacks
-        merge and split.</p>`,
-      focus: () => pad(clusterBounds()),
-      view: 2,
-      lens: 1,
-      overlays: 11,
-      scene: 1,
-      minDay: 21,
-    },
-    {
-      id: "names-meet-the-links",
-      title: "Names meet the guesses",
-      html: `<p>Now play the card from earlier. The heuristics panel has
-        an <b>auxiliary information</b> section, and checking <i>exchange
-        records (KYC)</i> just handed this observer the exchange's books
-        — watch the captions: named coins land on the map as
-        <b>disclosed</b> knowledge.</p>
-        <p>This is where the three observations <b>combine</b>, and the
-        combination is worth more than its parts. The records name a few
-        coins; CIOH and the change guesses built the clusters; and a
-        cluster holding a named coin takes the name — everything the
-        guesses gathered, the name now covers. One exchange withdrawal
-        identifies a whole pseudonym's history, rates, salary, and
-        counterparties. The traffic runs the other way too: a
-        <b>wrong</b> link hands someone's coins to someone else's name —
-        unless two disagreeing names land in one cluster, in which case
-        the observer knows one of its own links is a lie, and the
-        cluster earns no name at all. The map is patient: a name learned
+        merge and split.</p>
+        <p>And the exchange's names rode the whole way here: the books
+        named single coins, the guesses gathered them into stacks, and a
+        stack holding a named coin answers to the name — one exchange
+        withdrawal identifies a whole pseudonym's history, rates,
+        salary, and counterparties. The map is patient: a name learned
         today applies to everything already on it.</p>
         <p>Everything so far assumed each transaction has <b>one
         author</b>. The rest of this story is about what happens when the
@@ -312,7 +301,6 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       lens: 1,
       overlays: 11,
       changeTells: 15,
-      grants: [1, 0],
       scene: 1,
       minDay: 21,
     },
