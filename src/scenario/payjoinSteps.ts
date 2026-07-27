@@ -12,12 +12,12 @@
 // step, whose claim ran the wrong way). Then the second detection
 // channel (#103, per Sabouri 2026): wallet fingerprints — the observer
 // switches statistical fingerprinting on, and inputs sitting on two
-// script families read as two wallets' coins in one transaction, so
+// script types read as two wallets' coins in one transaction, so
 // CIOH abstains instead of linking the lie. The chapter closes with the
 // generalization ladder the town skips (NS1R, NSNR — writeup's
 // many-senders sections) on the way to the general form.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
-import { type Chain, type TxId } from "../model/chain";
+import { type Chain, type TxId, type ScriptKind, scriptTitle } from "../model/chain";
 import { clusterObserver } from "../analysis/clusters";
 import { type EconomyEvent } from "../engine/economy";
 
@@ -55,16 +55,16 @@ export function detectionFires(d: PayjoinDetection | undefined): boolean {
   return !!d && d.distinct && d.sizes.every((s) => s >= 2);
 }
 
-/** the script families the exhibit's inputs sit on, in input order —
+/** the script types the exhibit's inputs sit on, in input order —
  *  the intra-transaction fingerprint signal (Sabouri 2026): a wallet
- *  keeps its addresses in one family, so two families among one
+ *  keeps its addresses on one script type, so two types among one
  *  transaction's inputs read as two wallets' coins in one spend.
- *  Observer-computable: script families are public on the face of
+ *  Observer-computable: script types are public on the face of
  *  every output. */
-export function inputFamilies(chain: Chain, tid: TxId): string[] {
+export function inputFamilies(chain: Chain, tid: TxId): ScriptKind[] {
   const tx = chain.txs.get(tid);
   if (!tx) return [];
-  const out: string[] = [];
+  const out: ScriptKind[] = [];
   for (const i of tx.inputs) {
     const s = chain.coins.get(i)!.addr?.script;
     if (s !== undefined) out.push(s);
@@ -95,7 +95,7 @@ export function payjoinSteps(
   payjoinFocus: () => Rect,
   payjoinTx: () => string | undefined,
   detection: () => PayjoinDetection | undefined,
-  families: () => string[],
+  families: () => ScriptKind[],
 ): TutorialStep[] {
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
   // the chapter's exhibit is one concrete transaction: keep it selected
@@ -156,7 +156,7 @@ export function payjoinSteps(
         (Wallets also leave <b>fingerprints</b> — quirks of how each
         builds its transactions, and this town's wallet products carry
         them too. A two-input spend whose inputs sit on different script
-        families reads more like two wallets than one, and can tilt the
+        types reads more like two wallets than one, and can tilt the
         guess further without settling it.)</p>
         <p>The payee is not fooled at all: they contributed their coin, so
         they know <b>exactly</b> which inputs were the payer's. What a
@@ -255,22 +255,22 @@ export function payjoinSteps(
       title: "Wallets sign their work",
       html: () => {
         const f = families();
-        const kinds = [...new Set(f)];
+        const kinds = [...new Set(f)].map(scriptTitle);
         const reading = kinds.length >= 2
-          ? `they sit on <b>two families</b> — ${kinds.join(" and ")}. A
-          wallet keeps its addresses in one family, so two families among
+          ? `they sit on <b>two script types</b> — ${kinds.join(" and ")}.
+          A wallet keeps its addresses on one type, so two types among
           one transaction's inputs read like <b>two wallets' coins in one
           spend</b>.`
           : kinds.length === 1
-            ? `both sit on <b>${kinds[0]}</b> — one family, so on this
-          axis the record is mute about how many wallets built the
+            ? `both sit on <b>${kinds[0]}</b> — one script type, so on
+          this axis the record is mute about how many wallets built the
           transaction.`
             : `the intro scene's coins carry no named wallet, so the
           record is mute here.`;
         return `<p>The record holds one more layer this story has so far
         only mentioned in passing. Every wallet product ships a bundle
         of defaults, and each one is written into the transactions it
-        builds: the <b>script family</b> its addresses pay to (public on
+        builds: the <b>script type</b> its addresses pay to (public on
         the face of every output), the <b>nLockTime</b> its drafts
         carry, the <b>size of its signatures</b> — some wallets grind
         every signature a byte smaller, the rest leave sizes mixed. None
@@ -294,7 +294,7 @@ export function payjoinSteps(
         const setup = `<p><i>Statistical fingerprinting</i> just joined
         the panel on the left, switched on. With it, the observer acts
         on what the last step read: a transaction whose inputs sit on
-        different script families is taken as <b>probable
+        different script types is taken as <b>probable
         collaboration</b> — two wallets, two people — and CIOH
         <b>abstains</b> rather than record the one-owner reading it
         knows is suspect.</p>`;
@@ -304,14 +304,14 @@ export function payjoinSteps(
         payee's coins sit apart on the observer's map with no
         contradiction to notice retroactively.</p>`
           : `<p>On this transaction the check stays <b>quiet</b>: the
-        inputs share one family, nothing marks the spend as two wallets'
+        inputs share one script type, nothing marks the spend as two wallets'
         work, and the merge stands. That is the defense's actual shape —
         a payjoin's cover extends exactly as far as the participants'
         fingerprints agree, and these two happen to match.</p>`;
         return `${setup}${verdict}
         <p>The check is a heuristic like the others, and its failure
         mode is the mirror image of CIOH's: a user who migrated wallets
-        spends their own coins from two families in one transaction, and
+        spends their own coins from two script types in one transaction, and
         the check misreads that housekeeping as collaboration — the
         observer then <i>misses</i> a true link. One buys the mistake of
         linking strangers, the other of losing a user's own thread; the

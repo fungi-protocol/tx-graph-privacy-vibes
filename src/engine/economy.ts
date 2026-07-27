@@ -237,7 +237,7 @@ export class Economy {
     return out;
   }
 
-  /** the script family a coin lands on — the owner's wallet's kind, read
+  /** the script type a coin lands on — the owner's wallet's kind, read
    *  by the retroactive address walk. Savings brought from before the
    *  story (roots entering on or before the owner's arrival) sit on the
    *  FORMER wallet's kind where one is named: a migration shows on chain.

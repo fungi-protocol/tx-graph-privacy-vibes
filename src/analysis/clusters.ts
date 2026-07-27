@@ -18,7 +18,7 @@
 //     transaction when no partition applies): an amount that is
 //     plausibly a payment — low decimal hamming weight in dollars at
 //     that day's rate or in BTC ($40, 0.05 BTC; not $37.63) — or a
-//     script family none of the inputs use (wallets pay change back
+//     script type none of the inputs use (wallets pay change back
 //     to their own kind, so a foreign kind reads as the payee's
 //     address; a wallet migration makes this tell misfire, the new
 //     wallet's change looking foreign next to the old wallet's
@@ -218,7 +218,7 @@ export interface Heuristics {
    *  transactions routinely do. Undefined = no cap. */
   ciohMaxInputs?: number;
   /** read wallet fingerprints (the statistical-fingerprinting knob):
-   *  a wallet keeps its addresses in one script family, so a spend
+   *  a wallet keeps its addresses in one script type, so a spend
    *  whose INPUTS sit on two families reads as two wallets' coins in
    *  one transaction — probable collaboration (Sabouri 2026: fingerprints
    *  that partition the inputs restore what the payjoin broke; Ghesmati
@@ -240,7 +240,7 @@ export interface Heuristics {
 /** The change heuristic's payment-identification tells, individually
  *  switchable (Heuristics.changeTells): round dollars, round bitcoin,
  *  auxiliary attribution, and the script-type tell — an output paying
- *  a script family none of the inputs use reads as the payment. */
+ *  a script type none of the inputs use reads as the payment. */
 export const TELL_USD = 1, TELL_BTC = 2, TELL_AUX = 4, TELL_SCRIPT = 8, TELL_ALL = 15;
 
 /** the shape the observer reads as a likely coinjoin between
@@ -361,7 +361,7 @@ export function clusterObserver(
     return false;
   };
   // the fingerprint reading (Heuristics.fingerprints): inputs sitting on
-  // two script families read as two wallets' coins in one transaction,
+  // two script types read as two wallets' coins in one transaction,
   // so every one-owner reading of it is suspect and the links abstain
   const fp = heuristics.fingerprints ?? false;
   const mixedWallets = (ins: readonly CoinId[]): boolean => {

@@ -178,7 +178,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         the address-type heuristic: change usually matches the inputs' address
         type while the payment is whatever the payee asked for — a wallet
         keeps its change where it keeps its keys. This town's wallet
-        products each stick to one script family, so the heuristic has purchase
+        products each stick to one script type, so the heuristic has purchase
         here: it runs under the <b>script type</b> checkbox in the change
         heuristic's controls, and every mixed-type payment leaks what a
         uniform one doesn't.</p>

@@ -1313,7 +1313,7 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
     ? `<div id="chtells">
         <label class="ovnest" title="an amount landing on a round multiple of $10 at that day's exchange rate reads as a payment — prices are set in dollars"><input type="checkbox" id="chusd" checked> round dollars</label>
         <label class="ovnest" title="an amount round in BTC terms (0.05, not 0.0473) reads as a payment too"><input type="checkbox" id="chbtc" checked> round bitcoin</label>
-        <label class="ovnest" title="an output paying a script family (address type) none of the inputs use reads as a payment — a wallet keeps its change where it keeps its keys. A wallet migration makes this heuristic misfire: the new wallet's change looks foreign next to the old wallet's coins"><input type="checkbox" id="chscript" checked> script type</label>
+        <label class="ovnest" title="an output paying a script type (address type) none of the inputs use reads as a payment — a wallet keeps its change where it keeps its keys. A wallet migration makes this heuristic misfire: the new wallet's change looks foreign next to the old wallet's coins"><input type="checkbox" id="chscript" checked> script type</label>
         <label class="ovnest" title="an output the observer's auxiliary information attributes to a different owner than a granted input is a payment however the amount reads — needs the knowledge grant below to have anything to say"><input type="checkbox" id="chaux" checked> auxiliary attribution</label>
         <div class="ovslider" title="how many of the ENABLED heuristic kinds must fire across the sub-transaction's identified payments before the leftover output is linked. At 1 any single heuristic decides; higher bars demand the kinds corroborate each other, trading coverage for fewer wrong links">
           <span>evidence bar</span>
@@ -1344,7 +1344,7 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
     </div>
     <div id="nsproposal"></div>
   </div>
-  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, time-of-day rhythm, feerates absolute and relative to the day's prevailing rate, address script families, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script families in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
+  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, time-of-day rhythm, feerates absolute and relative to the day's prevailing rate, address script types, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script types in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
   <div id="nsnfcontrols" style="display:none">
     <div class="ovslider" title="similarity a pair must clear to be matched (mean cosine over the feature blocks); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
       <span>threshold</span>
@@ -1360,7 +1360,7 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
       <span id="nsnfpos"></span>
     </div>
     <div id="nsnfstats"></div>
-    <div class="nshint">each wallet product here keeps one script family, one nLockTime default and one signing habit — the same knobs real wallet software leaves set on the record</div>
+    <div class="nshint">each wallet product here keeps one script type, one nLockTime default and one signing habit — the same knobs real wallet software leaves set on the record</div>
   </div>
   <h4>auxiliary information</h4>
   <label title="the exchange's private books: a coin withdrawn by an identified customer, or spent into an identified deposit, carries a true name. Nothing on the graph marks these — this observer simply holds the records, and the named coins become a floor of certain knowledge under whatever the slider leaks"><input type="checkbox" id="kycobs"> exchange records (KYC)</label>

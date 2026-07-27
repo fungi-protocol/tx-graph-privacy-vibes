@@ -20,22 +20,42 @@ export type Owner = number | null;
  * the address string (addrText) — analysis code must compare addresses for
  * equality and display addrText, never read `who`.
  *
- * `script` is the output's script family — public on the face of every
- * address, and a wallet fingerprint: each wallet product pays to one kind,
- * so the kinds a cluster's coins use trace its software (and a change
- * output usually matches its inputs' kind, the change heuristic's
+ * `script` is the output's script type — public on the face of every
+ * address, and a wallet fingerprint: each wallet product pays to one type,
+ * so the types a cluster's coins use trace its software (and a change
+ * output usually matches its inputs' type, the change heuristic's
  * script-type tell). The fee model keeps one fixed vsize regardless — the
- * kinds differ on the record, not in what they cost here.
+ * types differ on the record, not in what they cost here.
  */
 export type AddrBranch = "external" | "internal";
-/** script families, oldest first — protocol families, not products */
+/**
+ * Concrete script types, oldest first. The enum values are historical
+ * shorthand kept stable on the wire (goldens, fragments); user-facing text
+ * goes through scriptLabel/scriptTitle instead. What each value denotes:
+ * "legacy" = P2PKH ("1…"); "compat" = P2SH-wrapped segwit ("3…");
+ * "segwit" = native segwit v0, P2WPKH ("bc1q…"); "taproot" = segwit v1,
+ * P2TR ("bc1p…"). Segwit itself is a script VERSION family, not one type —
+ * v0 covers P2WPKH and P2WSH, and taproot IS segwit v1 — so prose must
+ * never list "segwit" as a sibling of taproot.
+ */
 export type ScriptKind = "legacy" | "compat" | "segwit" | "taproot";
+/** the concrete script type as the record shows it (card faces, readouts) */
+export function scriptLabel(k: ScriptKind): string {
+  return k === "legacy" ? "P2PKH" : k === "compat" ? "P2SH" : k === "segwit" ? "P2WPKH" : "P2TR";
+}
+/** the long form for first mentions: the type plus its version family */
+export function scriptTitle(k: ScriptKind): string {
+  return k === "legacy" ? "P2PKH (legacy)"
+    : k === "compat" ? "P2SH-wrapped segwit"
+    : k === "segwit" ? "P2WPKH (segwit v0)"
+    : "P2TR (segwit v1, taproot)";
+}
 export const SCRIPT_KINDS: ScriptKind[] = ["legacy", "compat", "segwit", "taproot"];
 export interface Addr {
   who: Owner;
   branch: AddrBranch;
   index: number;
-  /** script family; absent only where no wallet was named (intro scene) */
+  /** script type; absent only where no wallet was named (intro scene) */
   script?: ScriptKind;
 }
 
@@ -55,7 +75,7 @@ export function addrKey(a: Addr): string {
 }
 
 /** the address as the chain publishes it: a short address-looking string,
- *  deterministic in the derivation path, prefixed by its script family the
+ *  deterministic in the derivation path, prefixed by its script type the
  *  way real addresses are — the family is public even in display form */
 export function addrText(a: Addr): string {
   const key = addrKey(a);
@@ -231,7 +251,7 @@ export class Chain {
    * entirely: one external address for everything, receives and change
    * alike, the way careless wallets and donation pages still do.
    *
-   * `scriptOf(who, day, root)` names the script family the owner's wallet
+   * `scriptOf(who, day, root)` names the script type the owner's wallet
    * paid to for a coin created that day (`root` = it entered from outside
    * rather than being produced by a transaction; day < 0 = pre-story).
    * Savings brought along from before the story may sit on a FORMER

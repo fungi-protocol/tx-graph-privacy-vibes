@@ -16,7 +16,7 @@ export interface Persona {
   /** wallet product key (WALLETS); absent = "hearth", the town default */
   wallet?: string;
   /** the wallet run BEFORE the story: pre-story savings still sit on its
-   *  addresses, so a migration is two script families in one true wallet —
+   *  addresses, so a migration is two script types in one true wallet —
    *  and the old coins' change tells misfire (the new wallet's change
    *  looks foreign next to the old wallet's inputs) */
   walletBefore?: string;
@@ -80,7 +80,7 @@ export interface Edge {
  * signatures are uniformly small; the rest leave sizes mixed). Script,
  * locktime, and grinding are assigned retroactively — a pure walk of
  * the record, so the seeded streams that shape the town never move —
- * and the fee model keeps one fixed vsize regardless of family: the
+ * and the fee model keeps one fixed vsize regardless of script type: the
  * kinds differ on the record, not in what they cost here.
  *
  * The fee policy maps the day's prevailing rate and one behavior draw
@@ -95,7 +95,7 @@ export interface WalletProduct {
   /** how the full fingerprint reads to an observer */
   tell: string;
   fee: (base: number, draw: number) => number;
-  /** script family its addresses pay to */
+  /** script type its addresses pay to */
   script: ScriptKind;
   /** transaction-building habits, recorded on the txs it drafts */
   traits: WalletTraits;
@@ -129,7 +129,7 @@ export const WALLETS: Record<string, WalletProduct> = {
   foxglove: {
     name: "Foxglove",
     pitch: "privacy-branded: randomizes its fee bids so the wallet itself keeps no rhythm",
-    tell: "a fee scatter twice as wide as anyone's — the width is its own signature; bc1p addresses (it moved to the newest family first), tip-locked drafts, ground signatures — every knob at the careful setting, and the bundle is itself conspicuous",
+    tell: "a fee scatter twice as wide as anyone's — the width is its own signature; bc1p addresses (it moved to the newest script type first), tip-locked drafts, ground signatures — every knob at the careful setting, and the bundle is itself conspicuous",
     fee: (base, draw) => Number((base * (0.6 + draw * 1.1)).toFixed(2)),
     script: "taproot",
     traits: { locktime: "tip", lowR: true },
@@ -154,7 +154,7 @@ export function walletFee(p: Persona, base: number, draw: number): number {
   return walletOf(p).fee(base, draw);
 }
 
-/** the script family this persona's coins land on: savings brought from
+/** the script type this persona's coins land on: savings brought from
  *  before the story sit on the FORMER wallet's kind where one is named —
  *  the chain shows the migration — everything else on the current one */
 export function walletScript(p: Persona, preStory: boolean): ScriptKind {
@@ -164,7 +164,7 @@ export function walletScript(p: Persona, preStory: boolean): ScriptKind {
 
 /** the persona's transaction-building habits — always the CURRENT
  *  wallet's: migrating imports the old keys into the new software, so
- *  old coins keep their script family but spend with new-wallet habits */
+ *  old coins keep their script type but spend with new-wallet habits */
 export function walletTraits(p: Persona): WalletTraits {
   return walletOf(p).traits;
 }

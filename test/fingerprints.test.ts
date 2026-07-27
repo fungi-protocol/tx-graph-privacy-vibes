@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Chain, addrText, type ScriptKind } from "../src/model/chain";
+import { Chain, addrText, scriptLabel, scriptTitle, type ScriptKind } from "../src/model/chain";
 import { txfee } from "../src/core/sats";
 import { clusterObserver, clusterByOwner, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
@@ -20,13 +20,24 @@ function synthNf(over: Partial<NfStats>): NfStats {
 const PRICE = 100_000; // $100k/BTC: 1000 sats = $1
 const at = (): number => PRICE;
 
-test("addrText prefixes follow the script family", () => {
+test("addrText prefixes follow the script type", () => {
   const a = { who: 3, branch: "external" as const, index: 7 };
   const pre = (script: ScriptKind): string => addrText({ ...a, script });
   assert.match(pre("legacy"), /^1[^1]/);
   assert.match(pre("compat"), /^3/);
   assert.match(pre("segwit"), /^bc1q/);
   assert.match(pre("taproot"), /^bc1p/);
+});
+
+test("user-facing script names carry the real taxonomy: segwit is a version family, taproot is segwit v1 (#118)", () => {
+  assert.equal(scriptLabel("legacy"), "P2PKH");
+  assert.equal(scriptLabel("compat"), "P2SH");
+  assert.equal(scriptLabel("segwit"), "P2WPKH");
+  assert.equal(scriptLabel("taproot"), "P2TR");
+  assert.equal(scriptTitle("legacy"), "P2PKH (legacy)");
+  assert.equal(scriptTitle("compat"), "P2SH-wrapped segwit");
+  assert.equal(scriptTitle("segwit"), "P2WPKH (segwit v0)");
+  assert.equal(scriptTitle("taproot"), "P2TR (segwit v1, taproot)");
 });
 
 test("assignAddresses records each wallet's script; assignTxTraits the builder's habits", () => {

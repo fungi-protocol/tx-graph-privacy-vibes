@@ -3,7 +3,7 @@
 // across the morph: a coin's producing box glides to its coin vertex, the
 // duplicate input slots fly into that same vertex while fading, tx cards
 // shrink to square nodes, and the output edges fade in.
-import { type Chain, type Coin } from "../model/chain";
+import { type Chain, type Coin, scriptLabel } from "../model/chain";
 import { fmtSats } from "../core/sats";
 import { type Paint, STRUCTURE } from "./paint";
 import { type Layout, type Rect, type Hit } from "./blockview";
@@ -450,14 +450,14 @@ function drawCoinBox(
   ctx.font = unspent ? "700 12px system-ui, sans-serif" : "400 12px system-ui, sans-serif";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
-  // the script family is public record on the face of the output (#93):
+  // the script type is public record on the face of the output (#93):
   // shown under the amount, small enough to need a zoom, like the chain
   if (coin.addr?.script !== undefined) {
     ctx.fillText(fmtSats(coin.value), rect.x + rect.w / 2, rect.y + rect.h / 2 - 3);
     ctx.save();
     ctx.globalAlpha *= 0.7;
     ctx.font = "7px system-ui, sans-serif";
-    ctx.fillText(coin.addr.script, rect.x + rect.w / 2, rect.y + rect.h / 2 + 9);
+    ctx.fillText(scriptLabel(coin.addr.script), rect.x + rect.w / 2, rect.y + rect.h / 2 + 9);
     ctx.restore();
   } else {
     ctx.fillText(fmtSats(coin.value), rect.x + rect.w / 2, rect.y + rect.h / 2);

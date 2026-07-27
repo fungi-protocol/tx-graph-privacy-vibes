@@ -6,11 +6,11 @@
 // over time, time-of-day rhythm (a shopkeeper spends during business
 // hours, a night owl after dark — the habit of a person, and it survives
 // clustering), feerates absolute and relative to the day's prevailing
-// rate, address script families, and transaction-building habits
+// rate, address script types, and transaction-building habits
 // (nLockTime default, signature grinding) — and clusters whose vectors agree closely
 // are proposed as one user. The feerate, script and habit blocks are where
 // wallet software sings: every product in scenario/cast.ts bids by policy,
-// keeps its addresses in one script family, and stamps its drafts the same
+// keeps its addresses in one script type, and stamps its drafts the same
 // way every time, and all of that survives clustering.
 //
 // Unlike the propagation algorithm, the iterative form buys no intuition
@@ -42,7 +42,7 @@ export interface NfStats {
   feeAbs: number[];
   /** feerate relative to the day median, fixed buckets */
   feeRel: number[];
-  /** address script families of the cluster's coins (SCRIPT_KINDS order) */
+  /** address script types of the cluster's coins (SCRIPT_KINDS order) */
   script: number[];
   /** tx-building habits of the cluster's spends:
    *  [tip-locked drafts, zero-locked drafts, low-R signatures, other] */
