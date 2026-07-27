@@ -3,10 +3,10 @@
 // semantic scene (scene.ts) and the partition — which strands exist is
 // never decided here, so switching arrangements can animate identical
 // incidence ids instead of re-deriving topology.
-import { type Chain, type CoinId } from "../model/chain";
+import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { type Clustering } from "../analysis/clusters";
 import { type Rect } from "./blockview";
-import { contractedScene } from "./scene";
+import { contractedScene, incidenceId } from "./scene";
 
 export interface ClusterNode {
   rep: CoinId;
@@ -429,4 +429,148 @@ function crossingMinimizedOrder(cl: Clustering, chain: Chain, start: CoinId[]): 
     order = [...order].sort((a, b) => key.get(a)! - key.get(b)! || (a < b ? -1 : 1));
   }
   return order;
+}
+
+// --- strand geometry (#129, delivering the #115 contract at runtime):
+// every incidence — a strand between a cluster vertex and a transaction
+// junction — gets ONE drawable shape per arrangement, keyed by its
+// stable id. A transition between arrangements (or partitions) then
+// interpolates identical ids' shapes instead of re-deriving edges from
+// the target layout mid-flight; a strand appears or disappears only
+// when the underlying partition changed.
+
+/** one strand's drawable shape: a quadratic bezier from (x0,y0)
+ *  through the control point (cx,cy) to (x1,y1). A straight strand is
+ *  the degenerate case with the control on the segment's midpoint. */
+export interface StrandQuad {
+  x0: number; y0: number;
+  cx: number; cy: number;
+  x1: number; y1: number;
+}
+/** a strand with its identity and enough context to paint it: the
+ *  transaction it belongs to, the cluster vertex it touches, and the
+ *  direction (in = vertex feeds the junction, out = junction pays the
+ *  vertex — the arrowed half) */
+export interface Strand {
+  id: string;
+  tid: TxId;
+  rep: CoinId;
+  dir: "in" | "out";
+  quad: StrandQuad;
+  /** strands of a multi-party transaction meet at a drawn junction
+   *  square; a two-party transfer's two halves join invisibly */
+  junction: boolean;
+}
+
+/** the ring/band/force bow: the control point pulls toward the
+ *  layout's center, deeper for longer edges, capped at the center so a
+ *  long chord never overshoots to the far side (see the renderer's
+ *  rationale — this is the same shape, factored out so transitions can
+ *  interpolate it) */
+export function bowControl(
+  x0: number, y0: number, x1: number, y1: number,
+  cx: number, cy: number,
+): { cx: number; cy: number } {
+  const mx0 = (x0 + x1) / 2, my0 = (y0 + y1) / 2;
+  const dx = cx - mx0, dy = cy - my0;
+  const dc = Math.hypot(dx, dy) || 1;
+  const depth = Math.min(0.3 * Math.hypot(x1 - x0, y1 - y0), dc);
+  return { cx: mx0 + (dx / dc) * depth, cy: my0 + (dy / dc) * depth };
+}
+
+/** split a quadratic at t=1/2 (de Casteljau): the two halves render
+ *  the exact same curve, so a two-party edge drawn as one unbroken
+ *  bezier can carry its two incidence ids without changing a pixel */
+export function splitQuad(q: StrandQuad): { a: StrandQuad; b: StrandQuad } {
+  const m0x = (q.x0 + q.cx) / 2, m0y = (q.y0 + q.cy) / 2;
+  const m1x = (q.cx + q.x1) / 2, m1y = (q.cy + q.y1) / 2;
+  const qx = (m0x + m1x) / 2, qy = (m0y + m1y) / 2;
+  return {
+    a: { x0: q.x0, y0: q.y0, cx: m0x, cy: m0y, x1: qx, y1: qy },
+    b: { x0: qx, y0: qy, cx: m1x, cy: m1y, x1: q.x1, y1: q.y1 },
+  };
+}
+
+/** linear interpolation of two strand shapes, control point included —
+ *  the whole transition engine. t=0 IS the old shape, t=1 IS the new
+ *  one, and identity is the id the caller matched on, so nothing
+ *  appears or disappears mid-flight. */
+export function lerpQuad(a: StrandQuad, b: StrandQuad, t: number): StrandQuad {
+  // the affine form is EXACT at both endpoints (u+(v-u)*t drifts a few
+  // ulps at t=1), so t=0 IS the old shape and t=1 IS the new one
+  const l = (u: number, v: number): number => u * (1 - t) + v * t;
+  return {
+    x0: l(a.x0, b.x0), y0: l(a.y0, b.y0),
+    cx: l(a.cx, b.cx), cy: l(a.cy, b.cy),
+    x1: l(a.x1, b.x1), y1: l(a.y1, b.y1),
+  };
+}
+
+/** every strand's shape under one arrangement, keyed by incidence id.
+ *  Two-party transfers keep their single unbroken bow, split at the
+ *  curve's midpoint into the two strands (pixel-identical); multi-party
+ *  transactions meet at a junction (the endpoint centroid, where the tx
+ *  vertex pinched shut), one strand per incidence. The column
+ *  arrangement keeps its lane shapes: straight between lanes, an arc
+ *  threaded beside the column within one. */
+export function strandGeometry(
+  chain: Chain,
+  cl: Clustering,
+  clay: ClusterLayout,
+): Map<string, Strand> {
+  const out = new Map<string, Strand>();
+  const columns = clay.nodes.size > 0 &&
+    clay.nodes.values().next().value!.lanes !== undefined;
+  let maxLane = 0;
+  if (columns) {
+    for (const n of clay.nodes.values()) {
+      for (const l of n.lanes ?? []) maxLane = Math.max(maxLane, l);
+    }
+  }
+  const ccx = clay.bounds.x + clay.bounds.w / 2, ccy = clay.bounds.y + clay.bounds.h / 2;
+  const pairQuad = (f: ClusterNode, tn: ClusterNode): StrandQuad => {
+    if (columns) {
+      const sameLane = f.lanes !== undefined && tn.lanes !== undefined &&
+        f.lanes.length === 1 && tn.lanes.length === 1 && f.lanes[0] === tn.lanes[0];
+      if (!sameLane) {
+        return { x0: f.x, y0: f.y, cx: (f.x + tn.x) / 2, cy: (f.y + tn.y) / 2, x1: tn.x, y1: tn.y };
+      }
+      const bowSign = f.lanes![0]! < (maxLane + 1) / 2 ? -1 : 1;
+      const bow = bowSign * Math.min(240, 28 + Math.abs(tn.y - f.y) * 0.3);
+      return { x0: f.x, y0: f.y, cx: (f.x + tn.x) / 2 + bow, cy: (f.y + tn.y) / 2, x1: tn.x, y1: tn.y };
+    }
+    const c = bowControl(f.x, f.y, tn.x, tn.y, ccx, ccy);
+    return { x0: f.x, y0: f.y, cx: c.cx, cy: c.cy, x1: tn.x, y1: tn.y };
+  };
+  const legQuad = (x0: number, y0: number, x1: number, y1: number): StrandQuad => {
+    if (columns) return { x0, y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, x1, y1 };
+    const c = bowControl(x0, y0, x1, y1, ccx, ccy);
+    return { x0, y0, cx: c.cx, cy: c.cy, x1, y1 };
+  };
+  for (const e of contractedScene(chain, cl)) {
+    const fromN = e.from.map((r) => clay.nodes.get(r)).filter((n): n is ClusterNode => !!n);
+    const toN = e.to.map((r) => clay.nodes.get(r)).filter((n): n is ClusterNode => !!n);
+    if (fromN.length === 0 || toN.length === 0) continue;
+    if (fromN.length === 1 && toN.length === 1) {
+      const whole = pairQuad(fromN[0]!, toN[0]!);
+      const { a, b } = splitQuad(whole);
+      out.set(incidenceId(e.tid, fromN[0]!.rep, "in"),
+        { id: incidenceId(e.tid, fromN[0]!.rep, "in"), tid: e.tid, rep: fromN[0]!.rep, dir: "in", quad: a, junction: false });
+      out.set(incidenceId(e.tid, toN[0]!.rep, "out"),
+        { id: incidenceId(e.tid, toN[0]!.rep, "out"), tid: e.tid, rep: toN[0]!.rep, dir: "out", quad: b, junction: false });
+      continue;
+    }
+    let jx = 0, jy = 0;
+    for (const n of [...fromN, ...toN]) { jx += n.x; jy += n.y; }
+    jx /= fromN.length + toN.length; jy /= fromN.length + toN.length;
+    for (const fn of fromN) {
+      const id = incidenceId(e.tid, fn.rep, "in");
+      out.set(id, { id, tid: e.tid, rep: fn.rep, dir: "in", quad: legQuad(fn.x, fn.y, jx, jy), junction: true });
+    }
+    for (const tn of toN) {
+      const id = incidenceId(e.tid, tn.rep, "out");
+      out.set(id, { id, tid: e.tid, rep: tn.rep, dir: "out", quad: legQuad(jx, jy, tn.x, tn.y), junction: true });
+    }
+  }
+  return out;
 }

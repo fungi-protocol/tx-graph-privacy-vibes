@@ -30,6 +30,8 @@ def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox"])
         page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto("http://127.0.0.1:8000/", wait_until="load")
         page.wait_for_timeout(1500)
         assert "transaction privacy vibes" in page.title(), page.title()
@@ -64,6 +66,26 @@ def main() -> None:
         page.keyboard.press("v")
         page.wait_for_timeout(500)
 
+        # exercise the strand-interpolated repartitions (#129): collapse
+        # to the contracted map, cycle the arrangements (chord ring ->
+        # band -> force map), toggle clustered/unclustered, and bring up
+        # the ns-social columns — each transition must animate without a
+        # page error
+        page.keyboard.press("c")  # collapse: clustered chord ring
+        page.wait_for_timeout(1200)
+        for _ in range(3):  # chord -> layered(band) -> force -> chord
+            page.locator("#layoutbtn").click()
+            page.wait_for_timeout(1200)
+        page.locator("#unclusterbtn").click()  # -> unclustered ring
+        page.wait_for_timeout(1200)
+        page.locator("#unclusterbtn").click()  # -> back to clustered
+        page.wait_for_timeout(1200)
+        page.locator("#nssoc").click()  # ns-social: columns arrangement
+        page.wait_for_timeout(2500)  # worker run + column transition
+        page.locator("#nssoc").click()  # and back off the columns
+        page.wait_for_timeout(1200)
+
+        assert not errors, f"page errors: {errors}"
         print(f"tutorial complete: {len(seen)} step titles, day {day_after}")
         browser.close()
 

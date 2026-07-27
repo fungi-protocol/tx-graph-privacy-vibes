@@ -3,7 +3,7 @@
 // honestly computed partitions; the tween never feeds any analysis.
 import { type CoinId } from "../model/chain";
 import { type Clustering } from "../analysis/clusters";
-import { type ClusterLayout } from "./clusterlayout";
+import { type ClusterLayout, type Strand } from "./clusterlayout";
 
 /** how the active lens NAMES the contracted vertices — truth (owner
  *  names), inference ("cluster 3"), or one participant's ledger
@@ -55,6 +55,13 @@ export function truthSlices(
 export interface ClusterTransition {
   t: number; // 0 = old discs, 1 = settled new layout
   fragments: Map<CoinId, { x: number; y: number; r: number; coins: CoinId[] }[]>;
+  /** the OLD arrangement's strand shapes, keyed by incidence id (#129):
+   *  when present, the renderer interpolates each strand from this
+   *  shape to the new arrangement's, so an edge morphs from where it
+   *  was to where it is going. A strand only in the old map fades out
+   *  and one only in the new map fades in — by the #115 contract that
+   *  happens exactly when the partition itself changed. */
+  strands?: Map<string, Strand>;
 }
 
 /** start-state fragments for animating oldCl/oldClay -> newCl: for each

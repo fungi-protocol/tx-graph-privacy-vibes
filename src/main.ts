@@ -16,7 +16,7 @@ import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons,
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
-import { layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
+import { layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, strandGeometry, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { canonical, contracted, knobs, withView, withLayout, withGrouping, fragmentView, viewFromFragment, viewFromStep, type ViewState } from "./ui/viewstate";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
@@ -908,6 +908,7 @@ function setUnclustered(on: boolean, animate = true): void {
     const tr: ClusterTransition = {
       t: 0,
       fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+      strands: strandGeometry(active().chain, before.cl, before.clay),
     };
     clusterTrans = tr;
     anim.add(900, (t) => { tr.t = t; }, {
@@ -991,6 +992,7 @@ function setForceLayout(on: boolean, animate = true): void {
     const tr: ClusterTransition = {
       t: 0,
       fragments: transitionFragments(beforeRing.cl, beforeRing.clay, lensClustering()),
+      strands: strandGeometry(active().chain, beforeRing.cl, beforeRing.clay),
     };
     clusterTrans = tr;
     anim.add(900, (t) => { tr.t = t; }, {
@@ -1085,6 +1087,7 @@ function beginClusterTween(before: { cl: Clustering; clay: ClusterLayout } | nul
   const tr: ClusterTransition = {
     t: 0,
     fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+      strands: strandGeometry(active().chain, before.cl, before.clay),
   };
   clusterTrans = tr;
   anim.add(900, (t) => { tr.t = t; }, {
@@ -1159,6 +1162,7 @@ function setLens(l: 0 | 1 | 2): void {
       const tr: ClusterTransition = {
         t: 0,
         fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+      strands: strandGeometry(active().chain, before.cl, before.clay),
       };
       clusterTrans = tr;
       anim.add(900, (t) => { tr.t = t; }, {
@@ -1489,6 +1493,7 @@ function startRepartitionTween(before: { cl: Clustering; clay: ClusterLayout } |
   const tr: ClusterTransition = {
     t: 0,
     fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+      strands: strandGeometry(active().chain, before.cl, before.clay),
   };
   clusterTrans = tr;
   anim.add(900, (t) => { tr.t = t; }, {

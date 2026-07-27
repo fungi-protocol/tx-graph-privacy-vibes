@@ -372,3 +372,109 @@ test("band keeps the timeline order left to right; force map is deterministic (#
     .filter((n) => Math.hypot(n.x - ring.nodes.get(n.rep)!.x, n.y - ring.nodes.get(n.rep)!.y) > 5);
   assert.ok(moved.length > f1.nodes.size / 2, "force map barely differs from the ring");
 });
+
+// #129: the incidence-geometry interpolation the #115 contract promised.
+// strandGeometry assigns each incidence id ONE drawable quadratic per
+// arrangement; a transition then interpolates identical ids' shapes.
+const evalQuad = (q: { x0: number; y0: number; cx: number; cy: number; x1: number; y1: number }, t: number): { x: number; y: number } => {
+  const u = 1 - t;
+  return {
+    x: u * u * q.x0 + 2 * u * t * q.cx + t * t * q.x1,
+    y: u * u * q.y0 + 2 * u * t * q.cy + t * t * q.y1,
+  };
+};
+
+test("strandGeometry keys exactly the scene's incidence ids, in every arrangement (#129)", async () => {
+  const { strandGeometry, layoutClusterColumns, layoutClusterBand, layoutClusterForceMap } = await import("../src/ui/clusterview");
+  const { partitionColumns } = await import("../src/analysis/nssocial");
+  const eco = new Economy("golden");
+  eco.runTo(60);
+  const chain = eco.chain;
+  for (const cl of [clusterObserver(chain, (d) => eco.prices[d]), clusterSingletons(chain)]) {
+    const ids = new Set<string>();
+    for (const e of contractedScene(chain, cl)) {
+      for (const r of e.from) ids.add(incidenceId(e.tid, r, "in"));
+      for (const r of e.to) ids.add(incidenceId(e.tid, r, "out"));
+    }
+    const cols = partitionColumns(cl, chain, 2);
+    const lanes = new Map([...cols].map(([rep, c]) => [rep, [c]]));
+    const arrangements = {
+      ring: layoutClusterGraph(cl, chain, "time"),
+      columns: layoutClusterColumns(cl, chain, lanes, 2, "time"),
+      band: layoutClusterBand(cl, chain, "time"),
+      forceMap: layoutClusterForceMap(cl, chain),
+    };
+    for (const [name, clay] of Object.entries(arrangements)) {
+      const geo = strandGeometry(chain, cl, clay);
+      assert.equal(geo.size, ids.size, `${name}: ${geo.size} strands for ${ids.size} incidences`);
+      for (const id of ids) {
+        const s = geo.get(id);
+        assert.ok(s, `${name} missing strand ${id}`);
+        assert.equal(s!.id, id);
+        for (const v of [s!.quad.x0, s!.quad.y0, s!.quad.cx, s!.quad.cy, s!.quad.x1, s!.quad.y1]) {
+          assert.ok(Number.isFinite(v), `${name} strand ${id} has a non-finite coordinate`);
+        }
+      }
+    }
+  }
+});
+
+test("a two-party edge's split strands render the original curve and join seamlessly (#129)", async () => {
+  const { splitQuad, strandGeometry } = await import("../src/ui/clusterview");
+  // de Casteljau split fidelity on an arbitrary quad
+  const q = { x0: 3, y0: -7, cx: 40, cy: 55, x1: 120, y1: 10 };
+  const { a, b } = splitQuad(q);
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    const whole = evalQuad(q, t);
+    const piece = t <= 0.5 ? evalQuad(a, t * 2) : evalQuad(b, (t - 0.5) * 2);
+    assert.ok(Math.abs(whole.x - piece.x) < 1e-9 && Math.abs(whole.y - piece.y) < 1e-9,
+      `split diverges from the whole at t=${t}`);
+  }
+  // in the real scene: each two-party edge's in-strand ends where its
+  // out-strand starts, and only multi-party strands carry a junction
+  const eco = new Economy("golden");
+  eco.runTo(60);
+  const chain = eco.chain;
+  const cl = clusterObserver(chain, (d) => eco.prices[d]);
+  const geo = strandGeometry(chain, cl, layoutClusterGraph(cl, chain, "time"));
+  let pairs = 0;
+  for (const e of contractedScene(chain, cl)) {
+    if (e.from.length !== 1 || e.to.length !== 1) continue;
+    const sin = geo.get(incidenceId(e.tid, e.from[0]!, "in"))!;
+    const sout = geo.get(incidenceId(e.tid, e.to[0]!, "out"))!;
+    assert.equal(sin.junction, false);
+    assert.equal(sout.junction, false);
+    assert.ok(Math.abs(sin.quad.x1 - sout.quad.x0) < 1e-9 && Math.abs(sin.quad.y1 - sout.quad.y0) < 1e-9,
+      `strands of ${e.tid} do not join`);
+    pairs += 1;
+  }
+  assert.ok(pairs >= 5, `only ${pairs} two-party edges at day 60`);
+  for (const e of contractedScene(chain, cl)) {
+    if (e.from.length + e.to.length <= 2) continue;
+    for (const r of e.from) assert.equal(geo.get(incidenceId(e.tid, r, "in"))!.junction, true);
+    for (const r of e.to) assert.equal(geo.get(incidenceId(e.tid, r, "out"))!.junction, true);
+  }
+});
+
+test("the transition interpolates identical ids: t=0 IS the old shape, t=1 the new, t=1/2 the midpoint (#129)", async () => {
+  const { strandGeometry, lerpQuad, layoutClusterBand } = await import("../src/ui/clusterview");
+  const eco = new Economy("golden");
+  eco.runTo(60);
+  const chain = eco.chain;
+  const cl = clusterObserver(chain, (d) => eco.prices[d]);
+  const oldGeo = strandGeometry(chain, cl, layoutClusterGraph(cl, chain, "time"));
+  const newGeo = strandGeometry(chain, cl, layoutClusterBand(cl, chain, "time"));
+  // same partition -> the id sets are identical: nothing appears or
+  // disappears from a pure arrangement change (chord <-> band)
+  assert.deepEqual([...oldGeo.keys()].sort(), [...newGeo.keys()].sort());
+  for (const [id, o] of oldGeo) {
+    const n = newGeo.get(id)!;
+    const at0 = lerpQuad(o.quad, n.quad, 0);
+    const at1 = lerpQuad(o.quad, n.quad, 1);
+    const mid = lerpQuad(o.quad, n.quad, 0.5);
+    assert.deepEqual(at0, o.quad, `${id} at t=0 is not the old shape`);
+    assert.deepEqual(at1, n.quad, `${id} at t=1 is not the new shape`);
+    assert.ok(Math.abs(mid.cx - (o.quad.cx + n.quad.cx) / 2) < 1e-9);
+    assert.ok(Math.abs(mid.x0 - (o.quad.x0 + n.quad.x0) / 2) < 1e-9);
+  }
+});

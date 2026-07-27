@@ -19,10 +19,11 @@ export {
   type ClusterNode, type ClusterLayout, fitClusterLayout,
   pileOffset, discRadius, pileScale,
   layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns,
+  type Strand, type StrandQuad, strandGeometry, splitQuad, lerpQuad, bowControl,
 } from "./clusterlayout";
 export { type ClusterPaint, type ClusterTransition, truthSlices, transitionFragments } from "./clustertransition";
 import { contractedScene } from "./scene";
-import { type ClusterNode, type ClusterLayout, pileOffset, pileScale } from "./clusterlayout";
+import { type ClusterNode, type ClusterLayout, pileOffset, pileScale, strandGeometry, lerpQuad } from "./clusterlayout";
 import { type ClusterPaint, type ClusterTransition } from "./clustertransition";
 
 function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, cx: number, cy: number): { tx: number; ty: number } {
@@ -129,10 +130,12 @@ export function drawContraction(
   for (const members of cl.members.values()) members.forEach((id, i) => pileIdx.set(id, i));
   const hov = hover !== undefined && clay.nodes.has(hover) ? hover : undefined;
   const neighbors = new Set<CoinId>();
+  const touchedTids = new Set<string>();
   if (hov !== undefined) {
     for (const e of contractedScene(chain, cl)) {
       const touches = e.from.includes(hov) || e.to.includes(hov);
       if (!touches) continue;
+      touchedTids.add(e.tid);
       for (const r of e.from) if (r !== hov) neighbors.add(r);
       for (const r of e.to) if (r !== hov) neighbors.add(r);
     }
@@ -258,11 +261,66 @@ export function drawContraction(
     }
   }
 
-  // residual transfer edges: each tx contracts to a junction — every
-  // distinct input cluster feeds it, it fans out to every output
-  // cluster the inputs don't own (contractedEdges). During a
-  // repartition tween they ride the discs, dimming only a little while
-  // everything is in flight
+  // residual transfer edges. While a transition carries the old
+  // arrangement's strand shapes (#129), every incidence id present at
+  // both endpoints MORPHS from its old shape to its new one — the same
+  // strand, bending from where it was to where it is going — and only
+  // ids the partition change itself created or removed fade in or out,
+  // exactly the #115 contract. Without strand shapes (or once settled)
+  // the edges draw straight from the scene as before.
+  if (trans && trans.strands && transT < 1) {
+    const oldGeo = trans.strands;
+    const newGeo = strandGeometry(chain, cl, clay);
+    ctx.save();
+    const baseA = Math.max(0.2, discT * 0.75);
+    ctx.lineWidth = 1.6;
+    // junction squares reform where the lerped legs now meet
+    const junctions = new Map<string, { x: number; y: number }>();
+    const ids = new Set([...oldGeo.keys(), ...newGeo.keys()]);
+    for (const id of ids) {
+      const o = oldGeo.get(id), n = newGeo.get(id);
+      const s = (n ?? o)!;
+      const q = o && n ? lerpQuad(o.quad, n.quad, transT) : (n ?? o)!.quad;
+      const fade = o && n ? 1 : o ? 1 - transT : transT;
+      if (fade <= 0.02) continue;
+      const tx = chain.txs.get(s.tid);
+      if (!tx) continue;
+      const touched = hov !== undefined && touchedTids.has(s.tid);
+      const color = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.globalAlpha = baseA * fade;
+      ctx.beginPath();
+      ctx.moveTo(q.x0, q.y0);
+      ctx.quadraticCurveTo(q.cx, q.cy, q.x1, q.y1);
+      ctx.stroke();
+      if (s.dir === "out") {
+        const tanx = q.x1 - q.cx, tany = q.y1 - q.cy;
+        const d = Math.hypot(tanx, tany) || 1;
+        const back = (clay.nodes.get(s.rep)?.r ?? 6) + 3;
+        arrowAt(ctx, q.x1 - (tanx / d) * back, q.y1 - (tany / d) * back, tanx, tany);
+      }
+      if (s.junction) {
+        junctions.set(s.tid, s.dir === "in" ? { x: q.x1, y: q.y1 } : { x: q.x0, y: q.y0 });
+      }
+    }
+    ctx.globalAlpha = baseA;
+    for (const j of junctions.values()) {
+      const js = 4;
+      ctx.beginPath();
+      ctx.roundRect(j.x - js, j.y - js, 2 * js, 2 * js, 2);
+      ctx.fillStyle = "#26292f";
+      ctx.fill();
+      ctx.strokeStyle = "#4a4e57";
+      ctx.stroke();
+    }
+    ctx.restore();
+  } else {
+  // each tx contracts to a junction — every distinct input cluster
+  // feeds it, it fans out to every output cluster the inputs don't own
+  // (contractedEdges). During a repartition tween without strand
+  // shapes they ride the discs, dimming only a little while everything
+  // is in flight
   ctx.save();
   ctx.globalAlpha = Math.max(0, discT * 0.75) * (0.5 + 0.5 * transT);
   const ccx = clay.bounds.x + clay.bounds.w / 2, ccy = clay.bounds.y + clay.bounds.h / 2;
@@ -336,6 +394,7 @@ export function drawContraction(
     ctx.stroke();
   }
   ctx.restore();
+  }
 
   // the coins themselves, through all three legs — never fading (#95):
   // the pills that shrink are the dots that fly are the stacks that
