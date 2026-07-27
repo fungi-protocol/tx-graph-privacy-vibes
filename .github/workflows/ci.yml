@@ -19,3 +19,21 @@ jobs:
         run: |
           nix build --no-link --no-update-lock-file --print-build-logs \
             .#checks.x86_64-linux.{typecheck,unit,determinism,build}
+
+  # the NixOS VM test: serve the built page, playwright drives the whole
+  # tutorial (#123). Its own job — the VM boot plus the walk dominate the
+  # fast checks above, and a browser regression should be readable apart
+  # from a unit failure. GitHub's Linux runners expose /dev/kvm; the
+  # nixos-test/kvm system features tell nix this builder may run VM tests.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          extra-conf: |
+            system-features = nixos-test kvm big-parallel benchmark
+      - name: Browser tutorial check (NixOS VM + playwright)
+        run: |
+          nix build --no-link --no-update-lock-file --print-build-logs \
+            .#checks.x86_64-linux.browser
