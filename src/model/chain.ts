@@ -63,7 +63,10 @@ export interface Addr {
  *  builds (assignTxTraits): the nLockTime default and whether it grinds
  *  every signature low-R (uniformly small) or leaves sizes mixed */
 export interface WalletTraits {
-  /** "tip" = anti-fee-sniping, locks each draft to the fresh chain tip */
+  /** "tip" = the anti-fee-sniping habit: drafts locked to a tip-like
+   *  recent height (real wallets back the value off a little, so near
+   *  the tip, not always exactly at it). The record carries a raw
+   *  integer; the simulation keeps only this derived category (#119) */
   locktime: "tip" | "zero";
   lowR: boolean;
 }

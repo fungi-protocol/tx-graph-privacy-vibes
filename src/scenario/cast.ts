@@ -73,9 +73,11 @@ export interface Edge {
  * ships a bundle of defaults, and every default is a fingerprint the
  * chain records: the FEE POLICY (every transaction publishes its
  * feerate, so a wallet that always bids the same way signs its user's
- * cluster), the SCRIPT FAMILY its addresses pay to (public on the face
+ * cluster), the SCRIPT TYPE its addresses pay to (public on the face
  * of every output), the NLOCKTIME default (anti-fee-sniping wallets
- * lock each draft to the fresh tip; the rest leave zero), and the
+ * lock each draft to a tip-like recent height — real ones back the
+ * value off a little, so near the tip, not always exactly at it (#119);
+ * the rest leave zero), and the
  * SIGNATURE GRINDING habit (some grind every signature low-R, so their
  * signatures are uniformly small; the rest leave sizes mixed). Script,
  * locktime, and grinding are assigned retroactively — a pure walk of
@@ -105,7 +107,7 @@ export const WALLETS: Record<string, WalletProduct> = {
   hearth: {
     name: "Hearth",
     pitch: "the wallet everyone's cousin recommends — sensible defaults, no questions asked",
-    tell: "bids near the market rate with a modest scatter; pays to bc1q addresses and locks every draft to the fresh tip",
+    tell: "bids near the market rate with a modest scatter; pays to bc1q addresses and locks every draft near the fresh tip",
     fee: (base, draw) => Number((base * (0.8 + draw * 0.6)).toFixed(2)),
     script: "segwit",
     traits: { locktime: "tip", lowR: false },

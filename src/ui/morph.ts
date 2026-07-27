@@ -419,15 +419,19 @@ export function drawMorph(
   ctx.globalAlpha = 1;
 }
 
-/** what the record shows beside the fee (#93, #94): the minute of day
- *  the transaction hit the chain, and the draft's nLockTime — wallets
- *  that anti-fee-snipe set it to the current tip height, others leave
- *  it zero. Both public on the face of every transaction, shown in both
- *  views; absent where no wallet was named. */
+/** shown beside the fee (#93, #94): the minute of day the transaction
+ *  hit the chain, and the draft's nLockTime policy. The real record
+ *  carries a raw integer in that field; this simulation keeps only the
+ *  category an analyst would derive from it — a tip-like recent height
+ *  (the anti-fee-sniping habit; real wallets back it off a little, so
+ *  it is near the tip, not always exactly at it) vs a plain zero.
+ *  "≈tip" marks the derived reading (#119). Both signals are public on
+ *  the face of every transaction, shown in both views; absent where no
+ *  wallet was named. */
 function traitText(tx: { locktime?: "tip" | "zero"; minute?: number }): string {
   const at = tx.minute === undefined ? ""
     : ` · ${String(Math.floor(tx.minute / 60)).padStart(2, "0")}:${String(tx.minute % 60).padStart(2, "0")}`;
-  const lock = tx.locktime === undefined ? "" : ` · nLockTime ${tx.locktime === "tip" ? "tip" : "0"}`;
+  const lock = tx.locktime === undefined ? "" : ` · nLockTime ${tx.locktime === "tip" ? "≈tip" : "0"}`;
   return at + lock;
 }
 
