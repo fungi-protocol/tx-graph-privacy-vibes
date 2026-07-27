@@ -15,24 +15,11 @@ import { bruteDecomps, DUST } from "../denom/denominations";
 import { sumsetUpTo, ambiguity, subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { ancestry } from "../analysis/ancestry";
 import { scheduleForDay, incomeFor, INCOME_EVERY, PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
+import { EventLog, type EconomyEvent, type PaymentForm } from "./log";
 
 export { PAYJOIN_DAY, SETTLE_DAY, COINJOIN_DAY, TOXIC_DAY, INTERSECT_DAY, GAME_DAY } from "./schedule";
 
-export type PaymentForm = "unilateral" | "payjoin" | "settlement" | "coinjoin";
-
-export interface EconomyEvent {
-  tid: string;
-  day: number;
-  payer: number;
-  /** participant index, or null for an external merchant */
-  payee: number | null;
-  memo: string;
-  form: PaymentForm;
-  /** narrative rationale shown in the inspector */
-  why: string;
-  /** stable schedule IDs of the obligations this event settles, if any */
-  oblIds?: string[];
-}
+export { type PaymentForm, type EconomyEvent } from "./log";
 
 export interface Obligation {
   /** stable schedule ID (see schedule.ts) — behaviors and sweeps share it */
@@ -118,8 +105,13 @@ export interface Intervention {
 }
 
 export class Economy {
-  chain = new Chain();
-  events: EconomyEvent[] = [];
+  /** the primary state: one append-only event log (#126); every chain
+   *  mutation and narrative annotation enters through it */
+  readonly log = new EventLog();
+  /** derived: the chain index the log maintains */
+  get chain(): Chain { return this.log.chain; }
+  /** derived: the narrative annotations, in log order */
+  get events(): EconomyEvent[] { return this.log.notes; }
   day = 0;
   /** public exchange-rate history, USD per BTC, indexed by day */
   prices: number[] = [];
@@ -187,7 +179,7 @@ export class Economy {
         // Carol's origin is the one identified root in the story
         const label = p.rootLabel ?? (u === CARELESS ? "exchange withdrawal" : "savings");
         const arrives = p.arrives ?? 0;
-        if (arrives === 0) this.chain.addRoot(`r${rc}`, value, u, label);
+        if (arrives === 0) this.log.root(`r${rc}`, value, u, label);
         else {
           // savings move to town with their owner (#15)
           const due = this.arrivals.get(arrives) ?? [];
@@ -213,10 +205,21 @@ export class Economy {
       due.push({ id: `ra${u}`, value, owner: u, label: p.income ?? "outside income" });
       this.arrivals.set(arrives, due);
     });
-    this.chain.assignAddresses(this.reusers(), this.scriptOf);
-    this.chain.assignTxTraits(this.traitsOf);
-    this.chain.assignTxMinutes(this.minuteOf);
-    this.routeExchange();
+    this.decorate(this.chain);
+  }
+
+  /**
+   * Apply every derived decoration to a chain: the retroactive walks
+   * (addresses, wallet traits, minutes) and the exchange routing. Each is
+   * a pure function of the seed and the chain's own record, so the live
+   * index and a replayed log prefix decorate identically (#126) — the
+   * rewind-equals-replay invariant in log.test.ts leans on this.
+   */
+  decorate(chain: Chain): void {
+    chain.assignAddresses(this.reusers(), this.scriptOf);
+    chain.assignTxTraits(this.traitsOf);
+    chain.assignTxMinutes(this.minuteOf);
+    this.routeExchange(chain);
   }
 
   /** the minute of day a draft hit the chain — the initiator's waking
@@ -266,8 +269,8 @@ export class Economy {
    * testify to. On the graph nothing changes: no exchange entity, just
    * external payments and receives.
    */
-  private routeExchange(): void {
-    for (const c of this.chain.coins.values()) {
+  private routeExchange(chain: Chain): void {
+    for (const c of chain.coins.values()) {
       if (c.producer !== null || c.kyc !== undefined) continue;
       // Carol's identified withdrawal is the story's baseline: always on
       // the books. The rest of the town's pre-story savings were mostly
@@ -281,10 +284,10 @@ export class Economy {
     }
     for (const ev of this.events) {
       if (ev.payee !== null || ev.form !== "unilateral") continue;
-      const tx = this.chain.txs.get(ev.tid);
+      const tx = chain.txs.get(ev.tid);
       if (!tx) continue;
       if (new Rng(`${this.seed}/kyc/${ev.tid}`).next() < 0.15) {
-        for (const id of tx.inputs) this.chain.coins.get(id)!.kyc = true;
+        for (const id of tx.inputs) chain.coins.get(id)!.kyc = true;
       }
     }
   }
@@ -369,11 +372,11 @@ export class Economy {
     const name = this.cast[payer]!.name;
     // the desk is the likeliest consolidator in town: same ⚠ as unilateral()
     const consolidates = new Set(inputs.map((id) => this.chain.coins.get(id)!.producer)).size > 1;
-    this.chain.addTx(tid, this.day, inputs, [
+    this.log.tx(tid, this.day, inputs, [
       ...obls.map((o, i) => ({ owner: o.payee, value: values[i]!, label: o.memo })),
       { owner: payer, value: inValue - total - fee, label: "change" },
     ], feerate, `${name} batches ${obls.length} payouts in one transaction${consolidates ? " ⚠" : ""}`);
-    this.events.push({
+    this.log.note({
       tid, day: this.day, payer, payee: null, oblIds: obls.map((o) => o.id),
       memo: `batch payout ×${obls.length}`, form: "unilateral",
       why: `${name} pays ${obls.length} people in a single transaction to ` +
@@ -398,11 +401,11 @@ export class Economy {
     // the Python narratives' consolidation flag carries over: spending
     // coins with separate pasts hands every observer evidence to link them
     const consolidates = new Set(inputs.map((id) => this.chain.coins.get(id)!.producer)).size > 1;
-    this.chain.addTx(tid, this.day, inputs, [
+    this.log.tx(tid, this.day, inputs, [
       { owner: payee, value, label: memo },
       { owner: payer, value: inValue - value - fee, label: "change" },
     ], feerate, `${this.cast[payer]!.name} pays ${payee === null ? "a merchant" : this.cast[payee]!.name} — ${memo}${consolidates ? " ⚠" : ""}`);
-    this.events.push({
+    this.log.note({
       tid, day: this.day, payer, payee, memo, form: "unilateral",
       ...(oblId !== undefined ? { oblIds: [oblId] } : {}),
       why: why(this.cast, payer, payee, "unilateral", this.day) + (consolidates
@@ -424,13 +427,13 @@ export class Economy {
     const fee = txfee(inputs.length + 1, 2, feerate);
     this.txn += 1;
     const tid = `t${this.txn}`;
-    this.chain.addTx(tid, this.day, [...inputs, contributed.id], [
+    this.log.tx(tid, this.day, [...inputs, contributed.id], [
       // the payment output carries both parties' funds: the payer's payment
       // plus the coin the payee contributed; the change is the payer's alone
       { owner: payee, value: value + contributed.value, label: `${memo} + own coin`, funders: [payer, payee] },
       { owner: payer, value: inValue - value - fee, label: "change", funders: [payer] },
     ], feerate, `${this.cast[payer]!.name} pays ${this.cast[payee]!.name} — ${memo} (payjoin)`);
-    this.events.push({
+    this.log.note({
       tid, day: this.day, payer, payee, memo, form: "payjoin",
       ...(oblId !== undefined ? { oblIds: [oblId] } : {}),
       why: why(this.cast, payer, payee, "payjoin", this.day),
@@ -524,7 +527,7 @@ export class Economy {
     const names = parts.map((u) => this.cast[u]!.name);
     const inValue = (u: number): number =>
       coins.get(u)!.reduce((s, id) => s + this.chain.coins.get(id)!.value, 0);
-    this.chain.addTx(tid, this.day,
+    this.log.tx(tid, this.day,
       parts.flatMap((u) => coins.get(u)!),
       parts.map((u) => ({
         owner: u,
@@ -557,7 +560,7 @@ export class Economy {
             "learns beyond their own obligations depends on the protocol that " +
             "built it — an exchange this simulation does not model.";
     for (const o of obls) {
-      this.events.push({ tid, day: this.day, payer: o.payer, payee: o.payee, memo: o.memo, form: "settlement", oblIds: [o.id], why });
+      this.log.note({ tid, day: this.day, payer: o.payer, payee: o.payee, memo: o.memo, form: "settlement", oblIds: [o.id], why });
     }
     return true;
   }
@@ -593,10 +596,10 @@ export class Economy {
       this.txn += 1;
       const tid = `t${this.txn}`;
       const name = this.cast[u]!.name;
-      this.chain.addTx(tid, this.day, [change.id, coined.id], [
+      this.log.tx(tid, this.day, [change.id, coined.id], [
         { owner: u, value: total, label: "topped-up savings" },
       ], feerate, `${name} sweeps coinjoin change into savings ⚠`);
-      this.events.push({
+      this.log.note({
         tid, day: this.day, payer: u, payee: null,
         memo: "sweeping up change", form: "unilateral",
         why: `${name} sweeps a session's change into savings alongside a ` +
@@ -660,10 +663,10 @@ export class Economy {
       this.txn += 1;
       const tid = `t${this.txn}`;
       const name = this.cast[u]!.name;
-      this.chain.addTx(tid, this.day, picks, [
+      this.log.tx(tid, this.day, picks, [
         { owner: u, value: total, label: "tidied-up savings" },
       ], feerate, `${name} tidies up the wallet — two coinjoined coins in one spend ⚠`);
-      this.events.push({
+      this.log.note({
         tid, day: this.day, payer: u, payee: null,
         memo: "tidying up the wallet", form: "unilateral",
         why: `${name} merges two coins to keep the wallet simple — but their ` +
@@ -713,7 +716,7 @@ export class Economy {
     // much below their inputs, and the analyst knows to allow for it
     const ovs = outs.map((o) => o.value);
     const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / 2));
-    this.chain.addTx(tid, this.day, coins.flat().map((c) => c.id), outs, feerate,
+    this.log.tx(tid, this.day, coins.flat().map((c) => c.id), outs, feerate,
       `Frank and Ivan coinjoin — amounts chosen carelessly; ` +
       `match rate ${Math.round(density * 100)}%`);
     this.naiveTid = tid;
@@ -726,7 +729,7 @@ export class Economy {
     // the narration follows the computed verdict — the careless amounts
     // are expected to pin the true mapping (the tests hold the tutorial
     // seeds to it), but prose never asserts what the analysis didn't find
-    this.events.push({
+    this.log.note({
       tid, day: this.day, payer: 5, payee: null, memo: "a first coinjoin", form: "coinjoin",
       why: "Frank and Ivan, strangers from different corners of town, spend " +
         "their coins in one transaction with no payment between them. " +
@@ -920,7 +923,7 @@ export class Economy {
     const density = ambiguity(ivs, ovs, 500 + Math.ceil(fee / n));
     const verdict = subTransactionMapping(ivs, ovs, fee).kind;
     const determined = verdict === "unique";
-    this.chain.addTx(tid, this.day, parts.flatMap((u) => coins.get(u)!.map((c) => c.id)), outs, feerate,
+    this.log.tx(tid, this.day, parts.flatMap((u) => coins.get(u)!.map((c) => c.id)), outs, feerate,
       `coinjoin, ${n} parties, ${nIn} inputs — denominated outputs; ` +
       `match rate ${Math.round(density * 100)}%` +
       (determined ? "; still, one reading balances"
@@ -935,7 +938,7 @@ export class Economy {
     if (pay) {
       this.pending = this.pending.filter((o) => o !== pay.obl);
       const single = pay.outs.length === 1;
-      this.events.push({
+      this.log.note({
         tid, day: this.day, payer: pay.obl.payer, payee: pay.obl.payee,
         memo: pay.obl.memo, form: "coinjoin", oblIds: [pay.obl.id],
         why: `${this.cast[pay.obl.payer]!.name} pays ${this.cast[pay.obl.payee]!.name} ` +
@@ -958,7 +961,7 @@ export class Economy {
           ` ${this.cast[pay.obl.payee]!.name} still knows who paid.`,
       });
     } else {
-      this.events.push({
+      this.log.note({
         tid, day: this.day, payer: parts[0]!, payee: null, memo: "coinjoin session", form: "coinjoin",
         why: `${parts.map((u) => this.cast[u]!.name).join(", ")} — strangers ` +
           "spanning communities — spend coins in one transaction with no " +
@@ -1080,7 +1083,7 @@ export class Economy {
     // today, with the entry day on record (the time cursor hides them
     // before it, and the layout glide is their arrival animation)
     for (const r of this.arrivals.get(this.day) ?? []) {
-      this.chain.addRoot(r.id, r.value, r.owner, r.label, this.day);
+      this.log.root(r.id, r.value, r.owner, r.label, this.day);
     }
     // markets drift on their own stream: two draws a day, no more, so the
     // series depends on the seed alone no matter what behavior does
@@ -1107,7 +1110,7 @@ export class Economy {
     // income lands as new root coins: money entering from outside town,
     // with no on-chain past, just like the pre-story savings
     for (const inf of sched.inflows) {
-      this.chain.addRoot(`r.${inf.id}`, this.sats(inf.usd), inf.owner, inf.memo, this.day);
+      this.log.root(`r.${inf.id}`, this.sats(inf.usd), inf.owner, inf.memo, this.day);
     }
     // the oracle looks for offsetting obligations first (at most one
     // settlement a day; word spreads on SETTLE_DAY). Groups that cannot
@@ -1175,10 +1178,7 @@ export class Economy {
     // the day's new outputs get their addresses and the day's new
     // transactions their wallet traits — the retroactive script choice,
     // replayed after the fact so no seeded stream ever moves
-    this.chain.assignAddresses(this.reusers(), this.scriptOf);
-    this.chain.assignTxTraits(this.traitsOf);
-    this.chain.assignTxMinutes(this.minuteOf);
-    this.routeExchange();
+    this.decorate(this.chain);
     return this.events.slice(before);
   }
 
