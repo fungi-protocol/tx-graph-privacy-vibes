@@ -9,9 +9,13 @@
 // of their neighborhoods — structure alone, no amounts consulted. A
 // match is an ownership claim, so accepting it merges the clusters.
 // The chapter displays the live run's own match count rather than
-// asserting one, and closes on the honest limits: matches are claims
-// scored by similarity, not probabilities, and a wrong one links
-// strangers just as CIOH did.
+// asserting one, states the honest limits — matches are claims scored
+// by similarity, not probabilities, and a wrong one links strangers
+// just as CIOH did — and closes on what the two matchers share
+// (#113): sparsity makes a modest number of independent dimensions
+// enough to single almost anyone out, so matching is not confined to
+// nearby candidates — it can search the whole record. Uniqueness is
+// still not attribution; a name needs an outside anchor.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 
 /** what the live run did, resolved by the caller: how many matches the
@@ -103,6 +107,40 @@ export function nsSocialSteps(
         together exactly as a wrong change guess did. The method earns
         its keep where relationships really do recur; where they don't,
         it invents them.</p>`,
+      focus: () => pad(clusterBounds()),
+      select: () => null,
+      view: 2,
+      lens: 1,
+      scene: 1,
+      minDay: 60,
+    },
+    {
+      id: "sparsity-and-the-global-map",
+      title: "Sparsity, and the global map",
+      html: `<p>Step back and the last two chapters are <b>one method</b>.
+        The behavioral matcher compared clusters by their habits — sizes,
+        hours, cadence; this one compared them by their neighborhoods.
+        Both reduce a cluster to a list of measurements along many
+        <b>dimensions</b>, then look for the profile that lines up. The
+        engine is comparison; only the dimensions differ.</p>
+        <p>Why does that work at all? Because records like this one are
+        <b>sparse</b>. Along any one dimension a cluster is ordinary —
+        plenty of others pay at that hour, or touch that counterparty.
+        But each further independent dimension splits the crowd again,
+        and a modest number of splits is enough to leave almost everyone
+        standing alone. That is what frees the observer from
+        <b>locality</b>: the epoch matcher compared neighboring columns,
+        but nothing in the method requires neighbors. With enough
+        dimensions, a profile can be searched for <b>globally</b> —
+        across the whole record, against other records entirely, years
+        apart.</p>
+        <p>The honest limit is the one this story keeps returning to:
+        being unique is not being <b>named</b>. A profile that singles
+        you out still says "one user did all this", not who — until some
+        outside fact anchors it: a record held by an exchange, a single
+        payment whose recipient talked. The coming chapters are about
+        exactly those anchors, and about what happens when an observer
+        holds more than one of them.</p>`,
       focus: () => pad(clusterBounds()),
       select: () => null,
       view: 2,

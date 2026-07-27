@@ -161,10 +161,18 @@ export function payjoinSteps(
         could only be an <i>incomplete</i> version of the truth, each
         cluster a fragment of one real wallet. This transaction put a
         cluster on the map that is <b>no one</b>: payer and payee fused.
-        From here the map and the truth can disagree outright.</p>`,
+        From here the map and the truth can disagree outright.</p>
+        <p>Because they can, this story adds a control no observer has:
+        <b>point out mistakes</b>, now in the panel and switched on. It
+        grades the map against the hidden truth — marking each
+        transaction where a heuristic's local call went wrong, like the
+        false merge in front of you. The storyteller's ruler, not an
+        observer capability: a real analyst never sees their own error
+        rate. Keep it in the corner of your eye from here on.</p>`,
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 1,
+      mi: true,
       scene: 1,
       minDay: 35,
       select: selectIt,

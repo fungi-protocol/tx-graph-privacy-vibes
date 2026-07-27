@@ -42,6 +42,11 @@ export interface TutorialStep {
   /** lens 1: whether the social-network analysis runs; same walked-path
    * rule and default as `nf` */
   ns?: boolean;
+  /** whether the mistakes grading (deviation from the hidden truth) is
+   * shown; same walked-path rule and default as `nf`. The storyteller's
+   * display, not an observer capability — steps switch it on where the
+   * map first disagrees with the truth outright */
+  mi?: boolean;
   /** which scene this step plays in: 0 = intro story, 1 = the economy */
   scene?: 0 | 1;
   /** economy steps may require the simulation to have reached this day */
@@ -93,6 +98,8 @@ export interface TutorialCallbacks {
   onNf?: (on: boolean) => void;
   /** observer-lens steps stage the social-network analysis */
   onNs?: (on: boolean) => void;
+  /** steps stage the mistakes grading (the storyteller's error display) */
+  onMi?: (on: boolean) => void;
   /** scene change + fast-forward requirement, fired before focus */
   onScene?: (scene: 0 | 1, minDay: number) => void;
   /** steps that trace something fire this after lens, before focus */
@@ -173,6 +180,7 @@ export class Tutorial {
     }
     if (animate) this.cb.onNf?.(this.flagAt(this.index, "nf"));
     if (animate) this.cb.onNs?.(this.flagAt(this.index, "ns"));
+    if (animate) this.cb.onMi?.(this.flagAt(this.index, "mi"));
     if (animate && step.select) {
       const sel = step.select();
       if (sel !== undefined) this.cb.onSelect?.(sel);
@@ -206,9 +214,9 @@ export class Tutorial {
     return 15;
   }
 
-  /** effective propagation-analysis flag (`nf` or `ns`) at a step, same
+  /** effective staged flag (`nf`, `ns` or `mi`) at a step, same
    *  walked-path rule as overlaysAt; before any step declares one, off */
-  private flagAt(index: number, key: "nf" | "ns"): boolean {
+  private flagAt(index: number, key: "nf" | "ns" | "mi"): boolean {
     for (let i = index; i >= 0; i--) {
       const v = this.steps[i]![key];
       if (v !== undefined) return v;

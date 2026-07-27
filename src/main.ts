@@ -3182,7 +3182,7 @@ const tutorial = new Tutorial(steps, {
     // commits, so mid-flight one commit's value pairs with another's
     // still pending and rows the story has not introduced yet would
     // read as running
-    let ov = 3, ct = TELL_ALL, kyc = 0, aux = 0, nf = false, ns = false;
+    let ov = 3, ct = TELL_ALL, kyc = 0, aux = 0, nf = false, ns = false, mi = false;
     for (let i = 0; i <= index; i++) {
       const s = steps[i];
       if (!s) continue;
@@ -3191,6 +3191,7 @@ const tutorial = new Tutorial(steps, {
       if (s.grants !== undefined) [kyc, aux] = s.grants;
       if (s.nf !== undefined) nf = s.nf;
       if (s.ns !== undefined) ns = s.ns;
+      if (s.mi !== undefined) mi = s.mi;
       for (const r of s.reveals ?? []) seenRows.add(r as PanelRow);
       if (s.lens !== 1) continue;
       const eo = (ov & OV_SUBSUM) !== 0 ? ov | OV_CIOH : ov;
@@ -3209,6 +3210,7 @@ const tutorial = new Tutorial(steps, {
       if (aux > 0) seenRows.add("aux");
       if (nf) seenRows.add("nsnf");
       if (ns) seenRows.add("nssoc");
+      if (mi) seenRows.add("grading");
     }
     reflectOverlays();
     // staged controls follow the same prefix scan; the set only grows,
@@ -3249,6 +3251,7 @@ const tutorial = new Tutorial(steps, {
   },
   onNf: (on) => setNf(on),
   onNs: (on) => setNsSocial(on),
+  onMi: (on) => { if (showMistakes !== on) setMistakes(on); },
   onScene: (s, minDay) => setScene(s, minDay, true),
   onSelect: (sel) => {
     if (sel === null) clearSelection();

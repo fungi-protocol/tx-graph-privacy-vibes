@@ -62,7 +62,7 @@ export function settlementSteps(
       focus: () => pad(settleFocus()),
       view: 0,
       lens: 0,
-      nf: false, // plain CIOH first: the check re-enters the prose at "What still shows"
+      nf: false, // plain CIOH first: "The amounts are gone" closes by switching the check back on in prose
       scene: 1,
       minDay: 60,
     },
@@ -106,7 +106,19 @@ export function settlementSteps(
         balance on their own? It just joined the heuristics panel on the
         left — the first two heuristics carried the story this far, and
         this is the transaction shape that finally calls for it.
-        ${verdictLine}</p>`;
+        ${verdictLine}</p>
+        <p>Two honest limits before moving on. Netting is not
+        all-or-nothing: whoever both owes and is owed <b>offsets</b> and
+        their net shrinks — in a full cycle everyone's can shrink toward
+        zero — but the endpoints of a mere chain of obligations have
+        nothing to offset and still move roughly their full amounts.
+        Nothing on chain says which case this is, so the observer can't
+        count on it either way. And switching the fingerprint check back
+        on can flag the settlement as collaborative — sparing the
+        observer the everyone-in-one-cluster merge — but where detecting
+        the payjoin collapsed it back to one reading, detecting a
+        settlement <b>decomposes nothing</b>: the amounts still refuse
+        to pair inputs with outputs.</p>`;
       },
       focus: () => pad(settleFocus()),
       view: 0,
@@ -136,42 +148,6 @@ export function settlementSteps(
       view: 0,
       lens: 2,
       agent: settleAgent,
-      scene: 1,
-      minDay: 60,
-    },
-    {
-      id: "what-still-shows",
-      title: "What still shows",
-      html: `<p>Netting is not a cloak, and it is not all-or-nothing
-        either. What shrinks a participant's net is <b>offsetting</b>:
-        anyone who both owes and is owed nets the two against each other.
-        In a <b>chain</b> — Alice pays Bob, Bob pays Carol — Bob offsets
-        and his net shrinks, but the endpoints have nothing to offset and
-        still move roughly their full amounts. In a full <b>cycle</b>
-        everyone offsets, and every net can shrink toward zero. Most
-        settlements sit between those extremes: whoever mixes incoming
-        and outgoing obligations nets down, whoever doesn't, shows.</p>
-        <p>That is the truth's side. The observer can't tell which case
-        they are looking at: nothing on chain says how many payments one
-        settlement compressed, what their magnitudes were, or whether
-        any of them offset. For all the observer knows any of these may
-        be happening — which removes constraints from the
-        sub-transaction analysis, potentially leaving every
-        amount-consistent reading plausible. Other indicators can still
-        inform it: when the participants' wallets differ, the
-        fingerprint check from the last chapter flags the settlement as
-        collaborative and spares the observer the everyone-in-one-cluster
-        merge — but where detecting the payjoin collapsed it back to one
-        reading, detecting a settlement <b>decomposes nothing</b>: the
-        amounts still refuse to pair inputs with outputs. And the graph
-        around the transaction says more than the transaction does.</p>
-        <p>Settlements happen between people who already do business,
-        so recurring relationships repeat on chain: over time the
-        community structure of the cluster graph becomes apparent in
-        the transaction graph.</p>`,
-      focus: () => pad(bipBounds()),
-      view: 1,
-      lens: 1,
       scene: 1,
       minDay: 60,
     },
