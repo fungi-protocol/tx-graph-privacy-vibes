@@ -17,6 +17,7 @@ import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/kno
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
 import { layoutClusterGraph, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
+import { fromLegacy, withView, withLayout, dispatchPlan, type ViewState } from "./ui/viewstate";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
@@ -1118,8 +1119,11 @@ function setView(view: 0 | 1, animate = true): void {
   kick();
 }
 viewBtn.addEventListener("click", () => {
-  if (collapsed) setCollapsed(false); // expand back into the graph first
-  else setView((1 - targetView) as 0 | 1);
+  const cur = currentViewState();
+  // leaving the contracted map comes first: one press expands back
+  // into the graph, the next switches the view
+  applyViewState(cur.chord ? withLayout(cur, cur.arrange)
+    : withView(cur, cur.view === "graph" ? "cards" : "graph"));
 });
 
 // --- cluster collapse: flatten the current view into the user graph ---
@@ -1210,7 +1214,13 @@ function setCollapsed(on: boolean, animate = true): void {
     { done: () => void syncFragment() });
   kick();
 }
-clusterBtn.addEventListener("click", () => setCollapsed(!collapsed));
+// the contracted map is a graph layout (#115): entering it from the
+// cards view morphs into the graph as the contraction forms, and
+// expanding always lands back in the graph
+clusterBtn.addEventListener("click", () => {
+  const cur = currentViewState();
+  applyViewState(withLayout(cur, cur.chord ? cur.arrange : "chord"));
+});
 
 // --- graph layout mode (#44): layered timeline vs force-directed. The
 // bipartite view can be drawn either way; both scenes swap their bip
@@ -1266,6 +1276,23 @@ function relayoutGraph(animate = true): void {
   kick();
 }
 layoutBtn.addEventListener("click", () => setForceLayout(!forceLayout));
+
+// --- the three-knob control model (#115): view, layout, grouping ---
+// The knobs live in src/ui/viewstate.ts; main.ts stores the legacy
+// flags and tween scalars, so a gesture reads the current state,
+// rewrites it through the model, and replays the planned primitive
+// transitions through the setters above.
+function currentViewState(): ViewState {
+  return fromLegacy({ targetView, collapsed, forceLayout, unclustered });
+}
+function applyViewState(next: ViewState, animate = true): void {
+  for (const op of dispatchPlan(currentViewState(), next)) {
+    if (op.op === "chord") setCollapsed(op.on, animate);
+    else if (op.op === "view") setView(op.view === "graph" ? 1 : 0, animate);
+    else if (op.op === "arrange") setForceLayout(op.arrange === "force", animate);
+    else setUnclustered(op.grouping === "unclustered", animate);
+  }
+}
 
 const lensBtn = document.getElementById("lens") as HTMLButtonElement;
 function setLens(l: 0 | 1 | 2): void {
@@ -2121,10 +2148,14 @@ window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target instanceof HTMLInputElement) return; // typing in the seed box
   if (e.key === "v") {
-    if (collapsed) setCollapsed(false);
-    else setView((1 - targetView) as 0 | 1);
+    const cur = currentViewState();
+    applyViewState(cur.chord ? withLayout(cur, cur.arrange)
+      : withView(cur, cur.view === "graph" ? "cards" : "graph"));
   }
-  if (e.key === "c") setCollapsed(!collapsed);
+  if (e.key === "c") {
+    const cur = currentViewState();
+    applyViewState(withLayout(cur, cur.chord ? cur.arrange : "chord"));
+  }
   if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
   if (e.key === "h") { hideDim = !hideDim; draw(); }
   if (e.key === "r" && forceLayout && collapseT === 0) {
