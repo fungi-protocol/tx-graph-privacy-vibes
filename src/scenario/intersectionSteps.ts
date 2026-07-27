@@ -4,7 +4,10 @@
 // post-coinjoin coins intersects their candidate sets, and intersections
 // cut by factors, not by items — the adversary plays twenty questions,
 // not process-of-elimination. The corrected highlight semantics carry the
-// chapter: intersection fully lit, union partly, the rest dimmed.
+// chapter: intersection fully lit, union partly, the rest dimmed; the
+// status line counts the surviving candidate clusters during a joint
+// trace, so flipping a clustering heuristic visibly moves the board —
+// the composition the chapter is about (#113).
 //
 // The aux-info step follows Yuval's conditional-modeling steer (via
 // accuracy/036): state a knowledge assumption AS an assumption ("suppose
@@ -102,9 +105,12 @@ export function intersectionSteps(
         anonymity set.</p>
         <p>The trace runs deeper, of course — each candidate has a past
         of its own — and the status line at the bottom counts the deep
-        version: every root the trace reaches. But the game is already
-        visible at this scale: several candidates, one owner, and nothing
-        on the record to tell them apart.</p>`;
+        version: every root the trace reaches. That deep count is in
+        <b>coins</b>; on the observer's board the roots group into
+        clusters, and the clusters are what the rest of this chapter
+        shrinks. But the game is already visible at this scale: several
+        candidates, one owner, and nothing on the record to tell them
+        apart.</p>`;
       },
       focus: at(freshCoin),
       select: sel("coin", freshCoin),
@@ -260,7 +266,11 @@ export function intersectionSteps(
         sessions. The observer traces both together: the union of the two
         pasts is partly lit, and their <b>intersection</b> — the clusters
         that appear in <i>both</i> — burns at full strength. Everything
-        irrelevant fades (press <b>h</b> to hide it outright).</p>
+        irrelevant fades (press <b>h</b> to hide it outright). And a
+        surviving cluster is implicated <b>whole</b>: every coin in it is
+        a candidate, including coins neither traced past touches — a gold
+        ring can sit on a coin outside both light cones, because the
+        cluster it belongs to was reached, not the coin itself.</p>
         <p>The spend is only one way to hand over the link. Any evidence
         that two coins share an owner — <b>on chain or off</b> — opens the
         same attack: researchers showed web trackers on merchant checkout
@@ -292,6 +302,14 @@ export function intersectionSteps(
         each one intersected against the rest. Three coins spent together
         can do to the observer's shortlist what three separate
         observations would.</p>
+        <p>The status line is keeping score: while a joint trace is
+        live it counts the <b>candidate clusters</b> that survived, and
+        the coins they implicate. The candidates are clusters — the
+        observer's <b>own product</b> — so every heuristic that merges
+        clusters anywhere on the map merges candidates here. Try it:
+        flip <i>repeated co-membership</i> off and back on in the panel
+        and watch the count move. Better clustering anywhere is a
+        smaller board everywhere.</p>
         <p>And a hit ripples outward by elimination: identify one
         participant and every session they touched loses a candidate —
         everyone else's set shrinks too. Careless spending <i>after</i> a

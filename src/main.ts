@@ -1078,6 +1078,23 @@ function draw(): void {
 // network is rebuilt per chain growth, not per frame)
 let originsCache: { id: string; rev: number; text: string } | null = null;
 function originsPart(): string {
+  // a joint trace under the observer intersects CLUSTERS (#113): count
+  // what survived — the same reps the cluster strip draws at full
+  // strength — plus every member coin they implicate
+  if (lens === 1 && highlight &&
+      (selection?.kind === "tx"
+        ? (active().chain.txs.get(selection.id)?.inputs.length ?? 0) >= 2
+        : selection?.kind === "coins" && selection.ids.length >= 2)) {
+    const cl = observerModel();
+    const reps = new Set<string>();
+    for (const c of highlight.full.coins) {
+      const r = cl.rep.get(c);
+      if (r !== undefined) reps.add(r);
+    }
+    if (reps.size === 0) return "";
+    return ` · intersection: ${reps.size} candidate cluster${reps.size === 1 ? "" : "s"}` +
+      ` (${highlight.full.coins.size} coin${highlight.full.coins.size === 1 ? "" : "s"} implicated)`;
+  }
   if (selection?.kind !== "coins" || selection.ids.length !== 1) return "";
   const id = selection.ids[0]!;
   const s = active();
