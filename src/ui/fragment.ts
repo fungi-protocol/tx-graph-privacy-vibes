@@ -15,12 +15,16 @@
  * [day, schedule id, plan]; v3 = `ct` gains the script-type tell (bit 8),
  * so a v2 all-tells mask (7) migrates to the new all-tells mask (15);
  * v4 = `ov` gains repeated co-membership (bit 16), so an earlier
- * all-heuristics mask (15) migrates to the new all-heuristics mask (31).
+ * all-heuristics mask (15) migrates to the new all-heuristics mask (31);
+ * v5 = the tutorial position travels as a stable step id (`ts`) instead of
+ * a bare index (`t`), so reordering the tour no longer re-targets shared
+ * links — old indexes resolve through the order frozen at v4
+ * (LEGACY_STEP_ORDER_V4), keeping an old link on the same content.
  * Fragments without `sv` are v2 (the last pre-versioning schema);
  * fragments claiming a future version are parsed best-effort — unknown
  * fields are ignored anyway.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export interface FragmentState {
   seed: string;
@@ -38,8 +42,14 @@ export interface FragmentState {
    *  are dropped on decode (they matched obligations by memo and due date,
    *  which the re-derived schedule no longer reproduces) */
   i?: [number, string, string][];
-  /** tutorial step index; -1 or absent = tour hidden */
+  /** legacy (≤v4) tutorial step index. sanitize migrates 0-based indexes
+   *  to `ts` via LEGACY_STEP_ORDER_V4; only the explicit "tour hidden"
+   *  sentinel (-1) survives into the decoded state. Never emitted. */
   t?: number;
+  /** tutorial position as the step's stable id. An id the current tour
+   *  does not know degrades to a hidden tour; absent together with `t`
+   *  means the link never positioned the tour (fresh visitors start it) */
+  ts?: string;
   /** camera [x, y, scale] */
   cam?: [number, number, number];
   /** view: 0 = block explorer (default), 1 = bipartite */
@@ -94,6 +104,53 @@ export interface FragmentState {
   /** copy-reference: world position clicked + element selector under cursor */
   ref?: { wx: number; wy: number; sel?: string };
 }
+
+/**
+ * The tour order as it stood when schema v4 was current, frozen so that a
+ * pre-v5 link's bare step index keeps resolving to the step CONTENT its
+ * author was looking at, even after the tour is reordered. Append-only
+ * history: never edit or reorder this list; it deliberately drifts from
+ * the live scenario files.
+ */
+export const LEGACY_STEP_ORDER_V4: readonly string[] = [
+  // intro
+  "meet-alice", "whole-coins", "change", "ordered-on-chain", "fees",
+  "utxos", "chain-remembers", "addresses", "two-drawings", "toggle-freely",
+  // economy
+  "neighborhood", "days-pass", "follow-the-money", "what-leaks",
+  "someone-watching",
+  // observer
+  "observers-map", "address-reuse", "names-from-outside",
+  "coins-spent-together", "guessing-the-change", "a-family-of-tells",
+  "heuristics-not-proofs", "a-timeline-on-a-circle", "shrinking-the-map",
+  "names-meet-the-links",
+  // payjoin
+  "neighborhood-learns-a-trick", "the-heuristic-lies",
+  "no-privacy-from-the-counterparty", "how-big-is-the-doubt",
+  "the-map-fights-back", "wallets-sign-their-work", "the-fingerprint-check",
+  "many-senders",
+  // settlement
+  "settling-up", "the-amounts-are-gone", "insiders-and-the-protocol",
+  "what-still-shows",
+  // ns-social
+  "the-shape-remains", "matching-the-epochs", "what-structure-gives-away",
+  // coinjoin
+  "strangers-share-a-transaction", "the-amounts-undo-it",
+  "chosen-to-be-underdetermined", "many-plausible-pasts",
+  "the-null-hypothesis-flips", "even-insiders-are-blinded",
+  "the-same-stranger-twice", "no-panacea",
+  // intersection
+  "the-candidate-origins", "a-longer-past", "many-routes-back",
+  "suppose-one-name", "the-adversarys-hand", "two-coins-meet",
+  "the-sets-shrink-fast", "toxic-change", "twenty-questions-in-coins",
+  // synthesis
+  "no-names-were-needed", "judys-rent-many-ways", "what-a-claim-rests-on",
+  "take-this-clue-away", "two-maps-and-a-few-names", "one-sweep",
+  "when-the-premise-holds", "feed-it-names", "the-public-analyst",
+  "the-counterparty", "the-aggregator", "a-lower-bound",
+  // game
+  "rent-day", "through-the-landlords-eyes", "patience-pays", "the-sandbox",
+];
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -173,6 +230,14 @@ export function sanitize(raw: unknown): FragmentState | null {
   // v3's all-heuristics mask was 15; the intent "everything on" now
   // spells 31 (repeated co-membership joined the panel)
   if (sv < 4 && r.ov === 15) r.ov = 31;
+  // pre-v5 links (versioned or from before versioning — note the missing-sv
+  // default above is the CURRENT version) positioned the tour by bare index;
+  // resolve it through the order frozen at v4 so the link stays on the
+  // content its author shared. A v5+ fragment never writes `t`.
+  if ((r.sv === undefined || sv < 5) && r.ts === undefined && typeof r.t === "number") {
+    const t = num(r.t, -1, 500, true);
+    if (t !== undefined && t >= 0) r.ts = LEGACY_STEP_ORDER_V4[t]; // out of range: undefined = hidden
+  }
   const seed = str(r.seed, 64);
   if (seed === undefined || seed.length === 0) return null;
   const out: FragmentState = { seed };
@@ -218,8 +283,10 @@ export function sanitize(raw: unknown): FragmentState | null {
     }
     if (iv.length) out.i = iv;
   }
-  const t = num(r.t, -1, 500, true);
-  if (t !== undefined) out.t = t;
+  const ts = str(r.ts, 64);
+  if (ts !== undefined && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(ts)) out.ts = ts;
+  // the explicit "tour hidden" sentinel is the one index that survives
+  if (out.ts === undefined && r.t === -1) out.t = -1;
   if (Array.isArray(r.cam)) {
     const x = num(r.cam[0], -1e7, 1e7), y = num(r.cam[1], -1e7, 1e7);
     const scale = num(r.cam[2], 0.01, 100);

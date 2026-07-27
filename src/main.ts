@@ -3283,7 +3283,7 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
     cam: [Math.round(cam.x), Math.round(cam.y), Number(cam.scale.toFixed(3))],
   };
   const t = tutorial.currentIndex;
-  if (t >= 0) state.t = t;
+  if (t >= 0) state.ts = steps[t]!.id;
   if (collapsed) state.v = 2; // encoded like the old third view, for old links
   else if (targetView !== 0) state.v = targetView;
   if (collapsed && unclustered) state.uc = 1;
@@ -3533,11 +3533,15 @@ async function init(): Promise<void> {
     flyTo({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 }, 1);
   }
 
-  if (state?.t !== undefined && state.t >= 0) tutorial.go(state.t, !state.cam);
-  else if (state?.t === undefined && !state?.ref) tutorial.go(0, !state?.cam);
+  // the tour position travels by stable step id (legacy indexes were
+  // already resolved to ids by the codec's v4 migration)
+  const wantStep = state?.ts !== undefined ? steps.findIndex((s) => s.id === state.ts) : -1;
+  if (wantStep >= 0) tutorial.go(wantStep, !state?.cam);
+  else if (state?.ts === undefined && state?.t === undefined && !state?.ref) tutorial.go(0, !state?.cam);
   else {
-    // explicit t < 0, or a bare reference link: no tour — and with no
-    // story to unfold, the whole heuristics panel is available at once
+    // an id this tour no longer knows, the explicit hidden sentinel, or a
+    // bare reference link: no tour — and with no story to unfold, the
+    // whole heuristics panel is available at once
     allRowsSeen = true;
     reflectOverlays();
     tutorial.hide();

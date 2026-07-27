@@ -17,11 +17,39 @@ test("fragment round-trip with unicode seed", async () => {
 test("fragment round-trip with camera, tutorial step, and reference", async () => {
   const full = {
     seed: "welcome",
-    t: 4,
+    ts: "fees",
     cam: [766, 94, 0.775] as [number, number, number],
     ref: { wx: 521, wy: 100, sel: "coin:t1o2" },
   };
   assert.deepEqual(await decodeFragment(`#${await encodeFragment(full)}`), full);
+});
+
+test("v5: tutorial position by stable step id; old indexes resolve through the v4 order (#127)", async () => {
+  // pre-v5 links carry a bare index; it must keep meaning the same
+  // step CONTENT, resolved through the order frozen at v4
+  assert.equal(sanitize({ seed: "ok", sv: 4, t: 0 })!.ts, "meet-alice");
+  assert.equal(sanitize({ seed: "ok", sv: 4, t: 25 })!.ts, "neighborhood-learns-a-trick");
+  assert.equal(sanitize({ seed: "ok", sv: 4, t: 72 })!.ts, "the-sandbox");
+  // unversioned fragments are v2 — same index semantics
+  assert.equal(sanitize({ seed: "ok", t: 9 })!.ts, "toggle-freely");
+  // beyond the frozen tour: the link degrades to a hidden tour
+  const past = sanitize({ seed: "ok", sv: 4, t: 73 })!;
+  assert.equal(past.ts, undefined);
+  assert.equal(past.t, undefined);
+  // the explicit "tour hidden" sentinel survives as-is
+  const hidden = sanitize({ seed: "ok", sv: 4, t: -1 })!;
+  assert.equal(hidden.t, -1);
+  assert.equal(hidden.ts, undefined);
+  // a v5 fragment carrying a stray index is not re-interpreted
+  const stray = sanitize({ seed: "ok", sv: 5, t: 7 })!;
+  assert.equal(stray.ts, undefined);
+  assert.equal(stray.t, undefined);
+  // when both travel (crafted), the id wins — no double positioning
+  assert.equal(sanitize({ seed: "ok", sv: 4, t: 3, ts: "fees" })!.ts, "fees");
+  // ids are validated as kebab-case and bounded, not trusted
+  assert.equal(sanitize({ seed: "ok", ts: "Not A Step!" })!.ts, undefined);
+  assert.equal(sanitize({ seed: "ok", ts: "-leading-dash" })!.ts, undefined);
+  assert.equal(sanitize({ seed: "ok", ts: "x".repeat(65) })!.ts, undefined);
 });
 
 test("observer heuristics bitmask round-trips and is clamped", async () => {
@@ -128,7 +156,10 @@ test("hostile fragments degrade, never crash: shape and bounds are enforced", as
     i: [[119, "118.s0", "wait"], "garbage", [1, "not-an-id", "wait"], [1, 0, "rent", 2, "wait"]],
   }) as Record<string, unknown>;
   assert.equal(wild.n, 3650);
-  assert.equal(wild.t, 500);
+  // a wild index is neither clamped into a step nor kept: v5 encodes
+  // stamp the current schema, where only step ids position the tour
+  assert.equal(wild.t, undefined);
+  assert.equal(wild.ts, undefined);
   assert.equal(wild.v, 2);
   assert.equal(wild.sc, 0);
   assert.deepEqual(wild.cam, [1e7, -1e7, 0.01]);
