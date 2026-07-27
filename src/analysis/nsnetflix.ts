@@ -13,12 +13,16 @@
 // keeps its addresses in one script type, and stamps its drafts the same
 // way every time, and all of that survives clustering.
 //
-// Unlike the propagation algorithm, the iterative form buys no intuition
-// here: playback is greedy — best score first, each vertex matched at most
-// once, no revisiting — so playing is only a way to animate the ranking.
+// Unlike the propagation algorithm, matching here never rescores: the
+// vectors are fixed by the record, so the run is rounds of the shared
+// acceptance gate (matching.ts) over one score matrix — each round
+// admits the reciprocal-best pairs that stand clear of their
+// runners-up, removes them, and rescreens. Playback animates that
+// admission order; each vertex is matched at most once.
 import type { Chain, TxId, CoinId } from "../model/chain";
 import { SCRIPT_KINDS } from "../model/chain";
 import type { Clustering } from "./clusters";
+import { acceptReciprocal } from "./matching";
 
 export interface NfEvent {
   /** cluster representatives (in the clustering the run was computed on) */
@@ -222,11 +226,17 @@ export function nfSimilarity(a: NfStats, b: NfStats): number {
 export const NF_MIN_SPENDS = 2;
 
 /**
- * The greedy run: score every unordered pair of clusters with
+ * The matching run: score every unordered pair of clusters with
  * substantive records (≥ NF_MIN_SPENDS spends each — the paper's
- * robustness requirement, simplified), rank best-first, and unify down
- * the ranking — each vertex matched at most once, never revisited.
- * A threshold above cosine's ceiling admits nothing (view-only mode).
+ * robustness requirement, simplified), then accept matches in rounds
+ * through the paper's own gate (matching.ts, the #112 criterion):
+ * a pair is admitted only when the two sides are each other's unique
+ * best remaining partner and each best stands clear of its runner-up
+ * by the eccentricity bar; each round removes the matched vertices and
+ * rescreens, until a round admits nothing. The accepted set is a pure
+ * function of the score matrix — representative labels and evaluation
+ * order never enter it, and ties abstain. A threshold above cosine's
+ * ceiling admits nothing (view-only mode).
  */
 export function nfRun(cl: Clustering, chain: Chain, threshold: number): NfEvent[] {
   const stats = nfStats(cl, chain);
@@ -236,18 +246,23 @@ export function nfRun(cl: Clustering, chain: Chain, threshold: number): NfEvent[
   for (let i = 0; i < reps.length - 1; i++) {
     for (let j = i + 1; j < reps.length; j++) {
       const s = nfSimilarity(stats.get(reps[i]!)!, stats.get(reps[j]!)!);
-      if (s >= threshold) scored.push({ a: reps[i]!, b: reps[j]!, score: s });
+      if (s > 0) scored.push({ a: reps[i]!, b: reps[j]!, score: s });
     }
   }
-  scored.sort((p, q) => q.score - p.score || (p.a < q.a ? -1 : p.a > q.a ? 1 : 0)
-    || (p.b < q.b ? -1 : 1));
-  const used = new Set<string>();
   const events: NfEvent[] = [];
-  for (const e of scored) {
-    if (used.has(e.a) || used.has(e.b)) continue;
-    used.add(e.a);
-    used.add(e.b);
-    events.push(e);
+  const used = new Set<string>();
+  for (;;) {
+    const open = scored.filter((p) => !used.has(p.a) && !used.has(p.b));
+    const accepted = acceptReciprocal(open, threshold);
+    if (accepted.length === 0) break;
+    // playback order within a round: strongest match first (the gate's
+    // canonical order breaks exact ties; the accepted SET is unaffected)
+    accepted.sort((p, q) => q.score - p.score || (p.a < q.a ? -1 : 1));
+    for (const p of accepted) {
+      used.add(p.a);
+      used.add(p.b);
+      events.push({ a: p.a, b: p.b, score: p.score });
+    }
   }
   return events;
 }

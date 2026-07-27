@@ -14,15 +14,22 @@
 // accepted pair back below the threshold and split it apart again.
 //
 // The propagation works on the cartesian product of the unmapped nodes —
-// O(n²) score evaluations per sweep — and the order of evaluation is in
-// principle arbitrary; this implementation fixes a deterministic order
-// (sorted representatives, best partner first) so runs replay exactly.
+// O(n²) score evaluations per sweep. Acceptance is the paper's own
+// gate (see matching.ts, the #112 criterion registered with the
+// reviewers): a pair is accepted only when the two sides are each
+// other's unique best partner AND each best stands clear of its
+// runner-up by the eccentricity bar. All of a sweep's decisions are
+// made against the sweep-start state and applied together, so the
+// accepted match set is a pure function of the scores — representative
+// labels and evaluation order never enter it, and label/order-
+// sensitive candidates (exact ties, flat score sets) abstain.
 //
 // Match decisions are their own typed records (NsEvent), NOT Links: the
 // link ledger holds single-transaction observations, while a match rests
 // on the whole shape of the graph and can be retracted.
 import { type Chain, type CoinId } from "../model/chain";
 import { type Clustering } from "./clusters";
+import { acceptReciprocal, type ScoredPair } from "./matching";
 
 /** one step of the propagation, replayable and undoable: a merge maps
  *  two cluster-graph vertices to one entity, a split retracts a merge
@@ -57,12 +64,22 @@ export function partitionColumns(
   };
   const reps = [...cl.members.keys()];
   const earliest = new Map<CoinId, number>();
+  // same-day ties break on the cluster's smallest member id: a property
+  // of the member SET, so the column assignment cannot shift when a
+  // cluster is renamed after a different representative (#112 gate)
+  const anchor = new Map<CoinId, CoinId>();
   for (const rep of reps) {
     let e = Infinity;
-    for (const id of cl.members.get(rep)!) e = Math.min(e, day(id));
+    let lo = rep;
+    for (const id of cl.members.get(rep)!) {
+      e = Math.min(e, day(id));
+      if (id < lo) lo = id;
+    }
     earliest.set(rep, e);
+    anchor.set(rep, lo);
   }
-  reps.sort((a, b) => earliest.get(a)! - earliest.get(b)! || (a < b ? -1 : 1));
+  reps.sort((a, b) =>
+    earliest.get(a)! - earliest.get(b)! || (anchor.get(a)! < anchor.get(b)! ? -1 : 1));
   const k = Math.max(1, Math.floor(parts));
   const out = new Map<CoinId, number>();
   reps.forEach((rep, i) =>
@@ -195,15 +212,17 @@ export function matchState(
 }
 
 /**
- * The full deterministic run: sweep the cartesian product of unmapped
- * cross-column components, merging every pair whose score clears the
- * threshold (best partner first), then RE-EXAMINE the accepted matches —
- * the merges changed the neighborhoods they were scored in, so a pair
- * that no longer clears the threshold splits back apart. Repeat until a
- * sweep changes nothing (bounded, so a flip-flopping pair cannot spin
- * forever). Components only pair up when their column sets are disjoint:
- * two vertices of one column are two pseudonyms of the SAME epoch, and
- * this analysis has no evidence language for merging those.
+ * The full deterministic run. Each sweep is decided wholesale against
+ * the sweep-start state: first every active match is rescored as if it
+ * were still open (components with only that edge removed) and all the
+ * ones below the threshold split together; then every unordered pair of
+ * unmapped, column-disjoint components is scored and the acceptance
+ * gate (reciprocal unique best + eccentricity, matching.ts) admits its
+ * matches together. Repeat until a sweep changes nothing (bounded, so
+ * a flip-flopping pair cannot spin forever). Components only pair up
+ * when their column sets are disjoint: two vertices of one column are
+ * two pseudonyms of the SAME epoch, and this analysis has no evidence
+ * language for merging those.
  */
 export function nsSocialRun(
   cl: Clustering,
@@ -214,16 +233,16 @@ export function nsSocialRun(
   const col = partitionColumns(cl, chain, parts);
   const adj = clusterAdjacency(cl, chain);
   const events: NsEvent[] = [];
-  const MAX_SWEEPS = 6;
+  const MAX_SWEEPS = 8;
   for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
     let changed = false;
-    const leaders = [...new Set(matchState(cl, events).comp.values())].sort();
 
-    // split pass: every active match rechecked in the current state
-    for (const [a, b] of activePairs(events)) {
-      // score the pair as if it were still open: components with this
-      // edge removed
-      const others = activePairs(events).filter(([x, y]) => !(x === a && y === b) && !(x === b && y === a));
+    // split pass: every active match rescored as if still open, all
+    // against the same sweep-start pair set, splits applied together
+    const active = activePairs(events);
+    const splits: NsEvent[] = [];
+    for (const [a, b] of active) {
+      const others = active.filter(([x, y]) => !(x === a && y === b) && !(x === b && y === a));
       const compWo = matchComponents(cl.members.keys(), others);
       const byLeader = new Map<CoinId, CoinId[]>();
       for (const [rep, leader] of compWo) {
@@ -232,33 +251,33 @@ export function nsSocialRun(
         else byLeader.set(leader, [rep]);
       }
       const s = nsSimilarity(adj, compWo, (l) => byLeader.get(l) ?? [l], compWo.get(a)!, compWo.get(b)!);
-      if (s < threshold) {
-        events.push({ kind: "split", a, b, score: s });
-        changed = true;
+      if (s < threshold) splits.push({ kind: "split", a, b, score: s });
+    }
+    if (splits.length > 0) {
+      events.push(...splits);
+      continue; // re-derive the state before merging further
+    }
+
+    // merge pass: score every unordered cross-column pair of unmapped
+    // components against the sweep-start state, then let the acceptance
+    // gate admit the reciprocal-best pairs together
+    const state = matchState(cl, events);
+    const leaders = [...new Set(state.comp.values())].sort();
+    const colsOf = new Map<CoinId, Set<number>>();
+    for (const l of leaders) colsOf.set(l, new Set(state.membersOf(l).map((r) => col.get(r)!)));
+    const scored: ScoredPair[] = [];
+    for (let i = 0; i < leaders.length - 1; i++) {
+      for (let j = i + 1; j < leaders.length; j++) {
+        const a = leaders[i]!, b = leaders[j]!;
+        const colsA = colsOf.get(a)!;
+        if ([...colsOf.get(b)!].some((c) => colsA.has(c))) continue;
+        const s = nsSimilarity(adj, state.comp, state.membersOf, a, b);
+        if (s > 0) scored.push({ a, b, score: s });
       }
     }
-    if (changed) continue; // re-derive the state before merging further
-
-    // merge pass: for each unmapped leader, the best-scoring partner in
-    // a column-disjoint component; ties break toward the smaller id
-    for (const a of leaders) {
-      const state = matchState(cl, events);
-      if (state.comp.get(a) !== a) continue; // absorbed by an earlier merge this sweep
-      const colsA = new Set(state.membersOf(a).map((r) => col.get(r)!));
-      let best: { b: CoinId; s: number } | null = null;
-      for (const b of [...new Set(state.comp.values())].sort()) {
-        if (b === a || state.comp.get(b) !== b) continue;
-        const colsB = new Set(state.membersOf(b).map((r) => col.get(r)!));
-        if ([...colsB].some((c) => colsA.has(c))) continue;
-        const s = nsSimilarity(adj, state.comp, state.membersOf, a, b);
-        if (s >= threshold && (best === null || s > best.s || (s === best.s && b < best.b))) {
-          best = { b, s };
-        }
-      }
-      if (best) {
-        events.push({ kind: "merge", a, b: best.b, score: best.s });
-        changed = true;
-      }
+    for (const p of acceptReciprocal(scored, threshold)) {
+      events.push({ kind: "merge", a: p.a as CoinId, b: p.b as CoinId, score: p.score });
+      changed = true;
     }
     if (!changed) break;
   }

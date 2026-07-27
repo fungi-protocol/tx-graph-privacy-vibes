@@ -66,17 +66,18 @@ test("ns-netflix: a threshold above cosine's ceiling admits nothing", () => {
   assert.equal(nfRun(cl, eco.chain, 1.01).length, 0);
 });
 
-test("ns-netflix: the greedy run is deterministic, ranked, and never revisits", () => {
+test("ns-netflix: the run is deterministic, above threshold, and never revisits", () => {
+  // note: a GLOBAL best-first order is not promised — the acceptance
+  // gate admits matches in rounds, and a later round can admit a
+  // stronger pair that an earlier round held back (its partner's best
+  // pointed elsewhere until that vertex was matched away)
   const { eco, cl } = golden(80);
   const a = nfRun(cl, eco.chain, 0.75);
   const b = nfRun(cl, eco.chain, 0.75);
   assert.deepEqual(a, b);
   assert.ok(a.length > 0, "expected at least one behavioral match at 0.75");
   const seen = new Set<string>();
-  let prev = Infinity;
   for (const e of a) {
-    assert.ok(e.score <= prev, "events must come best-first");
-    prev = e.score;
     assert.ok(!seen.has(e.a) && !seen.has(e.b), `${e.a}+${e.b} revisits a matched vertex`);
     seen.add(e.a);
     seen.add(e.b);
