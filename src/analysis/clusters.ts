@@ -63,12 +63,13 @@
 // Heuristics, not proofs: the change guess can be wrong, and when it is
 // wrong it links a stranger's coin into the cluster. That failure mode is
 // left in on purpose.
-import { type Chain, type CoinId, type TxId, type Owner, addrKey, addrText } from "../model/chain";
+import { Chain, type CoinId, type TxId, type Owner } from "../model/chain";
 import { type Sats } from "../core/sats";
 import { isDenomination } from "../denom/denominations";
 import { subTransactionMapping, forcedLinks } from "./subsetsum";
 import { Partition } from "./partition";
 import { type Clustering, type ChangeRead, type Heuristics, type Link,
+  type ObserverRecord, publicRecord,
   TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL } from "./observer";
 import { sessionShape, mergeInputs, amountKinds } from "./tells";
 
@@ -92,10 +93,15 @@ export { clusterSingletons, clusterByOwner, clusterByKnowledge } from "./lenses"
  * every coin stays a singleton and only the public structure remains.
  */
 export function clusterObserver(
-  chain: Chain,
+  chain: Chain | ObserverRecord,
   usdPrice?: (day: number) => number | undefined,
   heuristics: Heuristics = {},
 ): Clustering {
+  // the truth boundary (#122d): everything below reads the PUBLIC record
+  // only — a Chain handed in at the boundary is projected down, so the
+  // truth fields (owner, funders, kyc, label, Addr.who) are not merely
+  // unread but absent from the type the heuristics see
+  const rec = chain instanceof Chain ? publicRecord(chain) : chain;
   const { reuse = true, cioh = true, change = true, subsum = true, remeet = true } = heuristics;
   const bar = heuristics.changeEvidence ?? 1;
   const tellsOn = heuristics.changeTells ?? TELL_ALL;
@@ -126,7 +132,7 @@ export function clusterObserver(
     let seen: string | undefined;
     let any = false;
     for (const c of ins) {
-      const s = chain.coins.get(c)!.addr?.script;
+      const s = rec.coins.get(c)!.script;
       if (s === undefined) continue;
       if (!any) { seen = s; any = true; }
       else if (s !== seen) return true;
@@ -137,7 +143,7 @@ export function clusterObserver(
   // class's canonical representative is its FIRST coin however the
   // heuristics' merges arrive — the observer's map is a point of the
   // partition refinement lattice, not a byproduct of merge order
-  const ids = [...chain.coins.keys()];
+  const ids = [...rec.coins.keys()];
   const idx = new Map<CoinId, number>();
   ids.forEach((id, i) => idx.set(id, i));
   const p = new Partition(ids.length);
@@ -156,7 +162,7 @@ export function clusterObserver(
   const isSession = (tid: TxId): boolean => {
     let s = shapeMemo.get(tid);
     if (s === undefined) {
-      s = sessionShape(chain, tid);
+      s = sessionShape(rec, tid);
       shapeMemo.set(tid, s);
     }
     return s;
@@ -169,9 +175,9 @@ export function clusterObserver(
   // reads whose they are.
   if (reuse) {
     const byAddr = new Map<string, CoinId[]>();
-    for (const coin of chain.coins.values()) {
-      if (!coin.addr) continue;
-      const k = addrKey(coin.addr);
+    for (const coin of rec.coins.values()) {
+      if (coin.addrKey === undefined) continue;
+      const k = coin.addrKey;
       const l = byAddr.get(k);
       if (l) l.push(coin.id);
       else byAddr.set(k, [coin.id]);
@@ -181,14 +187,14 @@ export function clusterObserver(
       for (let i = 1; i < coins.length; i++) union(coins[i]!, coins[0]!);
       links.push({
         method: "reuse",
-        addr: addrText(chain.coins.get(coins[0]!)!.addr!),
+        addr: rec.coins.get(coins[0]!)!.addrText!,
         coins: [...coins],
       });
     }
   }
-  for (const tid of chain.order) {
+  for (const tid of rec.order) {
     if (heuristics.except?.has(tid)) continue;
-    const tx = chain.txs.get(tid)!;
+    const tx = rec.txs.get(tid)!;
     const price = change ? usdPrice?.(tx.timestep) : undefined;
     // the radix structure is read off the WHOLE transaction's outputs:
     // menu denominations appearing more than once. Within such a
@@ -199,7 +205,7 @@ export function clusterObserver(
     const denomCount = new Map<Sats, number>();
     if (change) {
       for (const o of tx.outputs) {
-        const v = chain.coins.get(o)!.value;
+        const v = rec.coins.get(o)!.value;
         if (isDenomination(v)) denomCount.set(v, (denomCount.get(v) ?? 0) + 1);
       }
     }
@@ -226,7 +232,7 @@ export function clusterObserver(
     const radixStructure = [...denomCount.values()].some((n) => n >= 2);
     // `whyUnlinked` names the caller's reason when `linked` is false, so
     // the recorded reading can say why step two had no cluster to link to
-    const identifyAndLink = (outs: CoinId[], ins: CoinId[], anchor: CoinId, linked: boolean,
+    const identifyAndLink = (outs: readonly CoinId[], ins: readonly CoinId[], anchor: CoinId, linked: boolean,
       whyUnlinked: "inputs" | "mapping" | "part" = "inputs"): void => {
       const inOwners = new Set<Owner>();
       for (const i of ins) {
@@ -239,7 +245,7 @@ export function clusterObserver(
       const inScripts = new Set<string>();
       if ((tellsOn & TELL_SCRIPT) !== 0) {
         for (const i of ins) {
-          const s = chain.coins.get(i)!.addr?.script;
+          const s = rec.coins.get(i)!.script;
           if (s !== undefined) inScripts.add(s);
         }
       }
@@ -248,12 +254,12 @@ export function clusterObserver(
       const selfs: CoinId[] = [];
       const unknowns: CoinId[] = [];
       for (const o of outs) {
-        const v = chain.coins.get(o)!.value;
+        const v = rec.coins.get(o)!.value;
         const g = grants?.get(o);
         // inside a radix structure a menu denomination is what a
         // self-spend looks like, so its amount says nothing
         const amount = radixStructure && isDenomination(v) ? 0 : amountKinds(v, price, tellsOn);
-        const oScript = chain.coins.get(o)!.addr?.script;
+        const oScript = rec.coins.get(o)!.script;
         const script = inScripts.size > 0 && oScript !== undefined && !inScripts.has(oScript)
           ? TELL_SCRIPT : 0;
         const marks = amount | script;
@@ -343,7 +349,7 @@ export function clusterObserver(
     if (remeet && isSession(tid)) {
       const byProducer = new Map<TxId, number[]>();
       tx.inputs.forEach((c, i) => {
-        const p = chain.coins.get(c)!.producer;
+        const p = rec.coins.get(c)!.producer;
         if (p === null || !isSession(p)) return;
         const l = byProducer.get(p);
         if (l) l.push(i);
@@ -369,7 +375,7 @@ export function clusterObserver(
     // join (the doc's 4-in/2-out bad coinjoin) would slip past it into
     // CIOH, but no form here produces that shape
     if (subsum && tx.inputs.length >= 2 && tx.outputs.length >= 3) {
-      const value = (id: CoinId): number => chain.coins.get(id)!.value;
+      const value = (id: CoinId): number => rec.coins.get(id)!.value;
       // re-met groups enter the search as one combined input each; a
       // partition of the merged values expands back onto the inputs
       const { vals: ivs, expand } = mergeInputs(tx.inputs.map(value), regroups);

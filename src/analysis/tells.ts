@@ -2,16 +2,27 @@
 // per-coin amount plausibility, the coinjoin session shape, and the
 // re-met-input merge the sub-transaction search consumes. Pure helpers —
 // the pipeline (clusters.ts) decides what the readings mean.
-import { type Chain, type TxId } from "../model/chain";
+import { type CoinId, type TxId } from "../model/chain";
 import { type Sats } from "../core/sats";
 import { isDenomination } from "../denom/denominations";
 import { TELL_USD, TELL_BTC, TELL_ALL } from "./observer";
+
+/** the least record sessionShape needs — values and structure only.
+ *  Both Chain and ObserverRecord satisfy it structurally, so the read
+ *  stays truth-blind whichever side hands it in. */
+export interface ValueRecord {
+  coins: ReadonlyMap<CoinId, { readonly value: Sats }>;
+  txs: ReadonlyMap<TxId, {
+    readonly inputs: readonly CoinId[];
+    readonly outputs: readonly CoinId[];
+  }>;
+}
 
 /** the shape the observer reads as a likely coinjoin between
  *  strangers: several inputs, and some menu denomination repeated
  *  among the outputs — the same whole-transaction radix read the
  *  change heuristic's self-spend inversion rests on */
-export function sessionShape(chain: Chain, tid: TxId): boolean {
+export function sessionShape(chain: ValueRecord, tid: TxId): boolean {
   const tx = chain.txs.get(tid);
   if (!tx || tx.inputs.length < 2) return false;
   const seen = new Set<Sats>();

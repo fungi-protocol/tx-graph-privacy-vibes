@@ -4,7 +4,7 @@
 // that renders them. One neutral module, so the pipeline (clusters.ts),
 // the UI, tutorial defaults, and the fragment codec all derive from the
 // same definitions instead of each holding a copy.
-import { type CoinId, type TxId, type Owner } from "../model/chain";
+import { Chain, type CoinId, type TxId, type Owner, addrKey, addrText } from "../model/chain";
 
 /** one observation the observer's map rests on: a method applied to a
  *  transaction linked these coins together.
@@ -200,4 +200,68 @@ export function clusterLabel(cl: Clustering, id: CoinId): string {
   const r = cl.rep.get(id);
   if (r === undefined || cl.members.get(r)!.length < 2) return "";
   return `cluster ${cl.rank.get(r)}`;
+}
+
+/**
+ * The record as an outsider reads it (#122d): value, structure, and the
+ * public face of the address — an opaque equality key and the published
+ * text, plus the script type that face shows. The truth fields a Coin
+ * carries for the storyteller (owner, funders, kyc, label, Addr.who) do
+ * not exist on this shape, so a heuristic typed against it cannot read
+ * them even by accident — the latent-truth rule enforced at compile time.
+ */
+export interface PublicCoin {
+  readonly id: CoinId;
+  readonly value: number;
+  readonly producer: TxId | null;
+  readonly dest: TxId | null;
+  /** the day a root entered from outside; undefined = pre-story savings */
+  readonly entered?: number;
+  /** canonical equality key for the address (opaque: compare, never parse) */
+  readonly addrKey?: string;
+  /** the address as the chain publishes it */
+  readonly addrText?: string;
+  /** the script type, public on the face of the address */
+  readonly script?: string;
+}
+
+/** a transaction minus its narrative memo — every field the record shows */
+export interface PublicTx {
+  readonly id: TxId;
+  readonly timestep: number;
+  readonly inputs: readonly CoinId[];
+  readonly outputs: readonly CoinId[];
+  readonly feerate: number;
+  readonly fee: number;
+  readonly locktime?: "tip" | "zero";
+  readonly sigLowR?: readonly boolean[];
+  readonly minute?: number;
+}
+
+/** the whole public record, in confirmation order — what an outsider
+ *  heuristic is handed instead of the truth-bearing Chain */
+export interface ObserverRecord {
+  readonly coins: ReadonlyMap<CoinId, PublicCoin>;
+  readonly txs: ReadonlyMap<TxId, PublicTx>;
+  readonly order: readonly TxId[];
+}
+
+/**
+ * Project a Chain down to its public record: one pass, new PublicCoin
+ * views with the address reduced to its opaque key, published text, and
+ * script type. The heuristics that must stay truth-blind take this (or
+ * build it themselves from a Chain handed in at the boundary).
+ */
+export function publicRecord(chain: Chain): ObserverRecord {
+  const coins = new Map<CoinId, PublicCoin>();
+  for (const c of chain.coins.values()) {
+    coins.set(c.id, {
+      id: c.id, value: c.value, producer: c.producer, dest: c.dest,
+      entered: c.entered,
+      addrKey: c.addr ? addrKey(c.addr) : undefined,
+      addrText: c.addr ? addrText(c.addr) : undefined,
+      script: c.addr?.script,
+    });
+  }
+  return { coins, txs: chain.txs, order: chain.order };
 }
