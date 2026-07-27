@@ -21,7 +21,13 @@
 // channel (#103, per Sabouri 2026): wallet fingerprints — the observer
 // switches statistical fingerprinting on, and inputs sitting on two
 // script types read as two wallets' coins in one transaction, so
-// CIOH abstains instead of linking the lie. The chapter closes with the
+// CIOH abstains instead of linking the lie. #111 frames that channel
+// as the generalization it is: coin features (not just amounts) as
+// evidence splitting a transaction between owners — the change
+// identification's feature-reading widened — with a coin's vicinity
+// including the transaction that spends it (adjacent on the graph,
+// however distant in time); #112's cluster-feature chapter builds on
+// exactly this rung. The chapter closes with the
 // generalization ladder the town skips (NS1R, NSNR — writeup's
 // many-senders sections) on the way to the general form.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
@@ -276,7 +282,13 @@ export function payjoinSteps(
         every signature a byte smaller, the rest leave sizes mixed. None
         of this is secret. It is formatting, and formatting is a
         <b>fingerprint</b>.</p>
-        <p>Read this transaction's inputs that way: ${reading}</p>`;
+        <p>Read this transaction's inputs that way: ${reading}</p>
+        <p>And a coin's fingerprint reaches past its own face: the
+        transaction that eventually <b>spends</b> it was built by the
+        wallet that held it, so that transaction's habits count as the
+        coin's too. On the graph the spend sits one edge away from the
+        coin, however many months later it happens — vicinity here is
+        topology, not time.</p>`;
       },
       focus: () => pad(payjoinFocus()),
       view: 0,
@@ -309,6 +321,15 @@ export function payjoinSteps(
         a payjoin's cover extends exactly as far as the participants'
         fingerprints agree, and these two happen to match.</p>`;
         return `${setup}${verdict}
+        <p>This reading generalizes. The change identification already
+        used one coin feature — change usually sits on the same script
+        type as the inputs — to tell payment from change. Here the same
+        kind of evidence splits a transaction between <b>owners</b>:
+        amounts alone admitted three readings, and the coins' features
+        vote between them. Later chapters push the idea further —
+        splitting a transaction into the several payments hiding inside
+        it, then reading a whole cluster's feature profile instead of a
+        single coin's.</p>
         <p>The check is a heuristic like the others, and its failure
         mode is the mirror image of CIOH's: a user who migrated wallets
         spends their own coins from two script types in one transaction, and
