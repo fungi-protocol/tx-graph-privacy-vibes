@@ -85,12 +85,18 @@ export function clusterAdjacency(
   };
   for (const tid of chain.order) {
     const tx = chain.txs.get(tid)!;
-    const from = cl.rep.get(tx.inputs[0]!)!;
+    // a refined partition can leave a transaction's inputs in several
+    // clusters (sub-transaction readings, CIOH abstentions): every
+    // distinct input cluster funds the outputs, not just inputs[0]'s
+    const froms = new Set<CoinId>();
+    for (const i of tx.inputs) froms.add(cl.rep.get(i)!);
     for (const out of tx.outputs) {
       const to = cl.rep.get(out)!;
-      if (to === from) continue;
-      bump(from, to);
-      bump(to, from);
+      for (const from of froms) {
+        if (to === from) continue;
+        bump(from, to);
+        bump(to, from);
+      }
     }
   }
   return adj;

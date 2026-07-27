@@ -402,6 +402,22 @@ function grantState(): GrantState {
 function observerBase(): Clustering {
   return grantsOn() ? grantState().fused : clustering();
 }
+/** ns-social matches sit on top of a partition's links, and the
+ *  behavioral (ns-netflix) matches fuse on top of both — the same
+ *  fusion, composed: matched clusters become one vertex at each
+ *  matcher's current replay position */
+function fuseMatches(base: Clustering): Clustering {
+  const cl0 = nsActive() ? nsApply(base, nsEvents()) : base;
+  return nfActive() ? nsApply(cl0, nfEvents()) : cl0;
+}
+const observerModelMemo = memoLRU<Clustering>(16);
+/** the ONE observer model (#124): the grant-fused base with the ns-social
+ *  and ns-netflix matches compounded, exactly as the collapsed map draws
+ *  it — the trace's candidate sets and the display must read the same
+ *  partition, or the lens shows evidence its own trace ignores */
+function observerModel(): Clustering {
+  return observerModelMemo.get(`${mapSig()}§${matchSig()}`, () => fuseMatches(observerBase()));
+}
 /** cache signature of the grant; "" = none in force */
 function grantSig(): string {
   return grantsOn() ? `${kycObs ? 1 : 0}|${auxFrac}` : "";
@@ -538,12 +554,10 @@ function collapseState(): CollapseState {
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
       : observerBase();
-    // the ns-social matches sit on top of the observer's links, and the
-    // behavioral (ns-netflix) matches fuse on top of both — the same
-    // fusion, composed: matched clusters become one vertex at each
-    // matcher's current replay position
-    const cl0 = nsActive() ? nsApply(base, nsEvents()) : base;
-    const cl = nfActive() ? nsApply(cl0, nfEvents()) : cl0;
+    // the observer's partition is the ONE model the trace also consumes
+    // (#124); the other lenses fuse any active matches onto their own
+    // base the same way
+    const cl = !unclustered && lens === 1 ? observerModel() : fuseMatches(base);
     // the layout button generalizes to the ring: layered orders it by
     // time, force reorders it to minimize edge crossings. Under the
     // ns-social partition the circle opens into columns — one vertical
@@ -733,7 +747,7 @@ function changeReadCaption(reads: ChangeRead[] | undefined): string | null {
 }
 
 function observerPaint(): Paint {
-  const cl = clustering();
+  const cl = observerModel();
   // grant attribution rides on top of the map: a granted coin is
   // disclosed truth, a coin colored through its cluster is the grant
   // compounding over a link — which can be wrong, so it says "likely"
@@ -868,7 +882,7 @@ function resize(): void {
  *  Untouched clusters do not appear. Screen space, drawn over the
  *  graph; the contracted view shows the discs themselves instead. */
 function drawClusterStrip(w: number, h: number): void {
-  const cl = clustering();
+  const cl = observerModel(); // the partition the trace intersected (#124)
   const repsOf = (coins: Set<string>): Set<string> => {
     const out = new Set<string>();
     for (const id of coins) {
@@ -2459,7 +2473,9 @@ function recomputeTrace(): void {
     return;
   }
   const s = active();
-  const opts = lens === 0 ? { truth: true } : lens === 1 ? { cl: clustering() } : {};
+  // the observer's candidate sets read the fused model — the same
+  // partition the lens draws, grants and matches compounded (#124)
+  const opts = lens === 0 ? { truth: true } : lens === 1 ? { cl: observerModel() } : {};
   if (selection.kind === "coins") {
     const live = selection.ids.filter((id) => s.chain.coins.has(id));
     highlight = live.length > 0 ? traceCoins(s.chain, live, opts) : null;

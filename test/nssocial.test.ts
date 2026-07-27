@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Economy } from "../src/engine/economy";
+import { Chain } from "../src/model/chain";
+import { txfee } from "../src/core/sats";
 import { clusterObserver } from "../src/analysis/clusters";
 import {
   partitionColumns, clusterAdjacency, nsSimilarity, nsSocialRun, nsApply,
@@ -185,4 +187,28 @@ test("ns-social: within a lane no two vertices share a slot", () => {
         `vertices overlap vertically at y=${g[i]!.y}`);
     }
   }
+});
+
+test("clusterAdjacency: every distinct input cluster funds the outputs, not just inputs[0]'s (#124)", () => {
+  const chain = new Chain();
+  chain.addRoot("a", 1_000_000, 0);
+  chain.addRoot("b", 500_000, 1);
+  const fee = txfee(2, 1, 2);
+  chain.addTx("t1", 1, ["a", "b"], [{ owner: 2, value: 1_500_000 - fee }], 2);
+  // a refined partition keeps the two inputs apart (a CIOH abstention):
+  // three clusters, the payment output alone in the third
+  const members = new Map([["a", ["a"]], ["b", ["b"]], ["t1o1", ["t1o1"]]]);
+  const rep = new Map([["a", "a"], ["b", "b"], ["t1o1", "t1o1"]]);
+  const rank = new Map([["a", 1], ["b", 2], ["t1o1", 3]]);
+  const cl = { rep, members, rank, changeGuess: new Map(), payGuess: new Map(), changeReads: new Map(), links: [] };
+  const adj = clusterAdjacency(cl as never, chain);
+  // both funding clusters see the payment cluster — the inputs[0]-only
+  // reading dropped b's edge entirely
+  assert.equal(adj.get("a")?.get("t1o1"), 1);
+  assert.equal(adj.get("b")?.get("t1o1"), 1);
+  assert.equal(adj.get("t1o1")?.get("a"), 1);
+  assert.equal(adj.get("t1o1")?.get("b"), 1);
+  // no edge between the two funders: co-spending is CIOH's claim, and
+  // this partition abstained from it
+  assert.equal(adj.get("a")?.get("b"), undefined);
 });
