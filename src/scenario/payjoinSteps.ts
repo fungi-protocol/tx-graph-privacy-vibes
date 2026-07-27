@@ -1,7 +1,13 @@
-// Chapter 4: payjoin — the first collaborative form. The one-author
-// assumption breaks, CIOH is falsified by construction, and the honest
-// limits appear: the record cannot settle an outsider's suspicion; the
-// counterparty simply knows. Then the honest SIZE of the win (the
+// Chapter 4: payjoin — the first collaborative form. The chapter's
+// idea (#114b): heuristics are sometimes wrong, and a transaction can
+// be built deliberately to invalidate them — this is where the
+// observer's map and the ground truth stop being refinements of each
+// other and can disagree outright. The one-author assumption breaks,
+// CIOH is falsified by construction; the observer-side beats run
+// first (the honest size of the win, the rest of the graph's answer,
+// fingerprints), and only then the counterparty's view: the record
+// cannot settle an outsider's suspicion, but the payee simply knows.
+// Within the observer beats: the honest SIZE of the win (the
 // writeup's entropy footnote: a couple of readings, ~1.58 bits at best
 // for the 2-in-2-out shape, in isolation), and the way context spends
 // it: when the rest of the record already attributes the two inputs to
@@ -107,14 +113,18 @@ export function payjoinSteps(
   return [
     {
       id: "neighborhood-learns-a-trick",
-      title: "The neighborhood learns a trick",
-      html: `<p>Around day 30, word gets around: a payee can <b>contribute a
+      title: "A transaction built by two people",
+      html: `<p>Every heuristic in the last chapter is a guess about how
+        transactions are <i>usually</i> built — and a guess can be wrong.
+        It can also be <b>made</b> wrong: nothing stops two people from
+        building one transaction together, shaped deliberately so the
+        observer's rules misread it.</p>
+        <p>Around day 30, word gets around: a payee can <b>contribute a
         coin of their own</b> to the transaction that pays them. Their
         output is then the payment <i>plus</i> their own coin coming back —
-        a <b>payjoin</b>.</p>
-        <p>Look at this one: two inputs, two outputs, payment out, change
-        back. At a glance, nothing marks it as different. That is the
-        point.</p>
+        a <b>payjoin</b>. Look at this one: two inputs, two outputs,
+        payment out, change back. At a glance, nothing marks it as
+        different. That is the point.</p>
         <p>Coordinating takes effort, so not everyone bothers every
         time.</p>`,
       focus: () => pad(payjoinFocus()),
@@ -132,43 +142,21 @@ export function payjoinSteps(
         as one owner — but they were <b>two people's coins</b>. A
         transaction that spends inputs owned by more than one user
         <b>falsifies CIOH by construction</b>.</p>
-        <p>The observer's cluster now merges payer and payee together, and
-        the change guess goes quiet too: the payment output isn't a round
-        amount any more — the payee's own coin is stirred in — so the
-        observer has nothing to grab.</p>`,
+        <p>The observer's cluster now merges payer and payee together.
+        The change guess fails with it: the payment output is no longer
+        a round amount — the payee's own coin is stirred into it — so no
+        output reads as a payment, and with nothing identified, nothing
+        is linked.</p>
+        <p>Note what changed in kind. A wrong change guess could already
+        mislabel a coin here and there, but while every transaction had
+        one author, CIOH's merges were all true — the observer's map
+        could only be an <i>incomplete</i> version of the truth, each
+        cluster a fragment of one real wallet. This transaction put a
+        cluster on the map that is <b>no one</b>: payer and payee fused.
+        From here the map and the truth can disagree outright.</p>`,
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 1,
-      scene: 1,
-      minDay: 35,
-      select: selectIt,
-    },
-    {
-      id: "no-privacy-from-the-counterparty",
-      title: "No privacy from the counterparty",
-      html: `<p>Be precise about who is fooled. An outsider <i>can
-        suspect</i> this is a payjoin — any two-input spend could be one,
-        and sometimes an input looks unnecessary, more coin than the
-        payment needed (the literature's <i>unnecessary input
-        heuristic</i>). But the record cannot settle it: every feature
-        this observer reads — amounts, inputs, outputs, structure — is
-        consistent with both readings, so suspicion stays suspicion.
-        (Wallets also leave <b>fingerprints</b> — quirks of how each
-        builds its transactions, and this town's wallet products carry
-        them too. A two-input spend whose inputs sit on different script
-        types reads more like two wallets than one, and can tilt the
-        guess further without settling it.)</p>
-        <p>The payee is not fooled at all: they contributed their coin, so
-        they know <b>exactly</b> which inputs were the payer's. What a
-        counterparty learns is a fixed point, and each payment adds
-        another.</p>
-        <p>You are looking through the payee's eyes now: their own coins,
-        everything their payments taught them — <b>known</b> for direct
-        evidence, <b>likely</b> where it seeds the public heuristics — and
-        gray where they are as blind as any outsider.</p>`,
-      focus: () => pad(payjoinFocus()),
-      view: 0,
-      lens: 2,
       scene: 1,
       minDay: 35,
       select: selectIt,
@@ -322,6 +310,36 @@ export function payjoinSteps(
       lens: 1,
       nf: true,
       reveals: ["nsnf"],
+      scene: 1,
+      minDay: 35,
+      select: selectIt,
+    },
+    {
+      id: "no-privacy-from-the-counterparty",
+      title: "No privacy from the counterparty",
+      html: `<p>One party was never fooled for a moment. The payee
+        contributed their coin, so they know <b>exactly</b> which inputs
+        were the payer's — no heuristic needed, no doubt to spend. What a
+        counterparty learns is a fixed point, and each payment adds
+        another.</p>
+        <p>Set that against everything the last steps made the outsider
+        work for. An outsider <i>can suspect</i> a payjoin — any
+        two-input spend could be one, and sometimes an input looks
+        unnecessary, more coin than the payment needed (the literature's
+        <i>unnecessary input heuristic</i>); the rest of the graph and
+        the fingerprints can tilt the reading further. But where nothing
+        tips it, every feature the record shows — amounts, inputs,
+        outputs, structure — is consistent with both readings, and
+        suspicion stays suspicion. The counterparty skips all of it:
+        what the outsider must infer, they were handed at the
+        table.</p>
+        <p>You are looking through the payee's eyes now: their own coins,
+        everything their payments taught them — <b>known</b> for direct
+        evidence, <b>likely</b> where it seeds the public heuristics — and
+        gray where they are as blind as any outsider.</p>`,
+      focus: () => pad(payjoinFocus()),
+      view: 0,
+      lens: 2,
       scene: 1,
       minDay: 35,
       select: selectIt,
