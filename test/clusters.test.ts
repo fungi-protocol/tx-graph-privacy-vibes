@@ -749,3 +749,24 @@ test("changeReads: radix self-spends recorded as such, change heuristic off reco
   const off = clusterObserver(c, at, { reuse: true, cioh: true, change: false, subsum: true });
   assert.equal(off.changeReads.size, 0);
 });
+
+// #125: the observer's map lives on the union-find substrate, so a
+// cluster's canonical representative is its FIRST coin in chain order —
+// deterministic under any merge order, never an artifact of which
+// heuristic happened to union last. Members list in chain order too,
+// so members[0] IS the representative.
+test("observer representatives are each cluster's first coin in chain order (#125)", () => {
+  const eco = new Economy("golden");
+  eco.runTo(80);
+  const pos = new Map<string, number>();
+  let i = 0;
+  for (const id of eco.chain.coins.keys()) pos.set(id, i++);
+  const cl = clusterObserver(eco.chain, (d) => eco.prices[d]);
+  for (const [rep, members] of cl.members) {
+    assert.equal(members[0], rep, `cluster ${rep} does not lead its own member list`);
+    for (let j = 1; j < members.length; j++) {
+      assert.ok(pos.get(members[j - 1]!)! < pos.get(members[j]!)!,
+        `cluster ${rep} members out of chain order`);
+    }
+  }
+});

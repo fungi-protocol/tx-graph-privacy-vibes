@@ -67,6 +67,7 @@ import { type Chain, type CoinId, type TxId, type Owner, addrKey, addrText } fro
 import { type Sats } from "../core/sats";
 import { isDenomination } from "../denom/denominations";
 import { subTransactionMapping, forcedLinks } from "./subsetsum";
+import { Partition } from "./partition";
 
 /** one observation the observer's map rests on: a method applied to a
  *  transaction linked these coins together.
@@ -376,20 +377,17 @@ export function clusterObserver(
     }
     return false;
   };
-  const parent = new Map<CoinId, CoinId>();
-  for (const id of chain.coins.keys()) parent.set(id, id);
-  const find = (x: CoinId): CoinId => {
-    let r = x;
-    while (parent.get(r) !== r) r = parent.get(r)!;
-    while (parent.get(x) !== r) {
-      const next = parent.get(x)!;
-      parent.set(x, r);
-      x = next;
-    }
-    return r;
-  };
+  // the union-find substrate (#125): coins indexed in chain order, so a
+  // class's canonical representative is its FIRST coin however the
+  // heuristics' merges arrive — the observer's map is a point of the
+  // partition refinement lattice, not a byproduct of merge order
+  const ids = [...chain.coins.keys()];
+  const idx = new Map<CoinId, number>();
+  ids.forEach((id, i) => idx.set(id, i));
+  const p = new Partition(ids.length);
+  const find = (x: CoinId): CoinId => ids[p.find(idx.get(x)!)]!;
   const union = (a: CoinId, b: CoinId): void => {
-    parent.set(find(a), find(b));
+    p.union(idx.get(a)!, idx.get(b)!);
   };
 
   const changeGuess = new Map<TxId, CoinId[]>();
@@ -709,7 +707,7 @@ export function clusterObserver(
 
   const rep = new Map<CoinId, CoinId>();
   const members = new Map<CoinId, CoinId[]>();
-  for (const id of chain.coins.keys()) {
+  for (const id of ids) {
     const r = find(id);
     rep.set(id, r);
     const m = members.get(r);
