@@ -170,6 +170,32 @@ export function pileScale(size: number, r: number): number {
  *  not to the coin. A tx whose outputs all land back in input clusters
  *  contracts away entirely. */
 export interface ContractedEdge { tid: TxId; from: CoinId[]; to: CoinId[] }
+
+/** stable identity of one incidence — a strand between a cluster
+ *  vertex and a transaction's junction: transaction + cluster rep +
+ *  direction. The SAME id names the same strand in every layout mode
+ *  and at every phase of a morph, so transitions animate ids instead
+ *  of re-deriving topology from geometry; a strand appears or
+ *  disappears only when the underlying partition actually changes,
+ *  never merely because the arrangement did (#115 contract). */
+export function incidenceId(tid: TxId, rep: CoinId, dir: "in" | "out"): string {
+  return dir === "in" ? `${rep}>${tid}` : `${tid}>${rep}`;
+}
+
+/** the contracted scene, derived once per (chain, clustering) pair:
+ *  the draw path asks for it every frame and the layouts ask again per
+ *  arrangement, so the derivation caches on the partition object (a
+ *  Clustering is immutable once computed) and re-derives only if the
+ *  chain grew under it */
+const sceneCache = new WeakMap<Clustering, { txs: number; edges: ContractedEdge[] }>();
+export function contractedScene(chain: Chain, cl: Clustering): ContractedEdge[] {
+  const hit = sceneCache.get(cl);
+  if (hit && hit.txs === chain.order.length) return hit.edges;
+  const edges = contractedEdges(chain, cl);
+  sceneCache.set(cl, { txs: chain.order.length, edges });
+  return edges;
+}
+
 export function contractedEdges(chain: Chain, cl: Clustering): ContractedEdge[] {
   const out: ContractedEdge[] = [];
   for (const tid of chain.order) {
@@ -310,7 +336,7 @@ export function layoutClusterColumns(
       if (!m) adj.set(a, (m = new Map()));
       m.set(b, (m.get(b) ?? 0) + 1);
     };
-    for (const e of contractedEdges(chain, cl)) {
+    for (const e of contractedScene(chain, cl)) {
       for (const from of e.from) {
         for (const to of e.to) {
           bump(from, to);
@@ -403,7 +429,7 @@ function crossingMinimizedOrder(cl: Clustering, chain: Chain, start: CoinId[]): 
     if (!m) adj.set(a, (m = new Map()));
     m.set(b, (m.get(b) ?? 0) + 1);
   };
-  for (const e of contractedEdges(chain, cl)) {
+  for (const e of contractedScene(chain, cl)) {
     for (const from of e.from) {
       for (const to of e.to) {
         bump(from, to);
@@ -544,7 +570,7 @@ export function drawContraction(
   const hov = hover !== undefined && clay.nodes.has(hover) ? hover : undefined;
   const neighbors = new Set<CoinId>();
   if (hov !== undefined) {
-    for (const e of contractedEdges(chain, cl)) {
+    for (const e of contractedScene(chain, cl)) {
       const touches = e.from.includes(hov) || e.to.includes(hov);
       if (!touches) continue;
       for (const r of e.from) if (r !== hov) neighbors.add(r);
@@ -680,7 +706,7 @@ export function drawContraction(
   ctx.save();
   ctx.globalAlpha = Math.max(0, discT * 0.75) * (0.5 + 0.5 * transT);
   const ccx = clay.bounds.x + clay.bounds.w / 2, ccy = clay.bounds.y + clay.bounds.h / 2;
-  for (const e of contractedEdges(chain, cl)) {
+  for (const e of contractedScene(chain, cl)) {
     const tx = chain.txs.get(e.tid)!;
     const touched = hov !== undefined && (e.from.includes(hov) || e.to.includes(hov));
     const color = paint.color(tx.inputs[0]!) + (touched ? "e8" : hov !== undefined ? "16" : "70");

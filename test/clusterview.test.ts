@@ -7,7 +7,7 @@
 // the whole cluster, and every fragment must come from a real old disc.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout, pileOffset, pileScale, discRadius, contractedEdges } from "../src/ui/clusterview";
+import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout, pileOffset, pileScale, discRadius, contractedEdges, contractedScene, incidenceId } from "../src/ui/clusterview";
 import { type Clustering } from "../src/analysis/clusters";
 import { clusterObserver, clusterSingletons } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
@@ -224,6 +224,32 @@ test("contractedEdges under a coarse partition: co-clustered inputs collapse to 
     txs: new Map([["t2", { id: "t2", inputs: ["i1"], outputs: ["c1"] }]]),
   } as never, cl);
   assert.equal(internal.length, 0);
+});
+
+// The contracted scene is the stable semantic layer the layouts and the
+// draw path consume: derived once per (chain, clustering) pair, cached
+// on the clustering object, re-derived only when the chain grows. Each
+// incidence — a strand between a cluster vertex and a transaction's
+// junction — has a stable id, so a transition can animate the SAME
+// strand across layout modes instead of re-deriving topology from
+// geometry (#115 contract).
+test("contractedScene: memoized per (chain, clustering); incidence ids are direction-tagged and stable", () => {
+  const eco = new Economy("welcome");
+  eco.runTo(30);
+  const cl = clusterSingletons(eco.chain);
+  const a = contractedScene(eco.chain, cl);
+  const b = contractedScene(eco.chain, cl);
+  assert.equal(a, b, "same chain + same clustering returns the identical array");
+  assert.deepEqual(a, contractedEdges(eco.chain, cl), "the scene IS the contracted edge set");
+  // the chain grows under the same clustering object → fresh derivation
+  eco.runTo(35);
+  const c = contractedScene(eco.chain, clusterSingletons(eco.chain));
+  assert.ok(c.length > a.length, "new transactions appear in the re-derived scene");
+  // incidence ids: direction-tagged, so an input strand and an output
+  // strand touching the same (tx, cluster) pair never collide
+  assert.equal(incidenceId("t1", "a", "in"), "a>t1");
+  assert.equal(incidenceId("t1", "a", "out"), "t1>a");
+  assert.notEqual(incidenceId("t1", "a", "in"), incidenceId("t1", "a", "out"));
 });
 
 // #107: "the clustered vs. unclustered layout is mainly a function of
