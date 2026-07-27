@@ -112,12 +112,14 @@ test("fragment bridge: v/fd/uc reproduces the rendered picture for every canonic
   assert.deepEqual(viewFromFragment(undefined, undefined, undefined), DEFAULT_VIEW_STATE);
 });
 
-test("tutorial bridge: step view codes 0..3, arrangement carried over", () => {
-  const base: ViewState = { view: "graph", arrange: "force", chord: true, grouping: "unclustered" };
-  assert.deepEqual(viewFromStep(base, 0), { view: "cards", arrange: "force", chord: false, grouping: "unclustered" });
-  assert.deepEqual(viewFromStep(base, 1), { view: "graph", arrange: "force", chord: false, grouping: "unclustered" });
-  assert.deepEqual(viewFromStep(base, 2), { view: "graph", arrange: "force", chord: true, grouping: "clustered" });
-  assert.deepEqual(viewFromStep(base, 3), { view: "graph", arrange: "force", chord: true, grouping: "unclustered" });
+test("tutorial bridge: a step's view state is a pure function of its code (#130)", () => {
+  // a step dispatch lands in the same picture whatever the user
+  // toggled before it — the arrangement resets to the default, so a
+  // shared step fragment reproduces one canonical view
+  assert.deepEqual(viewFromStep(0), { view: "cards", arrange: "ltr", chord: false, grouping: "unclustered" });
+  assert.deepEqual(viewFromStep(1), { view: "graph", arrange: "ltr", chord: false, grouping: "unclustered" });
+  assert.deepEqual(viewFromStep(2), { view: "graph", arrange: "ltr", chord: true, grouping: "clustered" });
+  assert.deepEqual(viewFromStep(3), { view: "graph", arrange: "ltr", chord: true, grouping: "unclustered" });
 });
 
 test("dispatchPlan: replaying the ops reproduces the target state", () => {

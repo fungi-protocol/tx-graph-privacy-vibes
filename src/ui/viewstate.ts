@@ -155,12 +155,15 @@ export function viewFromFragment(v: number | undefined, fd: number | undefined, 
 // --- tutorial bridge: a step's view code (0..3) ---
 
 /** 0 = cards, 1 = the plain coin graph, 2 = the chord ring, 3 = the
- *  same ring held at the lattice bottom (the singleton ring). Steps
- *  never choose the arrangement, so it carries over. */
-export function viewFromStep(vs: ViewState, code: 0 | 1 | 2 | 3): ViewState {
+ *  same ring held at the lattice bottom (the singleton ring). The
+ *  result is a pure function of the code (#130): a step dispatch must
+ *  land in the same picture whatever the user toggled before it, so a
+ *  shared step fragment reproduces one canonical view — the
+ *  arrangement resets to the default rather than carrying over. */
+export function viewFromStep(code: 0 | 1 | 2 | 3): ViewState {
   return canonical({
-    ...vs,
     view: code >= 1 ? "graph" : "cards",
+    arrange: "ltr",
     chord: code >= 2,
     grouping: code === 2 ? "clustered" : "unclustered",
   });

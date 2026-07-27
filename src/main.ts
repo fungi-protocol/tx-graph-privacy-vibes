@@ -3251,7 +3251,7 @@ const tutorial = new Tutorial(steps, {
     // singleton ring, nothing stacked (#95). The executor settles the
     // grouping before a contraction forms (the morph flies straight to
     // its final ring) and runs in-map changes as repartition tweens.
-    applyViewState(viewFromStep(currentViewState(), view));
+    applyViewState(viewFromStep(view));
   },
   onLens: (l, a) => {
     if (l === 2) lensAgent = a ?? defaultLensAgent(); // step's pick, else the payjoin payee
