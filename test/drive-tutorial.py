@@ -80,9 +80,11 @@ def main() -> None:
         page.wait_for_timeout(1200)
         page.locator("#unclusterbtn").click()  # -> back to clustered
         page.wait_for_timeout(1200)
-        page.locator("#nssoc").click()  # ns-social: columns arrangement
+        # the checkbox input is styled (label covers it), so playwright's
+        # actionability wait never passes — toggle it at the DOM level
+        page.evaluate("document.getElementById('nssoc').click()")  # columns
         page.wait_for_timeout(2500)  # worker run + column transition
-        page.locator("#nssoc").click()  # and back off the columns
+        page.evaluate("document.getElementById('nssoc').click()")  # back off
         page.wait_for_timeout(1200)
 
         assert not errors, f"page errors: {errors}"
