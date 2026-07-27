@@ -18,7 +18,7 @@ export { type ContractedEdge, incidenceId, contractedScene, contractedEdges } fr
 export {
   type ClusterNode, type ClusterLayout, fitClusterLayout,
   pileOffset, discRadius, pileScale,
-  layoutClusterGraph, layoutClusterColumns,
+  layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns,
 } from "./clusterlayout";
 export { type ClusterPaint, type ClusterTransition, truthSlices, transitionFragments } from "./clustertransition";
 import { contractedScene } from "./scene";

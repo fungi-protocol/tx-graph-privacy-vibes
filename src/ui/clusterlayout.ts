@@ -95,6 +95,30 @@ function transferAdjacency(chain: Chain, cl: Clustering): Map<CoinId, Map<CoinId
   return adj;
 }
 
+/** the shared seriation of the contracted vertices: chain-rank order,
+ *  refined to earliest-coin (timeline) order when the chain is at
+ *  hand; "force" runs the circular-barycenter sweeps on top so
+ *  transfer neighbors end up adjacent. Without a chain the rank order
+ *  stands (tests, and the repartition tween's synthetic partitions). */
+function seriation(cl: Clustering, chain: Chain | undefined, mode: "time" | "force"): CoinId[] {
+  let order = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
+  if (chain) {
+    const day = (id: CoinId): number => {
+      const c = chain.coins.get(id)!;
+      return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+    };
+    const earliest = new Map<CoinId, number>();
+    for (const [rep, members] of cl.members) {
+      let e = Infinity;
+      for (const id of members) e = Math.min(e, day(id));
+      earliest.set(rep, e);
+    }
+    order = order.sort((a, b) => earliest.get(a)! - earliest.get(b)! || (a < b ? -1 : 1));
+    if (mode === "force") order = crossingMinimizedOrder(cl, chain, order);
+  }
+  return order;
+}
+
 /** Ring layout: every partition vertex — multi-coin clusters and the
  *  anonymous singletons alike — sits on ONE ellipse, spaced by kind:
  *  clusters (>= 2 coins) claim wide arcs so they read apart, while the
@@ -117,21 +141,7 @@ export function layoutClusterGraph(
   chain?: Chain,
   mode: "time" | "force" = "time",
 ): ClusterLayout {
-  let order = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
-  if (chain) {
-    const day = (id: CoinId): number => {
-      const c = chain.coins.get(id)!;
-      return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
-    };
-    const earliest = new Map<CoinId, number>();
-    for (const [rep, members] of cl.members) {
-      let e = Infinity;
-      for (const id of members) e = Math.min(e, day(id));
-      earliest.set(rep, e);
-    }
-    order = order.sort((a, b) => earliest.get(a)! - earliest.get(b)! || (a < b ? -1 : 1));
-    if (mode === "force") order = crossingMinimizedOrder(cl, chain, order);
-  }
+  const order = seriation(cl, chain, mode);
 
   // arc room by kind: a cluster's slot is its diameter plus a wide
   // gap, a singleton's just its own footprint plus a sliver
@@ -159,6 +169,104 @@ export function layoutClusterGraph(
   return {
     nodes,
     bounds: { x: -R * 1.35 - M, y: -R - M, w: 2 * R * 1.35 + 2 * M, h: 2 * R + 2 * M },
+  };
+}
+
+/** Band layout: the ring's timeline left unbent — every partition
+ *  vertex on one horizontal row, earliest coin first, spaced by kind
+ *  exactly like the ring (clusters claim wide slots, singletons pack
+ *  tight). The bounds leave the row's room BELOW it, so the renderer's
+ *  center-seeking bow turns each transfer edge into an arc under the
+ *  timeline, deeper the longer its span — an arc diagram of the
+ *  contracted graph, the left-to-right reading of the same scene the
+ *  ring bends around a circle. */
+export function layoutClusterBand(
+  cl: Clustering,
+  chain?: Chain,
+  mode: "time" | "force" = "time",
+): ClusterLayout {
+  const order = seriation(cl, chain, mode);
+  const items = order.map((rep) => {
+    const size = cl.members.get(rep)!.length;
+    const r = discRadius(size);
+    return { rep, r, size, width: 2 * r + (size >= 2 ? 90 : 12) };
+  });
+  const nodes = new Map<CoinId, ClusterNode>();
+  const total = Math.max(1, items.reduce((s, it) => s + it.width, 0));
+  let cum = 0;
+  for (const it of items) {
+    nodes.set(it.rep, { rep: it.rep, x: cum + it.width / 2, y: 0, r: it.r, size: it.size });
+    cum += it.width;
+  }
+  const maxR = items.reduce((m, it) => Math.max(m, it.r), 0);
+  const M = 50 + maxR;
+  const drop = Math.max(280, total * 0.22); // arc room under the row
+  return {
+    nodes,
+    bounds: { x: -M, y: -maxR - M, w: total + 2 * M, h: maxR + M + drop },
+  };
+}
+
+/** Force map: the contracted graph placed freely — vertices start on
+ *  the timeline ring and relax under springs along their transfer
+ *  edges plus pairwise repulsion, so connected clusters pull together
+ *  and strangers drift apart. Deterministic: the start state is the
+ *  time ring and every sweep is a fixed-order pass, no randomness —
+ *  the same (chain, partition) always settles into the same map. */
+export function layoutClusterForceMap(cl: Clustering, chain: Chain): ClusterLayout {
+  const start = layoutClusterGraph(cl, chain, "time");
+  const reps = [...start.nodes.keys()];
+  const pos = new Map<CoinId, { x: number; y: number }>();
+  for (const [rep, n] of start.nodes) pos.set(rep, { x: n.x, y: n.y });
+  const adj = transferAdjacency(chain, cl);
+  const radius = (rep: CoinId): number => start.nodes.get(rep)!.r;
+  for (let it = 0; it < 120; it++) {
+    const cool = 1 - it / 120;
+    // attraction along transfer edges toward a touching-plus-gap rest
+    // length, stronger for heavier edges (capped so a busy pair cannot
+    // slingshot)
+    for (const [a, m] of adj) {
+      const pa = pos.get(a)!;
+      for (const [b, w] of m) {
+        const pb = pos.get(b)!;
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const rest = radius(a) + radius(b) + 110;
+        const k = 0.012 * Math.min(3, w) * cool * (d - rest) / d;
+        pa.x += dx * k; pa.y += dy * k;
+        pb.x -= dx * k; pb.y -= dy * k;
+      }
+    }
+    // pairwise repulsion, felt only in each other's neighborhood — a
+    // plain O(n^2) pass; the contracted graph stays small enough
+    for (let i = 0; i < reps.length; i++) {
+      const pa = pos.get(reps[i]!)!;
+      for (let j = i + 1; j < reps.length; j++) {
+        const pb = pos.get(reps[j]!)!;
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const d2 = dx * dx + dy * dy;
+        const reach = radius(reps[i]!) + radius(reps[j]!) + 120;
+        if (d2 >= reach * reach || d2 === 0) continue;
+        const d = Math.sqrt(d2);
+        const k = 0.5 * cool * (reach - d) / (d * reach) * reach;
+        pa.x -= (dx / d) * k; pa.y -= (dy / d) * k;
+        pb.x += (dx / d) * k; pb.y += (dy / d) * k;
+      }
+    }
+  }
+  const nodes = new Map<CoinId, ClusterNode>();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const rep of reps) {
+    const p = pos.get(rep)!;
+    const n = start.nodes.get(rep)!;
+    nodes.set(rep, { ...n, x: p.x, y: p.y });
+    minX = Math.min(minX, p.x - n.r); maxX = Math.max(maxX, p.x + n.r);
+    minY = Math.min(minY, p.y - n.r); maxY = Math.max(maxY, p.y + n.r);
+  }
+  const M = 60;
+  return {
+    nodes,
+    bounds: { x: minX - M, y: minY - M, w: maxX - minX + 2 * M, h: maxY - minY + 2 * M },
   };
 }
 

@@ -290,7 +290,7 @@ test("observer with all heuristics off equals the singleton partition (#107)", (
 // arrangement of the same partition must therefore cover the scene's
 // reps, and the incidence-id set is identical across all of them.
 test("every arrangement covers the scene: identical incidence ids across ring, force ring, fitted ring, and columns (#115)", async () => {
-  const { layoutClusterColumns } = await import("../src/ui/clusterview");
+  const { layoutClusterColumns, layoutClusterBand, layoutClusterForceMap } = await import("../src/ui/clusterview");
   const { partitionColumns } = await import("../src/analysis/nssocial");
   const eco = new Economy("golden");
   eco.runTo(60);
@@ -311,6 +311,9 @@ test("every arrangement covers the scene: identical incidence ids across ring, f
       fitted: fitClusterLayout(layoutClusterGraph(cl, chain, "time"),
         { x: 0, y: 0, w: 800, h: 600 }),
       columns: layoutClusterColumns(cl, chain, lanes, 2, "time"),
+      band: layoutClusterBand(cl, chain, "time"),
+      forceBand: layoutClusterBand(cl, chain, "force"),
+      forceMap: layoutClusterForceMap(cl, chain),
     };
     for (const [name, clay] of Object.entries(arrangements)) {
       const drawable = new Set<string>();
@@ -322,4 +325,50 @@ test("every arrangement covers the scene: identical incidence ids across ring, f
         `${name} drops ${ids.size - drawable.size} of ${ids.size} strands`);
     }
   }
+});
+
+// The two uncurled arrangements of the contracted map (#115): the band
+// is the ring's timeline left unbent, the force map a deterministic
+// relaxation of it. Geometry only — same scene, same partition.
+test("band keeps the timeline order left to right; force map is deterministic (#115)", async () => {
+  const { layoutClusterBand, layoutClusterForceMap } = await import("../src/ui/clusterview");
+  const eco = new Economy("golden");
+  eco.runTo(60);
+  const chain = eco.chain;
+  const cl = clusterObserver(chain, (d) => eco.prices[d]);
+  const day = (id: string): number => {
+    const c = chain.coins.get(id)!;
+    return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
+  };
+  const earliest = (rep: string): number =>
+    Math.min(...cl.members.get(rep)!.map(day));
+  const band = layoutClusterBand(cl, chain, "time");
+  const byX = [...band.nodes.values()].sort((a, b) => a.x - b.x);
+  for (let i = 1; i < byX.length; i++) {
+    assert.ok(earliest(byX[i]!.rep) >= earliest(byX[i - 1]!.rep),
+      `band vertex ${byX[i]!.rep} sits right of a later cluster`);
+  }
+  // one row: every vertex on the same line, inside the bounds, with
+  // the arc room left below the row
+  for (const n of band.nodes.values()) {
+    assert.equal(n.y, 0);
+    assert.ok(n.x - n.r >= band.bounds.x && n.x + n.r <= band.bounds.x + band.bounds.w);
+  }
+  assert.ok(band.bounds.y + band.bounds.h >= 280, "no arc room under the band");
+  // the force map settles into the same picture every time, and keeps
+  // every disc inside its bounds
+  const f1 = layoutClusterForceMap(cl, chain);
+  const f2 = layoutClusterForceMap(cl, chain);
+  for (const [rep, n] of f1.nodes) {
+    const m = f2.nodes.get(rep)!;
+    assert.equal(n.x, m.x);
+    assert.equal(n.y, m.y);
+    assert.ok(n.x - n.r >= f1.bounds.x && n.x + n.r <= f1.bounds.x + f1.bounds.w);
+    assert.ok(n.y - n.r >= f1.bounds.y && n.y + n.r <= f1.bounds.y + f1.bounds.h);
+  }
+  // relaxation actually moved things off the starting ring
+  const ring = layoutClusterGraph(cl, chain, "time");
+  const moved = [...f1.nodes.values()]
+    .filter((n) => Math.hypot(n.x - ring.nodes.get(n.rep)!.x, n.y - ring.nodes.get(n.rep)!.y) > 5);
+  assert.ok(moved.length > f1.nodes.size / 2, "force map barely differs from the ring");
 });
