@@ -205,6 +205,17 @@ test("fingerprint veto: homogeneous families keep CIOH, and a migration misfires
   assert.notEqual(mig.rep.get("old"), mig.rep.get("new"));
 });
 
+test("ns-netflix has matches to show at the behavioral-matching chapter across tutorial seeds (#112)", async () => {
+  const { nfRun } = await import("../src/analysis/nsnetflix");
+  for (const seed of ["golden", "welcome", "silver", "alpha"]) {
+    const eco = new Economy(seed);
+    eco.runTo(55); // the chapter's minDay, at the app's default threshold
+    const cl = clusterObserver(eco.chain, (d) => eco.prices[d]!);
+    const run = nfRun(cl, eco.chain, 0.65);
+    assert.ok(run.length >= 1, `seed ${seed}: no ns-netflix matches at day 55`);
+  }
+});
+
 test("ns-social has matches to show at the post-settlement chapter across tutorial seeds (#103)", async () => {
   const { nsSocialRun } = await import("../src/analysis/nssocial");
   for (const seed of ["golden", "welcome", "silver", "alpha"]) {

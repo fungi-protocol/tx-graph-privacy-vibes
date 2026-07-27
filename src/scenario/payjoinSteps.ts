@@ -326,10 +326,10 @@ export function payjoinSteps(
         type as the inputs — to tell payment from change. Here the same
         kind of evidence splits a transaction between <b>owners</b>:
         amounts alone admitted three readings, and the coins' features
-        vote between them. Later chapters push the idea further —
-        splitting a transaction into the several payments hiding inside
-        it, then reading a whole cluster's feature profile instead of a
-        single coin's.</p>
+        vote between them. The coming chapters push the idea further —
+        reading a whole cluster's feature profile instead of a single
+        coin's, and splitting a transaction into the several payments
+        hiding inside it.</p>
         <p>The check is a heuristic like the others, and its failure
         mode is the mirror image of CIOH's: a user who migrated wallets
         spends their own coins from two script types in one transaction, and
@@ -394,7 +394,7 @@ export function payjoinSteps(
         payments to different receivers share one transaction, and each
         hidden payment still relates one payer to one amount — so the
         amounts themselves keep discriminating between readings. (The
-        next chapter names the analysis that runs exactly that
+        settlement chapter names the analysis that runs exactly that
         arithmetic.)</p>
         <p>The town doesn't run these forms — batched payouts need a
         batcher, and this neighborhood has none — but they mark the path.

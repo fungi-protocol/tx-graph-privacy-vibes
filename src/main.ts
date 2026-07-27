@@ -22,6 +22,7 @@ import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { nsSocialSteps } from "./scenario/nssocialSteps";
+import { nsNetflixSteps } from "./scenario/nsnetflixSteps";
 import { coinjoinSteps, selectDenseCoinjoin, remeetExhibit, type RemeetExhibit } from "./scenario/coinjoinSteps";
 import { intersectionSteps, freshOrigin, type Focused, type AuxGrant } from "./scenario/intersectionSteps";
 import { auxInfoDecay, observerGrants, grantAttribution, grantMerges, clusterGrantOwners, type AuxDecay } from "./analysis/auxinfo";
@@ -993,9 +994,9 @@ function draw(): void {
     }
     const pair = nsProposalPair();
     if (pair && collapseT > 0.9) mapEdge(pair[0], pair[1], 1);
-    // ns-netflix proposed links: matches the greedy run scored but the
+    // ns-netflix proposed links: matches the run accepted but the
     // replay has not yet applied, drawn teal between the clusters they
-    // would fuse — the ranking made visible before it lands
+    // would fuse — the admissions made visible before they land
     if (collapseT > 0.9 && nfActive()) {
       const cl = lensClustering();
       for (const e of nfRun().slice(nfCursor)) {
@@ -1492,7 +1493,7 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
     </div>
     <div id="nsproposal"></div>
   </div>
-  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, time-of-day rhythm, feerates absolute and relative to the day's prevailing rate, address script types, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree; a match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script types in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
+  <label title="Narayanan–Shmatikov statistical de-anonymization: fingerprint every cluster by how it behaves — amount distribution, temporal pattern, amounts over time, time-of-day rhythm, feerates absolute and relative to the day's prevailing rate, address script types, and transaction-building habits (nLockTime default, signature grinding) — and match clusters whose fingerprints agree — a pair is accepted only when each cluster is the other's clearest counterpart, ahead of every runner-up; contested candidates stay unmatched. A match is an ownership claim, so accepting it merges the clusters. Within a single transaction the same reading cuts the other way: inputs whose fingerprints diverge (two script types in one spend) mark probable collaboration, so the one-owner heuristics abstain on that transaction"><input type="checkbox" id="nsnf"> statistical fingerprinting</label>
   <div id="nsnfcontrols" style="display:none">
     <div class="ovslider" title="similarity a pair must clear to be matched (mean cosine over the feature blocks); the top of the slider is past the ceiling — nothing clears it, so the analysis is in view but admits no matches">
       <span>threshold</span>
@@ -1504,7 +1505,7 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
       <input type="range" id="nfprog" min="0" max="0" step="1" value="0">
     </div>
     <div class="nsrow">
-      <button id="nsnfplay" title="animate the greedy run best-match-first from wherever the progress slider points — no revisiting, so this is only a way to watch the ranking land">play</button>
+      <button id="nsnfplay" title="animate the run's accepted matches from wherever the progress slider points — each was a reciprocal best when admitted, and no vertex is revisited, so this only replays the admission order">play</button>
       <span id="nsnfpos"></span>
     </div>
     <div id="nsnfstats"></div>
@@ -2828,6 +2829,10 @@ const steps = [
       const tid = payjoinExhibit();
       return tid ? inputFamilies(active().chain, tid) : [];
     },
+  ),
+  ...nsNetflixSteps(
+    () => clusterLayout().bounds,
+    () => ({ matches: nfRun().length, threshold: nfThreshold }),
   ),
   ...settlementSteps(
     () => active().bip.bounds,
