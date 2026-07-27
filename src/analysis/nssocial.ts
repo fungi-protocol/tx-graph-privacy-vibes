@@ -213,16 +213,28 @@ export function matchState(
 
 /**
  * The full deterministic run. Each sweep is decided wholesale against
- * the sweep-start state: first every active match is rescored as if it
- * were still open (components with only that edge removed) and all the
- * ones below the threshold split together; then every unordered pair of
- * unmapped, column-disjoint components is scored and the acceptance
- * gate (reciprocal unique best + eccentricity, matching.ts) admits its
- * matches together. Repeat until a sweep changes nothing (bounded, so
- * a flip-flopping pair cannot spin forever). Components only pair up
- * when their column sets are disjoint: two vertices of one column are
- * two pseudonyms of the SAME epoch, and this analysis has no evidence
- * language for merging those.
+ * the sweep-start state: first every active match is re-judged as if it
+ * were still open (components with only that edge removed) under the
+ * SAME acceptance gate a new match must pass — scored against the
+ * current alternatives, reciprocal unique best, eccentricity — and all
+ * the ones that could not be re-accepted split together (accuracy/048:
+ * asymmetric accept/retain criteria would make the fixed point depend
+ * on the order evidence arrived, the defect class the #112 criterion
+ * bans; the paper's revisitation applies the same match logic when it
+ * revises earlier mappings). Then every unordered pair of column-
+ * disjoint components is scored and the gate (matching.ts) admits its
+ * matches together. Repeat until a sweep changes nothing.
+ *
+ * The dynamics need not have a fixed point: two matches accepted
+ * together can each fail the gate once the OTHER is applied (the
+ * other's fusion raises a runner-up into contest), so "both matched"
+ * and "neither" can alternate forever. When a sweep-start state
+ * repeats, the run stops at the just-split state — the matches whose
+ * standing depends on which of their competitors is currently applied
+ * are exactly the contested ones, and the gate's answer to contest is
+ * abstention. Components only pair up when their column sets are
+ * disjoint: two vertices of one column are two pseudonyms of the SAME
+ * epoch, and this analysis has no evidence language for merging those.
  */
 export function nsSocialRun(
   cl: Clustering,
@@ -233,13 +245,49 @@ export function nsSocialRun(
   const col = partitionColumns(cl, chain, parts);
   const adj = clusterAdjacency(cl, chain);
   const events: NsEvent[] = [];
+  // the full cross-column candidate list under a given match state —
+  // one scoring rule for both passes, so "keep" and "accept" can never
+  // drift apart
+  const scoredUnder = (
+    comp: Map<CoinId, CoinId>,
+    membersOf: (leader: CoinId) => CoinId[],
+  ): ScoredPair[] => {
+    const leaders = [...new Set(comp.values())].sort();
+    const colsOf = new Map<CoinId, Set<number>>();
+    for (const l of leaders) colsOf.set(l, new Set(membersOf(l).map((r) => col.get(r)!)));
+    const scored: ScoredPair[] = [];
+    for (let i = 0; i < leaders.length - 1; i++) {
+      for (let j = i + 1; j < leaders.length; j++) {
+        const a = leaders[i]!, b = leaders[j]!;
+        const colsA = colsOf.get(a)!;
+        if ([...colsOf.get(b)!].some((c) => colsA.has(c))) continue;
+        const s = nsSimilarity(adj, comp, membersOf, a, b);
+        if (s > 0) scored.push({ a, b, score: s });
+      }
+    }
+    return scored;
+  };
   const MAX_SWEEPS = 8;
+  const visited = new Set<string>();
   for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
     let changed = false;
 
-    // split pass: every active match rescored as if still open, all
-    // against the same sweep-start pair set, splits applied together
+    // split pass: every active match re-judged as if still open, all
+    // against the same sweep-start pair set, splits applied together.
+    // A kept match must clear the FULL gate against the current
+    // alternatives, exactly as a new match would.
     const active = activePairs(events);
+
+    // a sweep-start state seen before means the dynamics cycle (merges
+    // and splits undoing each other); stop here, on the just-split
+    // side of the cycle — contested matches abstain
+    const key = active
+      .map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`))
+      .sort()
+      .join(";");
+    if (visited.has(key)) break;
+    visited.add(key);
+
     const splits: NsEvent[] = [];
     for (const [a, b] of active) {
       const others = active.filter(([x, y]) => !(x === a && y === b) && !(x === b && y === a));
@@ -250,32 +298,25 @@ export function nsSocialRun(
         if (g) g.push(rep);
         else byLeader.set(leader, [rep]);
       }
-      const s = nsSimilarity(adj, compWo, (l) => byLeader.get(l) ?? [l], compWo.get(a)!, compWo.get(b)!);
-      if (s < threshold) splits.push({ kind: "split", a, b, score: s });
+      const membersOf = (l: CoinId): CoinId[] => byLeader.get(l) ?? [l];
+      const la = compWo.get(a)!, lb = compWo.get(b)!;
+      const [lo, hi] = la < lb ? [la, lb] : [lb, la];
+      const kept = acceptReciprocal(scoredUnder(compWo, membersOf), threshold)
+        .some((p) => p.a === lo && p.b === hi);
+      if (!kept) {
+        splits.push({ kind: "split", a, b, score: nsSimilarity(adj, compWo, membersOf, la, lb) });
+      }
     }
     if (splits.length > 0) {
       events.push(...splits);
       continue; // re-derive the state before merging further
     }
 
-    // merge pass: score every unordered cross-column pair of unmapped
-    // components against the sweep-start state, then let the acceptance
-    // gate admit the reciprocal-best pairs together
+    // merge pass: score every unordered cross-column pair of components
+    // against the sweep-start state, then let the acceptance gate admit
+    // the reciprocal-best pairs together
     const state = matchState(cl, events);
-    const leaders = [...new Set(state.comp.values())].sort();
-    const colsOf = new Map<CoinId, Set<number>>();
-    for (const l of leaders) colsOf.set(l, new Set(state.membersOf(l).map((r) => col.get(r)!)));
-    const scored: ScoredPair[] = [];
-    for (let i = 0; i < leaders.length - 1; i++) {
-      for (let j = i + 1; j < leaders.length; j++) {
-        const a = leaders[i]!, b = leaders[j]!;
-        const colsA = colsOf.get(a)!;
-        if ([...colsOf.get(b)!].some((c) => colsA.has(c))) continue;
-        const s = nsSimilarity(adj, state.comp, state.membersOf, a, b);
-        if (s > 0) scored.push({ a, b, score: s });
-      }
-    }
-    for (const p of acceptReciprocal(scored, threshold)) {
+    for (const p of acceptReciprocal(scoredUnder(state.comp, state.membersOf), threshold)) {
       events.push({ kind: "merge", a: p.a as CoinId, b: p.b as CoinId, score: p.score });
       changed = true;
     }

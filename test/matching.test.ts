@@ -45,16 +45,29 @@ test("acceptReciprocal: a best that does not stand clear of the runner-up abstai
     { a: "a", b: "d", score: 0.1 },
   ];
   assert.deepEqual(acceptReciprocal(pairs, 0.1), []);
-  // remove the near-tie and the same pair is admitted
+  // remove the near-tie (both sides keep an alternative to stand clear
+  // of) and the same pair is admitted
   const clear: ScoredPair[] = [
     { a: "a", b: "b", score: 0.9 },
     { a: "a", b: "d", score: 0.1 },
+    { a: "b", b: "d", score: 0.1 },
   ];
   assert.deepEqual(acceptReciprocal(clear, 0.1), [{ a: "a", b: "b", score: 0.9 }]);
 });
 
+test("acceptReciprocal: a sole candidate abstains — eccentricity is undefined with no alternatives (accuracy/048)", () => {
+  // one candidate pair is a fact about how few components remain, not
+  // evidence the two are the same person — same family as the tie and
+  // flat-spread abstentions
+  assert.deepEqual(acceptReciprocal([{ a: "a", b: "b", score: 0.9 }], 0.1), []);
+});
+
 test("acceptReciprocal: the threshold gates the shared score", () => {
-  const pairs: ScoredPair[] = [{ a: "a", b: "b", score: 0.4 }];
+  const pairs: ScoredPair[] = [
+    { a: "a", b: "b", score: 0.4 },
+    { a: "a", b: "c", score: 0.1 },
+    { a: "b", b: "c", score: 0.1 },
+  ];
   assert.equal(acceptReciprocal(pairs, 0.5).length, 0);
   assert.equal(acceptReciprocal(pairs, 0.4).length, 1);
 });

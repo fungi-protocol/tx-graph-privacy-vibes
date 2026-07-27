@@ -85,8 +85,11 @@ test("grant + matchers: the same composition, in the same order, on the same fus
 test("nf replay position: a partial ns prefix changes the matcher's base the same way the display's cursor does", () => {
   const eco = economy();
   const priceAt = (d: number): number | undefined => eco.prices[d];
+  // threshold 0.3: golden at the app default 0.5 stalls honestly since
+  // #132 (every candidate an exact tie), and this test only needs a run
+  // long enough to cut a prefix from
   const full = runAnalysis(eco.chain, priceAt, SEED, ALL_ON, {
-    ns: { threshold: 0.5, parts: 2 },
+    ns: { threshold: 0.3, parts: 2 },
     nf: { threshold: 0.65, applyNs: true, nsCursor: Number.MAX_SAFE_INTEGER, nsManual: [] },
     mistakes: false,
   });
@@ -94,7 +97,7 @@ test("nf replay position: a partial ns prefix changes the matcher's base the sam
   assert.ok(run.length >= 2, "the golden economy should yield at least two ns events");
   const cut = 1;
   const partial = runAnalysis(eco.chain, priceAt, SEED, ALL_ON, {
-    ns: { threshold: 0.5, parts: 2 },
+    ns: { threshold: 0.3, parts: 2 },
     nf: { threshold: 0.65, applyNs: true, nsCursor: cut, nsManual: [] },
     mistakes: false,
   });

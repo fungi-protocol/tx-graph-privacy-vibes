@@ -233,3 +233,31 @@ test("ns-social: nsApply IS the lattice join of the base partition with the matc
   assert.ok(samePartition(pFused, join(pBase, pPairs)),
     "nsApply's fusion diverges from the lattice join");
 });
+
+test("ns-social: a contested match is retracted by the same gate, and the cycle stops (#132)", () => {
+  // golden at day 60, threshold 0.3: one clear merge propagates two
+  // more, but those two contest each other — each fails eccentricity
+  // once the other is applied. The split pass re-runs the FULL
+  // acceptance gate (accuracy/044 §ns-social, /047, /048), so both are
+  // retracted; re-merging them would revisit a seen state, so the run
+  // stops on the just-split, conservative side instead of churning to
+  // the sweep bound.
+  const { eco, cl } = golden(60);
+  const events = nsSocialRun(cl, eco.chain, 0.3, 2);
+  const key = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  const merged = new Set<string>();
+  for (const e of events) {
+    if (e.kind === "merge") {
+      assert.ok(!merged.has(key(e.a, e.b)),
+        `${e.a}+${e.b} merged twice: the cycle did not stop`);
+      merged.add(key(e.a, e.b));
+    } else {
+      assert.ok(merged.has(key(e.a, e.b)),
+        `${e.a}+${e.b} split without a preceding merge`);
+    }
+  }
+  assert.ok(events.some((e) => e.kind === "split"),
+    "expected the contested pair of propagation matches to be retracted");
+  assert.ok(activePairs(events).length >= 1,
+    "the uncontested match should survive the retractions");
+});

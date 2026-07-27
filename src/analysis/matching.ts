@@ -70,7 +70,13 @@ export function acceptReciprocal(
   const passes = (v: string): boolean => {
     const s = sides.get(v)!;
     if (s.best === null || s.bestScore < threshold) return false;
-    if (s.scores.length === 1) return true; // no runner-up to stand clear of
+    // a sole candidate ABSTAINS (accuracy/048): eccentricity measures how
+    // far the best stands out from ALTERNATIVES, so with none the
+    // criterion is undefined, not vacuously satisfied — one candidate is
+    // a fact about how few components remain, not evidence the pair is
+    // the same person. Same family as the exact-tie and flat-spread
+    // abstentions below.
+    if (s.scores.length === 1) return false;
     let mean = 0;
     for (const x of s.scores) mean += x;
     mean /= s.scores.length;
