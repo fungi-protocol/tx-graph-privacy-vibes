@@ -271,6 +271,14 @@ export function nsSocialRun(
  * smallest representative leads), rank recomputed by size. The link
  * ledger and change guesses pass through untouched — matches are not
  * links, and the base observations still stand on their own.
+ *
+ * In lattice terms (#125) this is a JOIN: the coarsest partition both
+ * the base clustering and the active-pair partition refine — the
+ * transitive union of the base's claims with the matcher's. Stacking a
+ * matcher on a heuristic clustering composes the same way stacking
+ * heuristic checkboxes does. (Pinned against partition.ts's join in
+ * the tests; the leader here stays the smallest rep id, a labeling
+ * choice the partition itself does not depend on.)
  */
 export function nsApply(cl: Clustering, events: NsEvent[]): Clustering {
   const comp = matchComponents(cl.members.keys(), activePairs(events));

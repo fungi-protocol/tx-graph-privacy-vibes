@@ -8,6 +8,7 @@ import {
   partitionColumns, clusterAdjacency, nsSimilarity, nsSocialRun, nsApply,
   matchComponents, matchState, activePairs, type NsEvent,
 } from "../src/analysis/nssocial";
+import { fromGroups, join, samePartition } from "../src/analysis/partition";
 import { layoutClusterColumns } from "../src/ui/clusterview";
 
 function golden(days: number) {
@@ -211,4 +212,24 @@ test("clusterAdjacency: every distinct input cluster funds the outputs, not just
   // no edge between the two funders: co-spending is CIOH's claim, and
   // this partition abstained from it
   assert.equal(adj.get("a")?.get("b"), undefined);
+});
+
+test("ns-social: nsApply IS the lattice join of the base partition with the match partition (#125)", () => {
+  const eco = new Economy("golden");
+  eco.runTo(90);
+  const base = clusterObserver(eco.chain, (d) => eco.prices[d]);
+  const events = nsSocialRun(base, eco.chain, 0.5, 2);
+  assert.ok(activePairs(events).length > 0, "the run must accept something for the join to be non-trivial");
+  const fused = nsApply(base, events);
+  // project both sides onto the indexed coin universe and compare as
+  // partitions: nsApply's fusion must equal join(base, active pairs)
+  const ids = [...eco.chain.coins.keys()];
+  const idx = new Map(ids.map((id, i) => [id, i]));
+  const asGroups = (mm: Map<string, string[]>): number[][] =>
+    [...mm.values()].map((g) => g.map((c) => idx.get(c)!));
+  const pBase = fromGroups(ids.length, asGroups(base.members));
+  const pPairs = fromGroups(ids.length, activePairs(events).map(([a, b]) => [idx.get(a)!, idx.get(b)!]));
+  const pFused = fromGroups(ids.length, asGroups(fused.members));
+  assert.ok(samePartition(pFused, join(pBase, pPairs)),
+    "nsApply's fusion diverges from the lattice join");
 });
