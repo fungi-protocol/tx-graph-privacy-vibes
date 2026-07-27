@@ -181,6 +181,22 @@ export interface Heuristics {
  *  a script type none of the inputs use reads as the payment. */
 export const TELL_USD = 1, TELL_BTC = 2, TELL_AUX = 4, TELL_SCRIPT = 8, TELL_ALL = 15;
 
+// which heuristics the observer lens runs, as a bitmask:
+// 1 = CIOH, 2 = change identification, 4 = sub-transaction analysis,
+// 8 = address reuse;
+// default all of them.
+// With all off the union-find never fires, every coin is a singleton, and
+// the observer's map degrades honestly into the bare public structure.
+export const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_REMEET = 16, OV_ALL = 31;
+// CIOH's max-inputs cap: transactions with more inputs than this are
+// not linked by CIOH. The slider's top position means "no cap".
+export const CIOH_MAX_OFF = 10;
+// the change link's evidentiary bar (#66): how many payment tells the
+// sub-transaction's identified payments must total before the sole
+// remaining unknown output is linked as change. 1 = a single round
+// amount decides; higher bars trade coverage for fewer wrong links.
+export const CHANGE_EV_MAX = 4;
+
 // a palette deliberately different from the owner colors: the observer's
 // map is not the truth, and should not look like it
 export const CLUSTER_COLORS = ["#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854",

@@ -12,7 +12,8 @@ import { Economy, GAME_DAY, DEFAULT_PARAMS, type EconomyParams, type LiveParams,
 import { ancestry } from "./analysis/ancestry";
 import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
-import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, clusterColor, clusterLabel, gradeLinks, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type ChangeRead, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, gradeLinks, type ChangeRead, type Clustering, type Mistake } from "./analysis/clusters";
+import { clusterColor, clusterLabel, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, OV_CIOH, OV_CHANGE, OV_SUBSUM, OV_REUSE, OV_REMEET, OV_ALL, CIOH_MAX_OFF, CHANGE_EV_MAX } from "./analysis/observer";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
@@ -44,7 +45,7 @@ import { Tutorial, widgetRevealsAt, type TutorialWidget } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
 import { type Chain, addrKey, addrText } from "./model/chain";
-import { createAnalysisController, memoLRU, OV_CIOH, OV_CHANGE, OV_SUBSUM, OV_REUSE, OV_REMEET, OV_ALL, CIOH_MAX_OFF, CHANGE_EV_MAX } from "./ui/analysisController";
+import { createAnalysisController, memoLRU } from "./ui/analysisController";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;

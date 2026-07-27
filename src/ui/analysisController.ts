@@ -7,7 +7,8 @@
 // this factory returns, and the controller reaches the app only through
 // the injected host — one boundary, crossed in both directions in one
 // place.
-import { clusterObserver, gradeLinks, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, type Clustering, type Mistake } from "../analysis/clusters";
+import { clusterObserver, gradeLinks, type Clustering, type Mistake } from "../analysis/clusters";
+import { TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, OV_CIOH, OV_CHANGE, OV_SUBSUM, OV_REUSE, OV_REMEET, OV_ALL, CIOH_MAX_OFF } from "../analysis/observer";
 import { observerGrants, grantAttribution, grantMerges, clusterGrantOwners } from "../analysis/auxinfo";
 import type { Attribution } from "../analysis/knowledge";
 import { nsSocialRun, nsApply, partitionColumns, type NsEvent } from "../analysis/nssocial";
@@ -17,22 +18,6 @@ import { observerOpts, type AnalysisKnobs, type AnalysisBundle } from "../analys
 // message listener must never execute on the page's side
 import type { AnalysisJob, AnalysisReply } from "../worker/analysis-worker";
 import type { Chain } from "../model/chain";
-
-// which heuristics the observer lens runs, as a bitmask:
-// 1 = CIOH, 2 = change identification, 4 = sub-transaction analysis,
-// 8 = address reuse;
-// default all of them.
-// With all off the union-find never fires, every coin is a singleton, and
-// the observer's map degrades honestly into the bare public structure.
-export const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_REMEET = 16, OV_ALL = 31;
-// CIOH's max-inputs cap: transactions with more inputs than this are
-// not linked by CIOH. The slider's top position means "no cap".
-export const CIOH_MAX_OFF = 10;
-// the change link's evidentiary bar (#66): how many payment tells the
-// sub-transaction's identified payments must total before the sole
-// remaining unknown output is linked as change. 1 = a single round
-// amount decides; higher bars trade coverage for fewer wrong links.
-export const CHANGE_EV_MAX = 4;
 
 // --- #85: the heavy results memoize across knob changes. simRev keeps
 // bumping on every observer-map knob (the cheap per-rev caches stay
