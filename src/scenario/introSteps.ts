@@ -101,7 +101,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         <b>fee</b>.</p>
         <p>Fees pay for the block space a transaction occupies: its size
         (in virtual bytes) times the going feerate. When blocks are busy,
-        the rate climbs; patient spenders wait for quiet moments.</p>`,
+        the rate climbs; patient spenders wait for the lulls.</p>`,
       focus: pad(t1, 90),
       view: 0,
       scene: 0,

@@ -323,7 +323,7 @@ export function payjoinSteps(
         merge this chapter opened with never forms, and the payer's and
         payee's coins sit apart on the observer's map with no
         contradiction to notice retroactively.</p>`
-          : `<p>On this transaction the check stays <b>quiet</b>: the
+          : `<p>On this transaction the check finds <b>nothing</b>: the
         inputs share one script type, nothing marks the spend as two wallets'
         work, and the merge stands. That is the defense's actual shape —
         a payjoin's cover extends exactly as far as the participants'

@@ -5,7 +5,11 @@
 // from a shared denomination menu leave the mapping underdetermined.
 // Honest limits stay in frame: ambiguity is what the sub-transaction
 // combinatorics dictate — countable, quantifiable as entropy — and a
-// past is blended into many plausible pasts, never severed.
+// past is blended into many plausible pasts, never severed. The close
+// names what the join does NOT change: who the participants do
+// business with (the social-network analysis reads that community
+// structure unimpaired) and their habits (the behavioral profiles
+// travel with the user, not the coin).
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
@@ -217,8 +221,8 @@ export function coinjoinSteps(
         users</b>. Under that presumption the outputs are balances
         coming back, so a denominated output reads as a
         <b>self-spend</b> by default — grouped with whichever inputs
-        funded it — and the payment reads go quiet. They were weak to
-        begin with: in an ordinary spend a round-ish dollar figure leans
+        funded it — and the payment reads are set aside. They were weak
+        to begin with: in an ordinary spend a round-ish dollar figure leans
         toward "payment", but only leans, and a round BTC value can as
         easily be cold storage being parceled out.</p>
         <p>The presumption costs the observer something and costs the
@@ -345,10 +349,16 @@ export function coinjoinSteps(
         timing, and whatever the observer already knows about particular
         coins feed the same per-transaction verdict, and can strike
         readings the amounts left open. Second — a different matter —
-        the transaction sits in a <b>graph</b>: paying the same people
-        session after session traces the same relationships, and a
-        counterparty who handed you coins in the first place recognizes
-        their descendants when they come back, across any number of
+        the transaction sits in a <b>graph</b>, and the join changed
+        nothing about who its participants do business with. Rent still
+        recurs, invoices still recur, so collapse the map and the same
+        relationships keep drawing the same edges on either side of the
+        join — which is exactly what the <b>social-network analysis</b>
+        reads, and it consulted no amounts even when there were amounts
+        to consult. The behavioral profiles fare no better here: habits
+        travel with the user, not with the coin. And a counterparty who
+        handed you coins in the first place recognizes their
+        descendants when they come back, across any number of
         joins.</p>
         <p>And ambiguity decays: every later spend says a little more, and
         whenever two post-coinjoin coins are linked, their candidate
