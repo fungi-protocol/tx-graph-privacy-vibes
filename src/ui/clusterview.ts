@@ -185,14 +185,14 @@ export function incidenceId(tid: TxId, rep: CoinId, dir: "in" | "out"): string {
 /** the contracted scene, derived once per (chain, clustering) pair:
  *  the draw path asks for it every frame and the layouts ask again per
  *  arrangement, so the derivation caches on the partition object (a
- *  Clustering is immutable once computed) and re-derives only if the
- *  chain grew under it */
-const sceneCache = new WeakMap<Clustering, { txs: number; edges: ContractedEdge[] }>();
+ *  Clustering is immutable once computed) and re-derives when the
+ *  chain is a different object OR the same object grew in place */
+const sceneCache = new WeakMap<Clustering, { chain: Chain; txs: number; edges: ContractedEdge[] }>();
 export function contractedScene(chain: Chain, cl: Clustering): ContractedEdge[] {
   const hit = sceneCache.get(cl);
-  if (hit && hit.txs === chain.order.length) return hit.edges;
+  if (hit && hit.chain === chain && hit.txs === chain.order.length) return hit.edges;
   const edges = contractedEdges(chain, cl);
-  sceneCache.set(cl, { txs: chain.order.length, edges });
+  sceneCache.set(cl, { chain, txs: chain.order.length, edges });
   return edges;
 }
 

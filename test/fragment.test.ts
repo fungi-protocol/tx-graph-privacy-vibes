@@ -44,10 +44,12 @@ test("v5: tutorial position by stable step id; old indexes resolve through the v
   assert.equal(sanitize({ seed: "ok", sv: 4, t: 72 })!.ts, "the-sandbox");
   // unversioned fragments are v2 — same index semantics
   assert.equal(sanitize({ seed: "ok", t: 9 })!.ts, "toggle-freely");
-  // beyond the frozen tour: the link degrades to a hidden tour
+  // beyond the frozen tour: the link degrades to a hidden tour — the
+  // EXPLICIT sentinel, so boot cannot mistake it for a fresh visit and
+  // restart the tour at step 0
   const past = sanitize({ seed: "ok", sv: 4, t: 73 })!;
   assert.equal(past.ts, undefined);
-  assert.equal(past.t, undefined);
+  assert.equal(past.t, -1);
   // the explicit "tour hidden" sentinel survives as-is
   const hidden = sanitize({ seed: "ok", sv: 4, t: -1 })!;
   assert.equal(hidden.t, -1);

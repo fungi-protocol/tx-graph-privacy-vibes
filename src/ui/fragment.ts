@@ -247,7 +247,14 @@ export function sanitize(raw: unknown): FragmentState | null {
   // content its author shared. A v5+ fragment never writes `t`.
   if ((r.sv === undefined || sv < 5) && r.ts === undefined && typeof r.t === "number") {
     const t = num(r.t, -1, 500, true);
-    if (t !== undefined && t >= 0) r.ts = LEGACY_STEP_ORDER_V4[t]; // out of range: undefined = hidden
+    if (t !== undefined && t >= 0) {
+      r.ts = LEGACY_STEP_ORDER_V4[t];
+      // an index beyond the frozen tour has no content to resolve to;
+      // degrade to the EXPLICIT hidden sentinel — dropping the position
+      // entirely would make boot read the link as a fresh visit and
+      // restart the tour at step 0 (#127 regression, reviewer audit)
+      if (r.ts === undefined) r.t = -1;
+    }
   }
   const seed = str(r.seed, 64);
   if (seed === undefined || seed.length === 0) return null;

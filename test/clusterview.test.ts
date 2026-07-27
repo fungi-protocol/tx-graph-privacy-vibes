@@ -11,6 +11,7 @@ import { truthSlices, transitionFragments, layoutClusterGraph, fitClusterLayout,
 import { type Clustering } from "../src/analysis/clusters";
 import { clusterObserver, clusterSingletons } from "../src/analysis/clusters";
 import { Economy } from "../src/engine/economy";
+import { type Chain } from "../src/model/chain";
 
 function partition(groups: string[][]): Clustering {
   const rep = new Map<string, string>();
@@ -233,18 +234,29 @@ test("contractedEdges under a coarse partition: co-clustered inputs collapse to 
 // junction — has a stable id, so a transition can animate the SAME
 // strand across layout modes instead of re-deriving topology from
 // geometry (#115 contract).
-test("contractedScene: memoized per (chain, clustering); incidence ids are direction-tagged and stable", () => {
-  const eco = new Economy("welcome");
-  eco.runTo(30);
-  const cl = clusterSingletons(eco.chain);
-  const a = contractedScene(eco.chain, cl);
-  const b = contractedScene(eco.chain, cl);
-  assert.equal(a, b, "same chain + same clustering returns the identical array");
-  assert.deepEqual(a, contractedEdges(eco.chain, cl), "the scene IS the contracted edge set");
-  // the chain grows under the same clustering object → fresh derivation
-  eco.runTo(35);
-  const c = contractedScene(eco.chain, clusterSingletons(eco.chain));
-  assert.ok(c.length > a.length, "new transactions appear in the re-derived scene");
+test("contractedScene: memoized per (chain, clustering); both invalidation paths re-derive; incidence ids are direction-tagged", () => {
+  const cl = partition([["i1", "i2", "c1"], ["p1"]]);
+  const chainOf = (order: string[], txs: [string, { id: string; inputs: string[]; outputs: string[] }][]): Chain =>
+    ({ order, txs: new Map(txs) }) as never;
+  const t1: [string, { id: string; inputs: string[]; outputs: string[] }] =
+    ["t1", { id: "t1", inputs: ["i1", "i2"], outputs: ["p1", "c1"] }];
+  const chain = chainOf(["t1"], [t1]);
+  const a = contractedScene(chain, cl);
+  assert.equal(contractedScene(chain, cl), a, "same chain + same clustering returns the identical array");
+  assert.deepEqual(a, contractedEdges(chain, cl), "the scene IS the contracted edge set");
+  // invalidation path 1: the SAME chain object grows in place
+  chain.order.push("t2");
+  chain.txs.set("t2", { id: "t2", inputs: ["p1"], outputs: ["c1"] } as never);
+  const grown = contractedScene(chain, cl);
+  assert.notEqual(grown, a, "in-place growth re-derives");
+  assert.equal(grown.length, contractedEdges(chain, cl).length);
+  // invalidation path 2: a DIFFERENT chain object of the same length
+  // must not reuse the stale scene (t2 spends p1 across clusters here)
+  const other = chainOf(["t1", "t2"],
+    [t1, ["t2", { id: "t2", inputs: ["c1"], outputs: ["p1"] }]]);
+  const swapped = contractedScene(other, cl);
+  assert.notEqual(swapped, grown, "a different chain of equal length re-derives");
+  assert.deepEqual(swapped, contractedEdges(other, cl));
   // incidence ids: direction-tagged, so an input strand and an output
   // strand touching the same (tx, cluster) pair never collide
   assert.equal(incidenceId("t1", "a", "in"), "a>t1");
