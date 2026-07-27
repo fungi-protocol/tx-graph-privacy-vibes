@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   type ViewState, DEFAULT_VIEW_STATE, canonical, knobs,
+  contracted, contractedArrangement,
   withView, withLayout, withGrouping,
   fromLegacy, toLegacy, fragmentView, viewFromFragment,
   viewFromStep, dispatchPlan,
@@ -28,10 +29,10 @@ test("canonical: chord implies graph; canonical states are fixed points", () => 
 
 test("knobs: chord shows as the layout, otherwise the arrangement", () => {
   const chordy = withLayout(DEFAULT_VIEW_STATE, "chord");
-  assert.deepEqual(knobs(chordy), { view: "graph", layout: "chord", grouping: "clustered" });
+  assert.deepEqual(knobs(chordy), { view: "graph", layout: "chord", grouping: "unclustered" });
   const forcey = withLayout(DEFAULT_VIEW_STATE, "force");
-  assert.deepEqual(knobs(forcey), { view: "graph", layout: "force", grouping: "clustered" });
-  assert.deepEqual(knobs(DEFAULT_VIEW_STATE), { view: "cards", layout: "ltr", grouping: "clustered" });
+  assert.deepEqual(knobs(forcey), { view: "graph", layout: "force", grouping: "unclustered" });
+  assert.deepEqual(knobs(DEFAULT_VIEW_STATE), { view: "cards", layout: "ltr", grouping: "unclustered" });
 });
 
 test("knob gestures keep every state canonical and remember the arrangement", () => {
@@ -65,28 +66,56 @@ test("chord round trip: enter chord from anywhere, expand back to the graph", ()
   }
 });
 
-test("legacy bridge: toLegacy∘fromLegacy is identity on canonical states", () => {
+test("legacy bridge: identity where legacy can represent the state, documented folds elsewhere", () => {
   for (const vs of legal) {
-    assert.deepEqual(fromLegacy(toLegacy(vs)), vs);
+    const back = fromLegacy(toLegacy(vs));
+    if (vs.view !== "graph" || vs.chord || vs.grouping === "unclustered") {
+      // states the legacy flags can express — except a hidden grouping
+      // preference outside the contracted map, which legacy never kept
+      const expect = contracted(vs) || vs.grouping === "unclustered"
+        ? vs : { ...vs, grouping: "unclustered" };
+      assert.deepEqual(back, expect, JSON.stringify(vs));
+    } else {
+      // clustered band/map: legacy can only say "the contracted map
+      // shows" — it comes back as the chord ring of the same partition
+      assert.deepEqual(back, { ...vs, chord: true }, JSON.stringify(vs));
+    }
   }
   // legacy chord-over-cards folds into graph+chord
   const folded = fromLegacy({ targetView: 0, collapsed: true, forceLayout: false, unclustered: false });
   assert.deepEqual(folded, { view: "graph", arrange: "ltr", chord: true, grouping: "clustered" });
+  // a legacy uncollapsed graph is the plain coin graph even when the
+  // remembered unclustered flag was off
+  const plain = fromLegacy({ targetView: 1, collapsed: false, forceLayout: false, unclustered: false });
+  assert.equal(plain.grouping, "unclustered");
+  assert.equal(contracted(plain), false);
 });
 
-test("fragment bridge: v/fd/uc round-trips every canonical state", () => {
+test("fragment bridge: v/fd/uc reproduces the rendered picture for every canonical state", () => {
   for (const vs of legal) {
     const f = fragmentView(vs);
-    assert.deepEqual(viewFromFragment(f.v, f.fd, f.uc), vs);
+    const back = viewFromFragment(f.v, f.fd, f.uc);
+    // the encoding is the picture: re-encoding the decode is a fixed
+    // point, and everything visible survives the round trip
+    assert.deepEqual(fragmentView(back), f, JSON.stringify(vs));
+    assert.equal(back.view, vs.view);
+    assert.equal(back.arrange, vs.arrange);
+    assert.equal(contracted(back), contracted(vs));
+    assert.equal(contractedArrangement(back), contractedArrangement(vs));
+    if (vs.view === "graph") assert.deepEqual(back, vs);
   }
+  // the four v values name the four pictures
+  assert.equal(fragmentView({ view: "graph", arrange: "ltr", chord: false, grouping: "clustered" }).v, 3);
+  assert.equal(fragmentView({ view: "graph", arrange: "ltr", chord: true, grouping: "clustered" }).v, 2);
+  assert.equal(fragmentView({ view: "graph", arrange: "ltr", chord: false, grouping: "unclustered" }).v, 1);
   // absent fields decode to the default state
   assert.deepEqual(viewFromFragment(undefined, undefined, undefined), DEFAULT_VIEW_STATE);
 });
 
 test("tutorial bridge: step view codes 0..3, arrangement carried over", () => {
   const base: ViewState = { view: "graph", arrange: "force", chord: true, grouping: "unclustered" };
-  assert.deepEqual(viewFromStep(base, 0), { view: "cards", arrange: "force", chord: false, grouping: "clustered" });
-  assert.deepEqual(viewFromStep(base, 1), { view: "graph", arrange: "force", chord: false, grouping: "clustered" });
+  assert.deepEqual(viewFromStep(base, 0), { view: "cards", arrange: "force", chord: false, grouping: "unclustered" });
+  assert.deepEqual(viewFromStep(base, 1), { view: "graph", arrange: "force", chord: false, grouping: "unclustered" });
   assert.deepEqual(viewFromStep(base, 2), { view: "graph", arrange: "force", chord: true, grouping: "clustered" });
   assert.deepEqual(viewFromStep(base, 3), { view: "graph", arrange: "force", chord: true, grouping: "unclustered" });
 });
@@ -120,4 +149,16 @@ test("dispatchPlan ordering: expand first, contract last, grouping settles befor
     }
     assert.ok(ops.length <= 4);
   }
+});
+
+test("contracted/contractedArrangement: the four pictures of the graph view", () => {
+  const g = (chord: boolean, grouping: "clustered" | "unclustered", arrange: "ltr" | "force" = "ltr"): ViewState =>
+    ({ view: "graph", arrange, chord, grouping });
+  assert.equal(contractedArrangement(g(true, "clustered")), "ring");
+  assert.equal(contractedArrangement(g(true, "unclustered")), "ring"); // singleton ring
+  assert.equal(contractedArrangement(g(false, "clustered", "ltr")), "band");
+  assert.equal(contractedArrangement(g(false, "clustered", "force")), "map");
+  assert.equal(contractedArrangement(g(false, "unclustered")), null); // the plain coin graph
+  assert.equal(contracted({ ...g(true, "clustered"), view: "cards", chord: false }), false);
+  assert.equal(contractedArrangement(DEFAULT_VIEW_STATE), null);
 });

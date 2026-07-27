@@ -174,7 +174,7 @@ test("hostile fragments degrade, never crash: shape and bounds are enforced", as
   // stamp the current schema, where only step ids position the tour
   assert.equal(wild.t, undefined);
   assert.equal(wild.ts, undefined);
-  assert.equal(wild.v, 2);
+  assert.equal(wild.v, 3);
   assert.equal(wild.sc, 0);
   assert.deepEqual(wild.cam, [1e7, -1e7, 0.01]);
   assert.deepEqual(wild.p, { o: 0.3, pp: 64 });

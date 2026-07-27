@@ -30,18 +30,34 @@ export type Grouping = "clustered" | "unclustered";
 
 export interface ViewState {
   readonly view: View;
-  /** which uncontracted arrangement is (or will be, on expand) shown;
-   *  in chord it orders the ring: time (ltr) vs fewest crossings
-   *  (force) */
+  /** the ltr/force choice; under chord it orders the ring: time (ltr)
+   *  vs fewest crossings (force), and clustered it picks the
+   *  contracted map's uncurled arrangement: band (ltr) vs force map */
   readonly arrange: Arrange;
-  /** the contracted cluster map is showing (implies view = graph) */
+  /** the ring: the timeline bent around a circle (implies graph) */
   readonly chord: boolean;
   readonly grouping: Grouping;
 }
 
 export const DEFAULT_VIEW_STATE: ViewState = {
-  view: "cards", arrange: "ltr", chord: false, grouping: "clustered",
+  view: "cards", arrange: "ltr", chord: false, grouping: "unclustered",
 };
+
+/** whether the CONTRACTED map is showing: the clustered graph in any
+ *  arrangement, or the chord ring — which contracts even unclustered
+ *  (the singleton ring: the lattice bottom's one-disc-per-coin map).
+ *  Unclustered ltr/force is the plain coin graph, not contracted. */
+export function contracted(vs: ViewState): boolean {
+  return vs.view === "graph" && (vs.chord || vs.grouping === "clustered");
+}
+
+/** which arrangement the contracted map takes (null when the plain
+ *  coin graph or the cards view is showing): the chord ring, the band
+ *  (the same timeline left unbent), or the free force map */
+export function contractedArrangement(vs: ViewState): "ring" | "band" | "map" | null {
+  if (!contracted(vs)) return null;
+  return vs.chord ? "ring" : vs.arrange === "ltr" ? "band" : "map";
+}
 
 /** enforce the invariant: chord is a graph layout, so chord ⇒ graph */
 export function canonical(vs: ViewState): ViewState {
@@ -81,21 +97,28 @@ export interface LegacyViewFlags {
   unclustered: boolean;
 }
 
-/** legacy allowed a contraction over the cards view; canonical() folds
- *  that into graph+chord, so expanding lands in the graph */
+/** boot-era bridge: under the legacy flags the contracted map only
+ *  ever showed when `collapsed` was set (always as the ring), so an
+ *  uncollapsed graph reads as the plain coin graph — unclustered —
+ *  regardless of the remembered `unclustered` flag; a contraction over
+ *  the cards view folds into graph+chord (expanding lands in the
+ *  graph) */
 export function fromLegacy(f: LegacyViewFlags): ViewState {
   return canonical({
     view: f.targetView === 1 ? "graph" : "cards",
     arrange: f.forceLayout ? "force" : "ltr",
     chord: f.collapsed,
-    grouping: f.unclustered ? "unclustered" : "clustered",
+    grouping: f.collapsed && !f.unclustered ? "clustered" : "unclustered",
   });
 }
 
+/** the render substrate's reading of the state; lossy — clustered
+ *  band/map states also set `collapsed` (the contracted map shows),
+ *  distinguishable from the ring only through the ViewState itself */
 export function toLegacy(vs: ViewState): LegacyViewFlags {
   return {
     targetView: vs.view === "graph" ? 1 : 0,
-    collapsed: vs.chord,
+    collapsed: contracted(vs),
     forceLayout: vs.arrange === "force",
     unclustered: vs.grouping === "unclustered",
   };
@@ -103,35 +126,43 @@ export function toLegacy(vs: ViewState): LegacyViewFlags {
 
 // --- fragment bridge: the shared-link encoding (v / fd / uc) ---
 
-/** fragment `v`: 0 = cards, 1 = graph, 2 = the contracted map */
-export function fragmentView(vs: ViewState): { v: 0 | 1 | 2; fd: 0 | 1; uc: 0 | 1 } {
+/** fragment `v`: 0 = cards, 1 = the plain coin graph, 2 = the chord
+ *  ring (uc = 1 for the singleton ring), 3 = the clustered map
+ *  uncurled (fd picks band vs force map). Old decoders clamp 3 down
+ *  to 2 and show the ring — a graceful reading of the same partition. */
+export function fragmentView(vs: ViewState): { v: 0 | 1 | 2 | 3; fd: 0 | 1; uc: 0 | 1 } {
+  const v = vs.view !== "graph" ? 0
+    : vs.chord ? 2
+    : vs.grouping === "clustered" ? 3 : 1;
   return {
-    v: vs.chord ? 2 : vs.view === "graph" ? 1 : 0,
+    v,
     fd: vs.arrange === "force" ? 1 : 0,
-    uc: vs.grouping === "unclustered" ? 1 : 0,
+    // uc distinguishes the singleton ring from the clustered one; the
+    // other pictures carry their grouping in v itself
+    uc: v === 2 && vs.grouping === "unclustered" ? 1 : 0,
   };
 }
 
 export function viewFromFragment(v: number | undefined, fd: number | undefined, uc: number | undefined): ViewState {
   return canonical({
-    view: v === 1 || v === 2 ? "graph" : "cards",
+    view: v === 1 || v === 2 || v === 3 ? "graph" : "cards",
     arrange: fd === 1 ? "force" : "ltr",
     chord: v === 2,
-    grouping: uc === 1 ? "unclustered" : "clustered",
+    grouping: v === 3 || (v === 2 && uc !== 1) ? "clustered" : "unclustered",
   });
 }
 
 // --- tutorial bridge: a step's view code (0..3) ---
 
-/** 0 = cards, 1 = graph, 2 = contracted map, 3 = the same map held at
- *  the lattice bottom (the singleton ring). Steps never choose the
- *  arrangement, so it carries over. */
+/** 0 = cards, 1 = the plain coin graph, 2 = the chord ring, 3 = the
+ *  same ring held at the lattice bottom (the singleton ring). Steps
+ *  never choose the arrangement, so it carries over. */
 export function viewFromStep(vs: ViewState, code: 0 | 1 | 2 | 3): ViewState {
   return canonical({
     ...vs,
     view: code >= 1 ? "graph" : "cards",
     chord: code >= 2,
-    grouping: code === 3 ? "unclustered" : "clustered",
+    grouping: code === 2 ? "clustered" : "unclustered",
   });
 }
 

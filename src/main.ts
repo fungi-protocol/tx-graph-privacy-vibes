@@ -16,8 +16,8 @@ import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons,
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
-import { layoutClusterGraph, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
-import { fromLegacy, withView, withLayout, dispatchPlan, type ViewState } from "./ui/viewstate";
+import { layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns, fitClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
+import { canonical, contracted, knobs, withView, withLayout, withGrouping, fragmentView, viewFromFragment, viewFromStep, type ViewState } from "./ui/viewstate";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
@@ -528,6 +528,10 @@ function nfEvents(): NsEvent[] {
 // coin its own vertex, the coin graph laid on the ring by time. A view
 // of the raw material every lens's partition is built from.
 let unclustered = false;
+// whether the contracted map takes the chord ring; false = the same
+// scene uncurled — the band (layered) or the free force map, picked by
+// the layout flag (#115)
+let chordArr = true;
 interface CollapseState { cl: Clustering; clay: ClusterLayout; ring: ClusterLayout }
 const collapseMemo = memoLRU<CollapseState>(16);
 /** the entry the contracted view last computed — what a repartition
@@ -549,7 +553,7 @@ function collapseState(): CollapseState {
   // different viewport is a different arrangement, and toggling a knob
   // back with the camera unmoved lands on the arrangement already laid
   const fit = clusterFit ? `${clusterFit.x},${clusterFit.y},${clusterFit.w},${clusterFit.h}` : "·";
-  const key = `${mapSig()}§${matchSig()}§${lens}|${agent}|${unclustered ? 1 : 0}|${forceLayout ? 1 : 0}|${fit}`;
+  const key = `${mapSig()}§${matchSig()}§${lens}|${agent}|${unclustered ? 1 : 0}|${forceLayout ? 1 : 0}|${chordArr ? 1 : 0}|${fit}`;
   lastCollapse = collapseMemo.get(key, () => {
     const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
@@ -564,16 +568,25 @@ function collapseState(): CollapseState {
     // ns-social partition the circle opens into columns — one vertical
     // segment per epoch, matched vertices spanning the lanes they fused
     const mode = forceLayout ? "force" as const : "time" as const;
+    // three arrangements of the same contracted scene (#115): the ns
+    // columns override everything, the chord bends the timeline around
+    // the ring (the layout button picks its ordering), and uncurled the
+    // layout button picks the band (layered) or the free force map
     const clay0 = nsActive()
       ? layoutClusterColumns(cl, active().chain, nsLanes(base, cl), nsParts, mode)
-      : layoutClusterGraph(cl, active().chain, mode);
+      : chordArr ? layoutClusterGraph(cl, active().chain, mode)
+      : forceLayout ? layoutClusterForceMap(cl, active().chain)
+      : layoutClusterBand(cl, active().chain);
     // the circle forms where the camera was looking when the collapse
     // began — the coins travel, the viewport doesn't
     const clay = clusterFit ? fitClusterLayout(clay0, clusterFit) : clay0;
     // the singleton ring is the collapse morph's waypoint: coins land on
     // it before stacking into discs, and unstack onto it on the way out
+    // the waypoint takes the matching family: the singleton ring under
+    // the chord, the singleton band when the map is uncurled
     const ring0 = unclustered ? clay
-      : layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode);
+      : chordArr ? layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode)
+      : layoutClusterBand(clusterSingletons(active().chain), active().chain);
     const ring = unclustered || !clusterFit ? ring0 : fitClusterLayout(ring0, clusterFit);
     return { cl, clay, ring };
   });
@@ -1087,7 +1100,7 @@ const viewBtn = document.getElementById("viewtoggle") as HTMLButtonElement;
 const VIEW_NAMES = ["view: cards", "view: graph"] as const;
 function setView(view: 0 | 1, animate = true): void {
   targetView = view;
-  viewBtn.textContent = VIEW_NAMES[view];
+  syncKnobButtons();
   if (!animate) {
     viewT = view;
     draw();
@@ -1121,8 +1134,9 @@ function setView(view: 0 | 1, animate = true): void {
 viewBtn.addEventListener("click", () => {
   const cur = currentViewState();
   // leaving the contracted map comes first: one press expands back
-  // into the graph, the next switches the view
-  applyViewState(cur.chord ? withLayout(cur, cur.arrange)
+  // into the plain coin graph, the next switches the view
+  applyViewState(contracted(cur)
+    ? withGrouping(withLayout(cur, cur.arrange), "unclustered")
     : withView(cur, cur.view === "graph" ? "cards" : "graph"));
 });
 
@@ -1153,7 +1167,7 @@ function setUnclustered(on: boolean, animate = true): void {
   if (unclustered === on) return;
   const before = repartitionStart(animate);
   unclustered = on;
-  unclusterBtn.textContent = on ? "clustered" : "unclustered";
+  syncKnobButtons();
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
   nsSecond = null;
   if (before) {
@@ -1171,7 +1185,10 @@ function setUnclustered(on: boolean, animate = true): void {
   draw();
   void syncFragment();
 }
-unclusterBtn.addEventListener("click", () => setUnclustered(!unclustered));
+unclusterBtn.addEventListener("click", () => {
+  const cur = currentViewState();
+  applyViewState(withGrouping(cur, cur.grouping === "clustered" ? "unclustered" : "clustered"));
+});
 /** the world rect the camera currently shows, minus whatever the
  *  tutorial panel covers — where a collapse forms its circle. A camera
  *  fly in flight counts as already arrived: a repartition landing
@@ -1192,8 +1209,7 @@ function visibleWorldRect(): Rect {
 }
 function setCollapsed(on: boolean, animate = true): void {
   collapsed = on;
-  clusterBtn.textContent = on ? "expand" : "clusters";
-  unclusterBtn.style.display = on ? "block" : "none";
+  syncKnobButtons();
   // the viewport stays put: the coins take the time to travel into the
   // circular arrangement (a timeline wrapping around a circle), formed
   // inside the rect the camera is already showing. A restore (animate
@@ -1219,7 +1235,11 @@ function setCollapsed(on: boolean, animate = true): void {
 // expanding always lands back in the graph
 clusterBtn.addEventListener("click", () => {
   const cur = currentViewState();
-  applyViewState(withLayout(cur, cur.chord ? cur.arrange : "chord"));
+  // the chord shortcut: contract into the clustered ring, or expand
+  // whatever arrangement of the map is showing back to the coin graph
+  applyViewState(contracted(cur)
+    ? withGrouping(withLayout(cur, cur.arrange), "unclustered")
+    : withGrouping(withLayout(cur, "chord"), "clustered"));
 });
 
 // --- graph layout mode (#44): layered timeline vs force-directed. The
@@ -1232,7 +1252,7 @@ function setForceLayout(on: boolean, animate = true): void {
   // animate the discs gliding around it, the usual repartition tween
   const beforeRing = repartitionStart(animate);
   forceLayout = on;
-  layoutBtn.textContent = on ? "layout: force" : "layout: layered";
+  syncKnobButtons();
   if (beforeRing) {
     const tr: ClusterTransition = {
       t: 0,
@@ -1275,23 +1295,108 @@ function relayoutGraph(animate = true): void {
   }
   kick();
 }
-layoutBtn.addEventListener("click", () => setForceLayout(!forceLayout));
+layoutBtn.addEventListener("click", () => {
+  const cur = currentViewState();
+  if (cur.view !== "graph") {
+    // over the cards the button only flips the remembered arrangement
+    applyViewState({ ...cur, arrange: cur.arrange === "force" ? "ltr" : "force" });
+    return;
+  }
+  // the three-position layout knob (#115): layered -> force -> chord.
+  // Grouping is untouched, so cycling from the plain graph curls it
+  // into the singleton ring, and from the clustered map the ring of
+  // the same partition; chord -> layered uncurls back.
+  const k = knobs(cur).layout;
+  applyViewState(withLayout(cur, k === "ltr" ? "force" : k === "force" ? "chord" : "ltr"));
+});
 
 // --- the three-knob control model (#115): view, layout, grouping ---
-// The knobs live in src/ui/viewstate.ts; main.ts stores the legacy
-// flags and tween scalars, so a gesture reads the current state,
-// rewrites it through the model, and replays the planned primitive
-// transitions through the setters above.
+// The knobs live in src/ui/viewstate.ts; main.ts stores the render
+// substrate (targetView / collapsed / forceLayout / unclustered /
+// chordArr and the tween scalars), so a gesture reads the current
+// state, rewrites it through the model, and this executor turns the
+// difference into the primitive transitions the setters animate.
 function currentViewState(): ViewState {
-  return fromLegacy({ targetView, collapsed, forceLayout, unclustered });
+  return canonical({
+    view: targetView === 1 ? "graph" : "cards",
+    arrange: forceLayout ? "force" : "ltr",
+    chord: collapsed && chordArr,
+    // outside the contracted map the plain coin graph shows — the
+    // unclustered flag only means something while the map is up
+    grouping: collapsed && !unclustered ? "clustered" : "unclustered",
+  });
 }
-function applyViewState(next: ViewState, animate = true): void {
-  for (const op of dispatchPlan(currentViewState(), next)) {
-    if (op.op === "chord") setCollapsed(op.on, animate);
-    else if (op.op === "view") setView(op.view === "graph" ? 1 : 0, animate);
-    else if (op.op === "arrange") setForceLayout(op.arrange === "force", animate);
-    else setUnclustered(op.grouping === "unclustered", animate);
+/** every knob label reads off the one canonical state; the grouping
+ *  button covers the whole graph view (any of its four pictures) */
+function syncKnobButtons(): void {
+  const cur = currentViewState();
+  const k = knobs(cur);
+  viewBtn.textContent = VIEW_NAMES[cur.view === "graph" ? 1 : 0];
+  layoutBtn.textContent =
+    k.layout === "chord" ? "layout: chord" :
+    k.layout === "force" ? "layout: force" : "layout: layered";
+  clusterBtn.textContent = contracted(cur) ? "expand" : "clusters";
+  // action-labeled: the button names the grouping a click switches to
+  unclusterBtn.textContent = k.grouping === "unclustered" ? "clustered" : "unclustered";
+  unclusterBtn.style.display = cur.view === "graph" ? "block" : "none";
+}
+/** the repartition/re-arrangement tween shared by every in-map change:
+ *  discs glide from where the old arrangement drew them to the new
+ *  one's slots (the same tween whether the partition or only the
+ *  arrangement changed) */
+function beginClusterTween(before: { cl: Clustering; clay: ClusterLayout } | null): void {
+  if (!before) return;
+  const tr: ClusterTransition = {
+    t: 0,
+    fragments: transitionFragments(before.cl, before.clay, lensClustering()),
+  };
+  clusterTrans = tr;
+  anim.add(900, (t) => { tr.t = t; }, {
+    done: () => { if (clusterTrans === tr) clusterTrans = null; },
+  });
+  kick();
+}
+function applyViewState(nextRaw: ViewState, animate = true): void {
+  const next = canonical(nextRaw);
+  const cur = currentViewState();
+  const wasMap = contracted(cur), willMap = contracted(next);
+  // leaving the contracted map runs first: expand from whatever
+  // arrangement is showing before anything else moves
+  if (wasMap && !willMap) setCollapsed(false, animate);
+  if (cur.view !== next.view) setView(next.view === "graph" ? 1 : 0, animate);
+  if (willMap && !wasMap) {
+    // settle the partition and arrangement while nothing is showing,
+    // then contract into the finished map — the collapse flies straight
+    // to its final shape instead of repartitioning midway
+    chordArr = next.chord;
+    if (cur.arrange !== next.arrange) setForceLayout(next.arrange === "force", false);
+    if ((next.grouping === "unclustered") !== unclustered) {
+      setUnclustered(next.grouping === "unclustered", false);
+    }
+    setCollapsed(true, animate);
+    return;
   }
+  if (willMap && wasMap) {
+    // changes inside the map: ring <-> band/map re-arrangements and
+    // grouping walks are all the one disc-gliding tween
+    if (cur.chord !== next.chord) {
+      const before = repartitionStart(animate);
+      chordArr = next.chord;
+      beginClusterTween(before);
+    }
+    if (cur.arrange !== next.arrange) setForceLayout(next.arrange === "force", animate);
+    if (cur.grouping !== next.grouping) {
+      setUnclustered(next.grouping === "unclustered", animate);
+    }
+    syncKnobButtons();
+    draw();
+    void syncFragment();
+    return;
+  }
+  // both sides uncontracted: the plain graph or the cards view
+  chordArr = next.chord;
+  if (cur.arrange !== next.arrange) setForceLayout(next.arrange === "force", animate);
+  syncKnobButtons();
 }
 
 const lensBtn = document.getElementById("lens") as HTMLButtonElement;
@@ -2149,12 +2254,15 @@ window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement) return; // typing in the seed box
   if (e.key === "v") {
     const cur = currentViewState();
-    applyViewState(cur.chord ? withLayout(cur, cur.arrange)
+    applyViewState(contracted(cur)
+      ? withGrouping(withLayout(cur, cur.arrange), "unclustered")
       : withView(cur, cur.view === "graph" ? "cards" : "graph"));
   }
   if (e.key === "c") {
     const cur = currentViewState();
-    applyViewState(withLayout(cur, cur.chord ? cur.arrange : "chord"));
+    applyViewState(contracted(cur)
+      ? withGrouping(withLayout(cur, cur.arrange), "unclustered")
+      : withGrouping(withLayout(cur, "chord"), "clustered"));
   }
   if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
   if (e.key === "h") { hideDim = !hideDim; draw(); }
@@ -3092,17 +3200,12 @@ const tutorial = new Tutorial(steps, {
     void syncFragment();
   },
   onView: (view) => {
-    // step "view 2" means the graph flattened into clusters; "view 3"
-    // the same flattening held at the lattice bottom — the singleton
-    // ring, nothing stacked (#95). Unclustering is set before the
-    // collapse so the morph flies straight to the ring; re-clustering
-    // on a later step runs the stacking as a repartition tween.
-    const flat = view >= 2;
-    const base = (flat ? 1 : view) as 0 | 1;
-    if (base !== targetView) setView(base);
-    const uc = view === 3;
-    if (uc !== unclustered) setUnclustered(uc, collapsed);
-    if (flat !== collapsed) setCollapsed(flat);
+    // step "view 2" means the graph flattened into the clustered ring;
+    // "view 3" the same ring held at the lattice bottom — the
+    // singleton ring, nothing stacked (#95). The executor settles the
+    // grouping before a contraction forms (the morph flies straight to
+    // its final ring) and runs in-map changes as repartition tweens.
+    applyViewState(viewFromStep(currentViewState(), view));
   },
   onLens: (l, a) => {
     if (l === 2) lensAgent = a ?? defaultLensAgent(); // step's pick, else the payjoin payee
@@ -3331,9 +3434,11 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   };
   const t = tutorial.currentIndex;
   if (t >= 0) state.ts = steps[t]!.id;
-  if (collapsed) state.v = 2; // encoded like the old third view, for old links
-  else if (targetView !== 0) state.v = targetView;
-  if (collapsed && unclustered) state.uc = 1;
+  // v/fd/uc through the model (#115); v = 2 keeps the old third-view
+  // reading for old links, v = 3 is the clustered map uncurled
+  const vf = fragmentView(currentViewState());
+  if (vf.v !== 0) state.v = vf.v;
+  if (vf.uc === 1) state.uc = 1;
   // the circle's world placement, so a shared link reproduces the same
   // geometry the sharer saw (absent = the layout's own origin coords)
   if (collapsed && clusterFit) {
@@ -3502,14 +3607,14 @@ async function init(): Promise<void> {
   if (state?.i) {
     session.interventions = state.i.map(([day, id, plan]) => ({ day, id, plan: plan as ManualPlan }));
   }
-  setView(state?.v === 1 || state?.v === 2 ? 1 : 0, false);
   // the circle's placement precedes the collapse so the rebuilt layout
   // fits the same rect the sharer's did
   if (state?.cf) {
     clusterFit = { x: state.cf[0], y: state.cf[1], w: state.cf[2], h: state.cf[3] };
   }
-  if (state?.v === 2) setCollapsed(true, false);
-  if (state?.v === 2 && state.uc === 1) setUnclustered(true, false);
+  // the view/layout/grouping knobs restore through the model (#115);
+  // the arrangement (fd) applies further down, once the scenes exist
+  applyViewState(viewFromFragment(state?.v, 0, state?.uc), false);
   if (state?.sc === 1) {
     setScene(1, state.n ?? 0);
     // a freeze-frame reference lands mid-day, exactly as recorded

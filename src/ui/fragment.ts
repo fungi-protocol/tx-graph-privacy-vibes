@@ -52,9 +52,12 @@ export interface FragmentState {
   ts?: string;
   /** camera [x, y, scale] */
   cam?: [number, number, number];
-  /** view: 0 = block explorer (default), 1 = bipartite */
+  /** view: 0 = block explorer (default), 1 = the plain coin graph,
+   *  2 = the contracted map's chord ring, 3 = the contracted map
+   *  uncurled (`fd` picks band vs force map; decoders shipped before
+   *  3 existed clamp it to 2 and show the ring of the same partition) */
   v?: number;
-  /** cluster view only: 1 = the lattice bottom (every coin a singleton) */
+  /** chord ring only: 1 = the lattice bottom (every coin a singleton) */
   uc?: number;
   /** cluster view only: the world rect [x, y, w, h] the contraction's
    *  circle was fit into — the rect the camera showed when the collapse
@@ -310,7 +313,7 @@ export function sanitize(raw: unknown): FragmentState | null {
     const scale = num(r.cam[2], 0.01, 100);
     if (x !== undefined && y !== undefined && scale !== undefined) out.cam = [x, y, scale];
   }
-  const v = num(r.v, 0, 2, true);
+  const v = num(r.v, 0, 3, true);
   if (v !== undefined) out.v = v;
   const uc = num(r.uc, 0, 1, true);
   if (uc !== undefined) out.uc = uc;
