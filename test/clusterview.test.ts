@@ -280,3 +280,46 @@ test("observer with all heuristics off equals the singleton partition (#107)", (
       `cluster ${rep} is a bare singleton with every heuristic off`);
   }
 });
+
+// #115 animation-continuity substrate: the semantic scene names every
+// strand (incidence id); an arrangement only assigns geometry. The
+// renderer looks each strand's endpoints up in the layout's node map,
+// so a layout that misses a rep the scene references would silently
+// drop that strand — a strand appearing or disappearing merely because
+// the arrangement changed, exactly what the contract forbids. Every
+// arrangement of the same partition must therefore cover the scene's
+// reps, and the incidence-id set is identical across all of them.
+test("every arrangement covers the scene: identical incidence ids across ring, force ring, fitted ring, and columns (#115)", async () => {
+  const { layoutClusterColumns } = await import("../src/ui/clusterview");
+  const { partitionColumns } = await import("../src/analysis/nssocial");
+  const eco = new Economy("golden");
+  eco.runTo(60);
+  const chain = eco.chain;
+  for (const cl of [clusterObserver(chain, (d) => eco.prices[d]), clusterSingletons(chain)]) {
+    const scene = contractedScene(chain, cl);
+    assert.ok(scene.length >= 10, `only ${scene.length} contracted edges at day 60`);
+    const ids = new Set<string>();
+    for (const e of scene) {
+      for (const r of e.from) ids.add(incidenceId(e.tid, r, "in"));
+      for (const r of e.to) ids.add(incidenceId(e.tid, r, "out"));
+    }
+    const cols = partitionColumns(cl, chain, 2);
+    const lanes = new Map([...cols].map(([rep, c]) => [rep, [c]]));
+    const arrangements = {
+      ring: layoutClusterGraph(cl, chain, "time"),
+      forceRing: layoutClusterGraph(cl, chain, "force"),
+      fitted: fitClusterLayout(layoutClusterGraph(cl, chain, "time"),
+        { x: 0, y: 0, w: 800, h: 600 }),
+      columns: layoutClusterColumns(cl, chain, lanes, 2, "time"),
+    };
+    for (const [name, clay] of Object.entries(arrangements)) {
+      const drawable = new Set<string>();
+      for (const e of scene) {
+        for (const r of e.from) if (clay.nodes.has(r)) drawable.add(incidenceId(e.tid, r, "in"));
+        for (const r of e.to) if (clay.nodes.has(r)) drawable.add(incidenceId(e.tid, r, "out"));
+      }
+      assert.equal(drawable.size, ids.size,
+        `${name} drops ${ids.size - drawable.size} of ${ids.size} strands`);
+    }
+  }
+});
