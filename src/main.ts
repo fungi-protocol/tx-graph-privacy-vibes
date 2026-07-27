@@ -44,6 +44,7 @@ import { Tutorial, widgetRevealsAt, type TutorialWidget } from "./ui/tutorial";
 import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
 import { type Chain, addrKey, addrText } from "./model/chain";
+import { createAnalysisController, memoLRU, OV_CIOH, OV_CHANGE, OV_SUBSUM, OV_REUSE, OV_REMEET, OV_ALL, CIOH_MAX_OFF, CHANGE_EV_MAX } from "./ui/analysisController";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -219,305 +220,30 @@ function setViewDay(d: number | null, tx: number | null = null): void {
 // --- lenses: 0 = all-seeing, 1 = third-party observer, 2 = one agent's view ---
 let lens: 0 | 1 | 2 = 0;
 let lensAgent: number | null = null;
-// which heuristics the observer lens runs, as a bitmask:
-// 1 = CIOH, 2 = change identification, 4 = sub-transaction analysis,
-// 8 = address reuse;
-// default all of them.
-// With all off the union-find never fires, every coin is a singleton, and
-// the observer's map degrades honestly into the bare public structure.
-const OV_CIOH = 1, OV_CHANGE = 2, OV_SUBSUM = 4, OV_REUSE = 8, OV_REMEET = 16, OV_ALL = 31;
-let overlays = OV_ALL;
-// what the analysis actually runs: the sub-transaction analysis
-// GENERALIZES CIOH (an unsplittable transaction reads as one user's
-// spend), so while it is on CIOH runs regardless — but the user's own
-// CIOH setting is kept, not overwritten, and returns when sub-tx is
-// switched back off (#80)
-function effOverlays(): number {
-  return (overlays & OV_SUBSUM) !== 0 ? overlays | OV_CIOH : overlays;
-}
-// CIOH's max-inputs cap: transactions with more inputs than this are
-// not linked by CIOH. The slider's top position means "no cap".
-const CIOH_MAX_OFF = 10;
-let ciohMax = CIOH_MAX_OFF;
-// the change link's evidentiary bar (#66): how many payment tells the
-// sub-transaction's identified payments must total before the sole
-// remaining unknown output is linked as change. 1 = a single round
-// amount decides; higher bars trade coverage for fewer wrong links.
-const CHANGE_EV_MAX = 4;
-let changeEvidence = 1;
-// which payment-identification tells the change heuristic runs (#76):
-// TELL_USD | TELL_BTC | TELL_AUX, all on by default. The bar above is
-// how many of the ENABLED kinds must fire before the sole leftover
-// output is linked.
-let changeTells = TELL_ALL;
-function tellCount(mask: number): number {
-  return ((mask & TELL_USD) !== 0 ? 1 : 0) + ((mask & TELL_BTC) !== 0 ? 1 : 0) +
-    ((mask & TELL_AUX) !== 0 ? 1 : 0) + ((mask & TELL_SCRIPT) !== 0 ? 1 : 0);
-}
-// grading toggle: mark transactions where a heuristic's local inference
-// is wrong against the hidden truth (storyteller's grading — latent
-// truth flows only toward the learner's display, never into analysis)
-let showMistakes = false;
+// the analysis controller (#122a): the observer-map knobs, the grant,
+// both cluster matchers with their replay cursors, the #85 memo layer
+// and the #84 worker gateway — all behind this one object. The host
+// closure below is the only path from analysis back into the app
+// shell, read lazily so the shell's mutable state stays where it is.
+const A = createAnalysisController({
+  chain: () => active().chain,
+  priceAt: () => (scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined),
+  liveEconomy: () => scene === 1 && !!eco,
+  seed: () => session.seed,
+  jobSession: () => ({
+    seed: session.seed, params: session.params, timeline: session.timeline,
+    manual: session.manual, manualFrom: session.manualFrom,
+    interventions: session.interventions,
+  }),
+  day: () => eco!.day,
+  cursorDay: () => cursorDay(),
+  viewTx: () => viewTx,
+  observerLens: () => lens === 1,
+  unclustered: () => unclustered,
+  bumpSimRev: () => { simRev += 1; },
+  busy: document.getElementById("busy") as HTMLElement,
+});
 
-// --- #85: the heavy results memoize across knob changes. simRev keeps
-// bumping on every observer-map knob (the cheap per-rev caches stay
-// honest that way), but clusterings, matcher runs, gradings and
-// contracted layouts are keyed by WHAT they were computed from: the
-// visible chain's identity plus the full knob signature. Unchecking
-// and rechecking a heuristic lands back on a key already computed, so
-// the toggle replays the repartition tween without repeating the work.
-interface Memo<V> {
-  get(key: string, compute: () => V): V;
-  /** whether the key is already computed — the async gateway's probe (#84) */
-  has(key: string): boolean;
-  /** install a result computed elsewhere (the worker's) under its key */
-  set(key: string, v: V): void;
-}
-function memoLRU<V>(cap: number): Memo<V> {
-  const m = new Map<string, V>();
-  const set = (key: string, v: V): void => {
-    m.delete(key); // re-insertion keeps the map in recency order
-    m.set(key, v);
-    if (m.size > cap) m.delete(m.keys().next().value!);
-  };
-  return {
-    get(key, compute) {
-      if (m.has(key)) {
-        const v = m.get(key)!;
-        m.delete(key);
-        m.set(key, v);
-        return v;
-      }
-      const v = compute();
-      set(key, v);
-      return v;
-    },
-    has: (key) => m.has(key),
-    set,
-  };
-}
-/** identity of the visible chain: which object, grown how far — the
- *  part of every analysis input that is not a knob */
-let chainIdNext = 1;
-const chainIdOf = new WeakMap<object, number>();
-function chainKey(): string {
-  const c = active().chain;
-  let id = chainIdOf.get(c);
-  if (id === undefined) {
-    id = chainIdNext++;
-    chainIdOf.set(c, id);
-  }
-  return `${id}#${c.order.length}`;
-}
-/** everything the observer's base map is a function of — the
- *  statistical-fingerprinting knob included, since its intra-transaction
- *  reading (divergent input fingerprints veto the one-owner links)
- *  reshapes the base clustering, not just the overlay run */
-function mapSig(): string {
-  return `${chainKey()}§${overlays}|${ciohMax}|${changeEvidence}|${changeTells}|${nfOn ? 1 : 0}|${grantSig()}`;
-}
-
-const mistakeMemo = memoLRU<Map<string, Mistake[]>>(16);
-function mistakes(): Map<string, Mistake[]> {
-  return mistakeMemo.get(mapSig(), () => gradeLinks(active().chain, clustering().links));
-}
-// the base clustering reads the grant too (#66): an auxiliary
-// attribution is one of the change heuristic's payment identifiers, so
-// the observer's map varies with the dial — the signature carries it
-/** the observer-map knobs, resolved for the shared pipeline — the sync
- *  path and the worker read this one translation (#84) */
-function analysisKnobs(): AnalysisKnobs {
-  return {
-    reuse: (overlays & OV_REUSE) !== 0,
-    cioh: (effOverlays() & OV_CIOH) !== 0,
-    change: (overlays & OV_CHANGE) !== 0,
-    subsum: (overlays & OV_SUBSUM) !== 0,
-    remeet: (overlays & OV_REMEET) !== 0,
-    ...(ciohMax < CIOH_MAX_OFF ? { ciohMaxInputs: ciohMax } : {}),
-    ...(changeEvidence > 1 ? { changeEvidence } : {}),
-    ...(changeTells !== TELL_ALL ? { changeTells } : {}),
-    ...(nfOn ? { fingerprints: true } : {}),
-    kycObs,
-    auxFrac,
-  };
-}
-const clMemo = memoLRU<Clustering>(24);
-function clustering(): Clustering {
-  return clMemo.get(mapSig(), () => {
-    const s = active();
-    const priceAt = scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined;
-    return clusterObserver(s.chain, priceAt,
-      observerOpts(analysisKnobs(), currentGrants() ?? null));
-  });
-}
-
-// --- the observer's knowledge grant (#67): auxiliary information as a
-// slider — a seeded fraction of coins revealed with their true labels —
-// with the exchange's KYC records as an optional floor of specific
-// coins underneath. The slider's minimum is the plain observer, its
-// maximum is omniscience; the KYC box clamps its floor either way. The
-// grant is DISCLOSED knowledge: truth enters only as the granted set,
-// and everything downstream (attribution, fusion, the propagation
-// sweeps seeded by it) runs blind on the public graph.
-let kycObs = false;
-let auxFrac = 0;
-function grantsOn(): boolean {
-  return kycObs || auxFrac > 0;
-}
-// the granted set itself, cached apart from the attribution state: the
-// base clustering consumes it too (as the change heuristic's auxiliary
-// payment identifier), and must not have to build attributions first
-const grantMapMemo = memoLRU<Map<string, number | null>>(16);
-function grantMapKey(): string {
-  return `${chainKey()}|${grantSig()}`;
-}
-function currentGrants(): Map<string, number | null> | undefined {
-  if (!grantsOn()) return undefined;
-  return grantMapMemo.get(grantMapKey(), () =>
-    observerGrants(active().chain, session.seed, auxFrac, kycObs));
-}
-interface GrantState {
-  attr: Map<string, Attribution>;
-  /** attributed base-cluster representatives → the one owner their
-   *  grants name (conflicted clusters are absent: the observer knows
-   *  one of those links is a lie, so the vertex earns no name) */
-  owners: Map<string, number | null>;
-  fused: Clustering;
-}
-const grantMemo = memoLRU<GrantState>(16);
-function grantState(): GrantState {
-  // mapSig covers both the base clustering and the grant knobs
-  return grantMemo.get(mapSig(), () => {
-    const g = currentGrants() ?? new Map<string, number | null>();
-    const base = clustering();
-    return {
-      attr: grantAttribution(g, base),
-      owners: clusterGrantOwners(g, base),
-      fused: nsApply(base, grantMerges(g, base)),
-    };
-  });
-}
-/** the observer's map with the grant compounded in: attributed clusters
- *  of one owner fused into one vertex — the base every matcher (and the
- *  contracted view) reads, so a sweep run on it is a sweep seeded by
- *  the grant */
-function observerBase(): Clustering {
-  return grantsOn() ? grantState().fused : clustering();
-}
-/** ns-social matches sit on top of a partition's links, and the
- *  behavioral (ns-netflix) matches fuse on top of both — the same
- *  fusion, composed: matched clusters become one vertex at each
- *  matcher's current replay position */
-function fuseMatches(base: Clustering): Clustering {
-  const cl0 = nsActive() ? nsApply(base, nsEvents()) : base;
-  return nfActive() ? nsApply(cl0, nfEvents()) : cl0;
-}
-const observerModelMemo = memoLRU<Clustering>(16);
-/** the ONE observer model (#124): the grant-fused base with the ns-social
- *  and ns-netflix matches compounded, exactly as the collapsed map draws
- *  it — the trace's candidate sets and the display must read the same
- *  partition, or the lens shows evidence its own trace ignores */
-function observerModel(): Clustering {
-  return observerModelMemo.get(`${mapSig()}§${matchSig()}`, () => fuseMatches(observerBase()));
-}
-/** cache signature of the grant; "" = none in force */
-function grantSig(): string {
-  return grantsOn() ? `${kycObs ? 1 : 0}|${auxFrac}` : "";
-}
-
-// --- ns-social (#59): Narayanan–Shmatikov propagation over the cluster
-// graph. A layer ON TOP of the observer's map: the base heuristics link
-// coins into clusters, this matches clusters to each other by graph
-// structure. The checkbox controls both whether it is applied and
-// whether it is in view; to only look without applying, push the
-// threshold past cosine's ceiling — nothing clears it.
-let nsSocial = false;
-let nsThreshold = 0.5;
-let nsParts = 2;
-/** replay cursor: how many of the algorithmic run's events are applied */
-let nsCursor = 0;
-/** user decisions from the paused examination — accepted proposals and
- *  forced below-threshold entries — applied after the replay prefix */
-let nsManual: NsEvent[] = [];
-let nsPlaying = false;
-let nsPlayTimer: number | null = null;
-/** the second vertex of a paused-mode proposal (the first is the
- *  selected cluster); examined in the panel, accepted or dismissed */
-let nsSecond: string | null = null;
-const nsRunMemo = memoLRU<NsEvent[]>(16);
-function nsRunKey(): string {
-  return `${mapSig()}§ns${nsThreshold}|${nsParts}`;
-}
-function nsRun(): NsEvent[] {
-  // mapSig covers the base map (observerBase is a function of it)
-  const events = nsRunMemo.get(nsRunKey(), () =>
-    nsSocialRun(observerBase(), active().chain, nsThreshold, nsParts));
-  nsCursor = Math.min(nsCursor, events.length);
-  return events;
-}
-/** the events in force at the current replay position: the algorithmic
- *  prefix, then the user's own entries (stale ones — naming vertices the
- *  base map no longer has — drop out silently) */
-function nsEvents(): NsEvent[] {
-  const run = nsRun();
-  const base = observerBase();
-  const live = nsManual.filter((e) => base.members.has(e.a) && base.members.has(e.b));
-  return [...run.slice(0, Math.min(nsCursor, run.length)), ...live];
-}
-function nsActive(): boolean {
-  return nsSocial && lens === 1 && !unclustered;
-}
-/** which columns each APPLIED vertex spans: the columns of the base
- *  vertices the matching fused into it (one lane before any match) */
-function nsLanes(base: Clustering, applied: Clustering): Map<string, number[]> {
-  const col = partitionColumns(base, active().chain, nsParts);
-  const out = new Map<string, number[]>();
-  for (const rep of applied.members.keys()) out.set(rep, []);
-  for (const [baseRep, lane] of col) {
-    const leader = applied.rep.get(baseRep);
-    if (leader === undefined) continue;
-    const lanes = out.get(leader);
-    if (lanes && !lanes.includes(lane)) lanes.push(lane);
-  }
-  for (const lanes of out.values()) lanes.sort((a, b) => a - b);
-  return out;
-}
-
-// The ns-netflix rendition: statistical de-anonymization on top of the
-// same map — clusters matched by how they behave (amounts, timing,
-// feerates absolute and relative), not whom they touch. Greedy playback:
-// best score first, no vertex revisited. The checkbox controls both
-// application and view; the threshold's maximum admits nothing.
-let nfOn = false;
-let nfThreshold = 0.65;
-let nfCursor = 0;
-let nfPlaying = false;
-let nfPlayTimer: number | null = null;
-const nfRunMemo = memoLRU<NfEvent[]>(16);
-function nfActive(): boolean {
-  return nfOn && lens === 1 && !unclustered;
-}
-/** the clustering the behavioral matcher reads: the observer's links,
- *  with any ns-social matches already fused */
-function nfBase(): Clustering {
-  const base = observerBase();
-  return nsActive() ? nsApply(base, nsEvents()) : base;
-}
-function nfRunKey(): string {
-  return `${mapSig()}§${nsSig()}§nf${nfThreshold}`;
-}
-function nfRun(): NfEvent[] {
-  // nfBase is a function of the base map and the ns-social replay
-  const events = nfRunMemo.get(nfRunKey(), () =>
-    runNetflix(nfBase(), active().chain, nfThreshold));
-  nfCursor = Math.min(nfCursor, events.length);
-  return events;
-}
-/** applied prefix, as merge events the shared fusion understands */
-function nfEvents(): NsEvent[] {
-  return nfRun().slice(0, Math.min(nfCursor, nfRun().length))
-    .map((e) => ({ kind: "merge" as const, a: e.a, b: e.b, score: e.score }));
-}
 
 // The contracted graph is not one fixed flattening: the partition — and
 // with it the layout — follows the active lens. All-seeing contracts to
@@ -538,32 +264,22 @@ const collapseMemo = memoLRU<CollapseState>(16);
 /** the entry the contracted view last computed — what a repartition
  *  tween animates from */
 let lastCollapse: CollapseState | null = null;
-/** cache signature of the ns-social replay position; "" = not applied */
-function nsSig(): string {
-  return nsActive()
-    ? `${nsThreshold}|${nsParts}|${nsCursor}|${nsManual.map((e) => `${e.a}+${e.b}`).join(",")}`
-    : "";
-}
-/** combined overlay-matching signature (grant + ns-social + ns-netflix) */
-function matchSig(): string {
-  return `${grantSig()}§${nsSig()}§${nfActive() ? `${nfThreshold}|${nfCursor}` : ""}`;
-}
 function collapseState(): CollapseState {
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
   // the fit rect is part of the key: the same partition re-formed in a
   // different viewport is a different arrangement, and toggling a knob
   // back with the camera unmoved lands on the arrangement already laid
   const fit = clusterFit ? `${clusterFit.x},${clusterFit.y},${clusterFit.w},${clusterFit.h}` : "·";
-  const key = `${mapSig()}§${matchSig()}§${lens}|${agent}|${unclustered ? 1 : 0}|${forceLayout ? 1 : 0}|${chordArr ? 1 : 0}|${fit}`;
+  const key = `${A.mapSig()}§${A.matchSig()}§${lens}|${agent}|${unclustered ? 1 : 0}|${forceLayout ? 1 : 0}|${chordArr ? 1 : 0}|${fit}`;
   lastCollapse = collapseMemo.get(key, () => {
     const base = unclustered ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
       : lens === 2 ? clusterByKnowledge(active().chain, knowledge().coins)
-      : observerBase();
+      : A.observerBase();
     // the observer's partition is the ONE model the trace also consumes
     // (#124); the other lenses fuse any active matches onto their own
     // base the same way
-    const cl = !unclustered && lens === 1 ? observerModel() : fuseMatches(base);
+    const cl = !unclustered && lens === 1 ? A.observerModel() : A.fuseMatches(base);
     // the layout button generalizes to the ring: layered orders it by
     // time, force reorders it to minimize edge crossings. Under the
     // ns-social partition the circle opens into columns — one vertical
@@ -573,8 +289,8 @@ function collapseState(): CollapseState {
     // columns override everything, the chord bends the timeline around
     // the ring (the layout button picks its ordering), and uncurled the
     // layout button picks the band (layered) or the free force map
-    const clay0 = nsActive()
-      ? layoutClusterColumns(cl, active().chain, nsLanes(base, cl), nsParts, mode)
+    const clay0 = A.nsActive()
+      ? layoutClusterColumns(cl, active().chain, A.nsLanes(base, cl), A.nsParts, mode)
       : chordArr ? layoutClusterGraph(cl, active().chain, mode)
       : forceLayout ? layoutClusterForceMap(cl, active().chain)
       : layoutClusterBand(cl, active().chain);
@@ -626,12 +342,12 @@ function lensClusterPaint(): ClusterPaint {
   // coinFill: a granted coin is disclosed (or propagated) attribution,
   // anything else wears the observer's cluster palette — gray where its
   // map says nothing
-  const attr = lens === 1 && grantsOn() ? grantState().attr : null;
+  const attr = lens === 1 && A.grantsOn() ? A.grantState().attr : null;
   const obsColor = (id: string): string => {
     const a = attr?.get(id);
     return a ? (a.owner === null ? "#e8e5da" : ownerColor(a.owner)) : clusterColor(cl, id);
   };
-  const paintColor = lens === 1 && !showMistakes ? obsColor : truthColor;
+  const paintColor = lens === 1 && !A.showMistakes ? obsColor : truthColor;
   const base = {
     color: paintColor,
     slices: (rep: string) => truthSlices(cl, rep, paintColor),
@@ -671,7 +387,7 @@ function lensClusterPaint(): ClusterPaint {
   // they attribute. Only unanimous grants name a vertex — a cluster
   // whose grants conflict exposes one of its links as a lie and earns
   // no name, however many of its coins are individually disclosed.
-  const gs = grantsOn() ? grantState() : null;
+  const gs = A.grantsOn() ? A.grantState() : null;
   return {
     ...base,
     label: (rep) => {
@@ -699,7 +415,7 @@ function lensClusterPaint(): ClusterPaint {
     // observer's — it only shows when the learner asked to be shown
     // mistakes, the same gate every other truth-graded display uses.
     score: (rep) => {
-      if (!showMistakes) return "";
+      if (!A.showMistakes) return "";
       const members = cl.members.get(rep) ?? [rep];
       if (members.length < 2) return "";
       const byOwner = new Map<number | null, number>();
@@ -762,11 +478,11 @@ function changeReadCaption(reads: ChangeRead[] | undefined): string | null {
 }
 
 function observerPaint(): Paint {
-  const cl = observerModel();
+  const cl = A.observerModel();
   // grant attribution rides on top of the map: a granted coin is
   // disclosed truth, a coin colored through its cluster is the grant
   // compounding over a link — which can be wrong, so it says "likely"
-  const attr = grantsOn() ? grantState().attr : null;
+  const attr = A.grantsOn() ? A.grantState().attr : null;
   const nameOf = (o: number | null): string => (o === null ? "outside town" : castList()[o]!.name);
   return {
     coinFill: (c) => {
@@ -790,8 +506,8 @@ function observerPaint(): Paint {
       return fill === CLUSTER_MISC ? null : fill; // unclustered is not attribution
     },
     txFlag: (t) => {
-      if (!showMistakes) return null;
-      const ms = mistakes().get(t.id);
+      if (!A.showMistakes) return null;
+      const ms = A.mistakes().get(t.id);
       if (!ms) return null;
       return ms.length === 1 ? ms[0]!.note : `${ms[0]!.note} (+${ms.length - 1} more)`;
     },
@@ -815,7 +531,7 @@ function knowledge(): Knowledge {
     // under the time cursor, the ledger too only reaches the visible day
     const events = (eco?.events ?? []).filter((e) => s.chain.txs.has(e.tid));
     const cjs = eco ? [...eco.coinjoins.keys()].filter((t) => s.chain.txs.has(t)) : undefined;
-    knCache = { rev: simRev, u, k: agentKnowledge(s.chain, events, u, clustering(), cjs) };
+    knCache = { rev: simRev, u, k: agentKnowledge(s.chain, events, u, A.clustering(), cjs) };
   }
   return knCache.k;
 }
@@ -897,7 +613,7 @@ function resize(): void {
  *  Untouched clusters do not appear. Screen space, drawn over the
  *  graph; the contracted view shows the discs themselves instead. */
 function drawClusterStrip(w: number, h: number): void {
-  const cl = observerModel(); // the partition the trace intersected (#124)
+  const cl = A.observerModel(); // the partition the trace intersected (#124)
   const repsOf = (coins: Set<string>): Set<string> => {
     const out = new Set<string>();
     for (const id of coins) {
@@ -985,8 +701,8 @@ function draw(): void {
       ctx.setLineDash([]);
       ctx.restore();
     };
-    if (collapseT > 0.9 && nsActive() && !nsPlaying) {
-      const next = nsRun()[nsCursor];
+    if (collapseT > 0.9 && A.nsActive() && !A.nsPlaying) {
+      const next = A.nsRun()[A.nsCursor];
       if (next && next.kind === "merge") {
         const cl = lensClustering();
         mapEdge(cl.rep.get(next.a) ?? next.a, cl.rep.get(next.b) ?? next.b, 0.35);
@@ -997,9 +713,9 @@ function draw(): void {
     // ns-netflix proposed links: matches the run accepted but the
     // replay has not yet applied, drawn teal between the clusters they
     // would fuse — the admissions made visible before they land
-    if (collapseT > 0.9 && nfActive()) {
+    if (collapseT > 0.9 && A.nfActive()) {
       const cl = lensClustering();
-      for (const e of nfRun().slice(nfCursor)) {
+      for (const e of A.nfRun().slice(A.nfCursor)) {
         const ra = cl.rep.get(e.a) ?? e.a, rb = cl.rep.get(e.b) ?? e.b;
         if (ra === rb) continue;
         mapEdge(ra, rb, 0.55, "#76b7b2");
@@ -1085,7 +801,7 @@ function originsPart(): string {
       (selection?.kind === "tx"
         ? (active().chain.txs.get(selection.id)?.inputs.length ?? 0) >= 2
         : selection?.kind === "coins" && selection.ids.length >= 2)) {
-    const cl = observerModel();
+    const cl = A.observerModel();
     const reps = new Set<string>();
     for (const c of highlight.full.coins) {
       const r = cl.rep.get(c);
@@ -1187,7 +903,7 @@ function setUnclustered(on: boolean, animate = true): void {
   unclustered = on;
   syncKnobButtons();
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
-  nsSecond = null;
+  A.nsSecond = null;
   if (before) {
     const tr: ClusterTransition = {
       t: 0,
@@ -1438,7 +1154,7 @@ function setLens(l: 0 | 1 | 2): void {
   // drop a selection that named a vertex of the old one
   if (collapsed) {
     if (selection?.kind === "cluster") { selection = null; highlight = null; }
-    nsSecond = null;
+    A.nsSecond = null;
     if (before) {
       const tr: ClusterTransition = {
         t: 0,
@@ -1562,28 +1278,28 @@ function reflectStagedWidgets(): void {
   syncKnobButtons(); // the grouping button folds staging into its view rule
 }
 function rowsOnNow(): Record<PanelRow, boolean> {
-  const eo = effOverlays();
+  const eo = A.effOverlays();
   return {
     reuse: (eo & OV_REUSE) !== 0,
     cioh: (eo & OV_CIOH) !== 0,
     change: (eo & OV_CHANGE) !== 0,
-    subsum: (overlays & OV_SUBSUM) !== 0,
-    remeet: (overlays & OV_REMEET) !== 0,
-    nssoc: nsSocial,
-    nsnf: nfOn,
+    subsum: (A.overlays & OV_SUBSUM) !== 0,
+    remeet: (A.overlays & OV_REMEET) !== 0,
+    nssoc: A.nsSocial,
+    nsnf: A.nfOn,
     // the exchange's records and the random leaks are separate rows so
     // the tutorial can introduce them chapters apart; a live slider
     // reveals the section (and its checkbox) even if KYC never ran
-    kyc: kycObs || auxFrac > 0,
-    aux: auxFrac > 0,
-    grading: showMistakes,
+    kyc: A.kycObs || A.auxFrac > 0,
+    aux: A.auxFrac > 0,
+    grading: A.showMistakes,
     // the change heuristic's family members stage one at a time: a
     // member counts as introduced only when it RUNS under a live
     // change row — mirroring the walked-path staging of the rows
-    chusd: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_USD) !== 0,
-    chbtc: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_BTC) !== 0,
-    chscript: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_SCRIPT) !== 0,
-    chaux: (eo & OV_CHANGE) !== 0 && (changeTells & TELL_AUX) !== 0,
+    chusd: (eo & OV_CHANGE) !== 0 && (A.changeTells & TELL_USD) !== 0,
+    chbtc: (eo & OV_CHANGE) !== 0 && (A.changeTells & TELL_BTC) !== 0,
+    chscript: (eo & OV_CHANGE) !== 0 && (A.changeTells & TELL_SCRIPT) !== 0,
+    chaux: (eo & OV_CHANGE) !== 0 && (A.changeTells & TELL_AUX) !== 0,
   };
 }
 // the elements a row owns: its label plus any nested controls, and the
@@ -1641,65 +1357,65 @@ function reflectOverlays(): void {
     const input = el as HTMLInputElement;
     // the boxes show what RUNS — the forced CIOH reads checked while
     // sub-tx is on, though the user's own setting waits underneath
-    input.checked = (effOverlays() & Number(input.dataset["bit"])) !== 0;
+    input.checked = (A.effOverlays() & Number(input.dataset["bit"])) !== 0;
   });
   // while the sub-transaction analysis runs, CIOH is forced on and
   // greyed out (see effOverlays)
   const ciohBox = overlaysPanel.querySelector(`input[data-bit="${OV_CIOH}"]`) as HTMLInputElement;
-  ciohBox.disabled = (overlays & OV_SUBSUM) !== 0;
+  ciohBox.disabled = (A.overlays & OV_SUBSUM) !== 0;
   const slider = document.getElementById("ciohmax") as HTMLInputElement;
-  slider.value = String(ciohMax);
-  slider.disabled = (effOverlays() & OV_CIOH) === 0;
+  slider.value = String(A.ciohMax);
+  slider.disabled = (A.effOverlays() & OV_CIOH) === 0;
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
-    ciohMax >= CIOH_MAX_OFF ? "off" : String(ciohMax);
-  const changeOff = (overlays & OV_CHANGE) === 0;
+    A.ciohMax >= CIOH_MAX_OFF ? "off" : String(A.ciohMax);
+  const changeOff = (A.overlays & OV_CHANGE) === 0;
   for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", TELL_SCRIPT], ["chaux", TELL_AUX]] as const) {
     const box = document.getElementById(id) as HTMLInputElement;
-    box.checked = (changeTells & bit) !== 0;
+    box.checked = (A.changeTells & bit) !== 0;
     box.disabled = changeOff;
   }
   // the bar counts kinds, so it can demand at most the enabled kinds —
   // and with none enabled nothing can clear it either way
   const chev = document.getElementById("chev") as HTMLInputElement;
-  const enabledKinds = Math.max(1, tellCount(changeTells));
+  const enabledKinds = Math.max(1, A.tellCount(A.changeTells));
   chev.max = String(enabledKinds);
-  changeEvidence = Math.min(changeEvidence, enabledKinds);
-  chev.value = String(changeEvidence);
-  chev.disabled = changeOff || tellCount(changeTells) <= 1;
+  A.changeEvidence = Math.min(A.changeEvidence, enabledKinds);
+  chev.value = String(A.changeEvidence);
+  chev.disabled = changeOff || A.tellCount(A.changeTells) <= 1;
   (document.getElementById("chevv") as HTMLOutputElement).textContent =
-    changeEvidence === 1 ? "1 heuristic" : `${changeEvidence} heuristics`;
-  (document.getElementById("mistakes") as HTMLInputElement).checked = showMistakes;
-  (document.getElementById("kycobs") as HTMLInputElement).checked = kycObs;
-  (document.getElementById("auxfrac") as HTMLInputElement).value = String(Math.round(auxFrac * 100));
+    A.changeEvidence === 1 ? "1 heuristic" : `${A.changeEvidence} heuristics`;
+  (document.getElementById("mistakes") as HTMLInputElement).checked = A.showMistakes;
+  (document.getElementById("kycobs") as HTMLInputElement).checked = A.kycObs;
+  (document.getElementById("auxfrac") as HTMLInputElement).value = String(Math.round(A.auxFrac * 100));
   (document.getElementById("auxfracv") as HTMLOutputElement).textContent =
-    auxFrac <= 0 ? "none" : auxFrac >= 1 ? "omniscient" : `${Math.round(auxFrac * 100)}%`;
-  (document.getElementById("nssoc") as HTMLInputElement).checked = nsSocial;
-  (document.getElementById("nssoccontrols") as HTMLElement).style.display = nsSocial ? "block" : "none";
-  if (nsSocial) {
-    (document.getElementById("nsth") as HTMLInputElement).value = String(Math.round(nsThreshold * 100));
+    A.auxFrac <= 0 ? "none" : A.auxFrac >= 1 ? "omniscient" : `${Math.round(A.auxFrac * 100)}%`;
+  (document.getElementById("nssoc") as HTMLInputElement).checked = A.nsSocial;
+  (document.getElementById("nssoccontrols") as HTMLElement).style.display = A.nsSocial ? "block" : "none";
+  if (A.nsSocial) {
+    (document.getElementById("nsth") as HTMLInputElement).value = String(Math.round(A.nsThreshold * 100));
     (document.getElementById("nsthv") as HTMLOutputElement).textContent =
-      nsThreshold > 1 ? "none" : nsThreshold.toFixed(2);
-    (document.getElementById("nsparts") as HTMLInputElement).value = String(nsParts);
-    (document.getElementById("nspartsv") as HTMLOutputElement).textContent = String(nsParts);
-    (document.getElementById("nsplay") as HTMLButtonElement).textContent = nsPlaying ? "pause" : "play";
-    const run = nsRun();
-    const matches = activePairs(nsEvents()).length;
+      A.nsThreshold > 1 ? "none" : A.nsThreshold.toFixed(2);
+    (document.getElementById("nsparts") as HTMLInputElement).value = String(A.nsParts);
+    (document.getElementById("nspartsv") as HTMLOutputElement).textContent = String(A.nsParts);
+    (document.getElementById("nsplay") as HTMLButtonElement).textContent = A.nsPlaying ? "pause" : "play";
+    const run = A.nsRun();
+    const matches = activePairs(A.nsEvents()).length;
     const prog = document.getElementById("nsprog") as HTMLInputElement;
     prog.max = String(run.length);
-    prog.value = String(Math.min(nsCursor, run.length));
+    prog.value = String(Math.min(A.nsCursor, run.length));
     (document.getElementById("nspos") as HTMLElement).textContent =
-      `${Math.min(nsCursor, run.length)}/${run.length} · ${matches} match${matches === 1 ? "" : "es"}`;
+      `${Math.min(A.nsCursor, run.length)}/${run.length} · ${matches} match${matches === 1 ? "" : "es"}`;
     reflectNsProposal();
   }
-  (document.getElementById("nsnf") as HTMLInputElement).checked = nfOn;
-  (document.getElementById("nsnfcontrols") as HTMLElement).style.display = nfOn ? "block" : "none";
-  if (nfOn) {
-    (document.getElementById("nsnfth") as HTMLInputElement).value = String(Math.round(nfThreshold * 100));
+  (document.getElementById("nsnf") as HTMLInputElement).checked = A.nfOn;
+  (document.getElementById("nsnfcontrols") as HTMLElement).style.display = A.nfOn ? "block" : "none";
+  if (A.nfOn) {
+    (document.getElementById("nsnfth") as HTMLInputElement).value = String(Math.round(A.nfThreshold * 100));
     (document.getElementById("nsnfthv") as HTMLOutputElement).textContent =
-      nfThreshold > 1 ? "none" : nfThreshold.toFixed(2);
-    (document.getElementById("nsnfplay") as HTMLButtonElement).textContent = nfPlaying ? "pause" : "play";
-    const run = nfRun();
-    const applied = Math.min(nfCursor, run.length);
+      A.nfThreshold > 1 ? "none" : A.nfThreshold.toFixed(2);
+    (document.getElementById("nsnfplay") as HTMLButtonElement).textContent = A.nfPlaying ? "pause" : "play";
+    const run = A.nfRun();
+    const applied = Math.min(A.nfCursor, run.length);
     const prog = document.getElementById("nfprog") as HTMLInputElement;
     prog.max = String(run.length);
     prog.value = String(applied);
@@ -1720,8 +1436,8 @@ function hourHint(hours: number[]): string {
 }
 function reflectNfStats(): void {
   const box = document.getElementById("nsnfstats") as HTMLElement;
-  if (!nfActive() || !collapsed || selection?.kind !== "cluster") {
-    box.innerHTML = nfOn && collapsed
+  if (!A.nfActive() || !collapsed || selection?.kind !== "cluster") {
+    box.innerHTML = A.nfOn && collapsed
       ? `<span class="nshint">select a vertex to read its fingerprint</span>` : "";
     return;
   }
@@ -1744,247 +1460,28 @@ function reflectNsProposal(): void {
   const box = document.getElementById("nsproposal") as HTMLElement;
   const pair = nsProposalPair();
   if (!pair) {
-    box.innerHTML = NS_MANUAL_OVERRIDE && nsSocial && collapsed
+    box.innerHTML = NS_MANUAL_OVERRIDE && A.nsSocial && collapsed
       ? `<span class="nshint">select two vertices to examine a pair</span>` : "";
     return;
   }
   const [a, b] = pair;
-  const cl = observerBase();
-  const { comp, membersOf } = matchState(cl, nsEvents());
+  const cl = A.observerBase();
+  const { comp, membersOf } = matchState(cl, A.nsEvents());
   if (comp.get(a) === comp.get(b)) {
     box.innerHTML = `<span class="nshint">already one vertex — undo to part them</span>`;
     return;
   }
   const score = nsSimilarity(clusterAdjacency(cl, active().chain), comp, membersOf,
     comp.get(a)!, comp.get(b)!);
-  const clears = score >= nsThreshold;
+  const clears = score >= A.nsThreshold;
   box.innerHTML =
-    `<span class="nshint">score ${score.toFixed(2)} ${clears ? "≥" : "<"} ${nsThreshold > 1 ? "ceiling" : nsThreshold.toFixed(2)}</span>
+    `<span class="nshint">score ${score.toFixed(2)} ${clears ? "≥" : "<"} ${A.nsThreshold > 1 ? "ceiling" : A.nsThreshold.toFixed(2)}</span>
      <button id="nsaccept">${clears ? "accept" : "force"}</button>`;
   document.getElementById("nsaccept")!.addEventListener("click", () => {
     nsMerge(comp.get(a)!, comp.get(b)!, score, !clears);
   });
 }
 reflectOverlays();
-// --- #84: the heavy analysis off the main thread. Every observer-knob
-// handler routes through commitKnobs: when the #85 memos already hold
-// the target's results the change lands synchronously as before, and
-// when they are cold the job goes to the analysis worker — the display
-// freezes on the previous settings, a spinner appears if the wait is
-// noticeable, and when the results come back they are installed into
-// the memos and the change lands with the same repartition tween a
-// warm toggle replays. The worker holds at most one job; a knob moved
-// again mid-flight replaces the queued follow-up (last wins).
-interface SubmittedJob {
-  msg: AnalysisJob;
-  target: KnobSnap;
-  finish: () => void;
-  /** invalidated when a warm toggle lands synchronously mid-flight */
-  epoch: number;
-  /** the visible chain at submit time; a chain that grew mid-flight
-   *  just misses the cache — one synchronous recompute on the next
-   *  draw beats installing results under the wrong key */
-  chainK: string;
-  nsManualSig: string;
-}
-let inFlight: SubmittedJob | null = null;
-let queuedJob: SubmittedJob | null = null;
-let knobEpoch = 0;
-/** where the knobs are headed while a job is in flight — a further
- *  change mutates on top of this, not the frozen display state */
-let knobTarget: KnobSnap | null = null;
-let workerDown = false;
-const analysisWorker: Worker | null = (() => {
-  const src = (window as unknown as { __WORKER_SRC?: string }).__WORKER_SRC;
-  if (!src || typeof Worker === "undefined") return null;
-  try {
-    const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), { name: "analysis" });
-    w.addEventListener("message", (ev) => { onWorkerReply(ev.data as AnalysisReply); });
-    w.addEventListener("error", () => { onWorkerDown(); });
-    return w;
-  } catch {
-    return null;
-  }
-})();
-/** the knobs the gateway snapshots and reverts: everything a routed
- *  handler mutates (replay cursors stay out — finish() sets those) */
-interface KnobSnap {
-  ov: number; cm: number; ce: number; ct: number;
-  kx: boolean; ax: number;
-  ns: boolean; nth: number; npt: number;
-  nf: boolean; nfth: number; mi: boolean;
-}
-function snapKnobs(): KnobSnap {
-  return {
-    ov: overlays, cm: ciohMax, ce: changeEvidence, ct: changeTells,
-    kx: kycObs, ax: auxFrac,
-    ns: nsSocial, nth: nsThreshold, npt: nsParts,
-    nf: nfOn, nfth: nfThreshold, mi: showMistakes,
-  };
-}
-function applyKnobsSnap(k: KnobSnap): void {
-  overlays = k.ov; ciohMax = k.cm; changeEvidence = k.ce; changeTells = k.ct;
-  kycObs = k.kx; auxFrac = k.ax;
-  nsSocial = k.ns; nsThreshold = k.nth; nsParts = k.npt;
-  nfOn = k.nf; nfThreshold = k.nfth; showMistakes = k.mi;
-}
-/** whether every memo the current settings will consult is warm */
-function analysisReady(): boolean {
-  if (!clMemo.has(mapSig())) return false;
-  if (grantsOn() && (!grantMapMemo.has(grantMapKey()) || !grantMemo.has(mapSig()))) return false;
-  if (nsSocial && !nsRunMemo.has(nsRunKey())) return false;
-  if (nfOn && !nfRunMemo.has(nfRunKey())) return false;
-  if (showMistakes && !mistakeMemo.has(mapSig())) return false;
-  return true;
-}
-let jobSeq = 0;
-/** the job message, built with the TARGET knobs applied; nsFull marks
- *  a handler about to pin the ns replay cursor to the end of the run */
-function buildAnalysisJob(nsFull: boolean): AnalysisJob {
-  return {
-    id: ++jobSeq,
-    session: {
-      seed: session.seed, params: session.params, timeline: session.timeline,
-      manual: session.manual, manualFrom: session.manualFrom,
-      interventions: session.interventions,
-    },
-    day: eco!.day,
-    cursor: cursorDay(),
-    tx: viewTx,
-    knobs: analysisKnobs(),
-    wants: {
-      ns: nsSocial ? { threshold: nsThreshold, parts: nsParts } : null,
-      nf: nfOn
-        ? {
-            threshold: nfThreshold,
-            applyNs: nsActive(),
-            nsCursor: nsFull ? Number.MAX_SAFE_INTEGER : nsCursor,
-            nsManual: nsManual.slice(),
-          }
-        : null,
-      mistakes: showMistakes,
-    },
-  };
-}
-function nsManualSigNow(): string {
-  return nsManual.map((e) => `${e.a}+${e.b}`).join(",");
-}
-/** install the worker's results under the keys the applied target
- *  state derives — the same strings the draw path will ask for */
-function installBundle(b: AnalysisBundle): void {
-  clMemo.set(mapSig(), b.cl);
-  if (b.grantMap) grantMapMemo.set(grantMapKey(), b.grantMap);
-  if (b.grant) grantMemo.set(mapSig(), b.grant);
-  if (b.nsEvents) nsRunMemo.set(nsRunKey(), b.nsEvents);
-  if (b.mistakes) mistakeMemo.set(mapSig(), b.mistakes);
-}
-/** the nf run's key includes the ns replay position, which finish()
- *  may move — install only when what the worker computed on is what
- *  the key denotes right now (called before AND after finish) */
-function tryInstallNf(job: SubmittedJob, b: AnalysisBundle): void {
-  const want = job.msg.wants.nf;
-  if (!want || !b.nfEvents || !nfOn) return;
-  if (want.applyNs !== nsActive()) return;
-  if (want.applyNs) {
-    if (job.nsManualSig !== nsManualSigNow()) return;
-    const runLen = b.nsEvents ? b.nsEvents.length : 0;
-    if (Math.min(want.nsCursor, runLen) !== Math.min(nsCursor, runLen)) return;
-  }
-  nfRunMemo.set(nfRunKey(), b.nfEvents);
-}
-function onWorkerReply(reply: AnalysisReply): void {
-  const job = inFlight;
-  inFlight = null;
-  if (queuedJob) {
-    // superseded mid-flight: drop this result, run the newest job
-    inFlight = queuedJob;
-    queuedJob = null;
-    analysisWorker!.postMessage(inFlight.msg);
-    return;
-  }
-  spinnerOff();
-  if (!job || job.msg.id !== reply.id || job.epoch !== knobEpoch) return;
-  knobTarget = null;
-  applyKnobsSnap(job.target);
-  simRev += 1;
-  if (chainKey() === job.chainK) {
-    installBundle(reply.bundle);
-    tryInstallNf(job, reply.bundle);
-  }
-  job.finish();
-  if (chainKey() === job.chainK) tryInstallNf(job, reply.bundle);
-}
-function onWorkerDown(): void {
-  workerDown = true;
-  const last = queuedJob ?? inFlight;
-  inFlight = null;
-  queuedJob = null;
-  spinnerOff();
-  if (last && last.epoch === knobEpoch) {
-    // land the change synchronously after all: one jank, not a lost click
-    knobTarget = null;
-    applyKnobsSnap(last.target);
-    simRev += 1;
-    last.finish();
-  }
-}
-/** route a knob change: mutate the settings, then either finish now
- *  (memos warm, no worker, or not the live economy) or freeze the
- *  display and finish when the worker's results land */
-function commitKnobs(mutate: () => void, finish: () => void, opts: { nsFull?: boolean } = {}): void {
-  const prev = knobTarget ?? snapKnobs();
-  if (knobTarget) applyKnobsSnap(knobTarget);
-  mutate();
-  simRev += 1; // the observer's map — and every lens seeded from it — changes
-  if (scene !== 1 || !eco || workerDown || !analysisWorker || analysisReady()) {
-    // a warm landing invalidates anything still in flight: its results
-    // may install (right keys, right data) but must not re-apply an
-    // older target over this newer state
-    knobEpoch += 1;
-    knobTarget = null;
-    queuedJob = null;
-    spinnerOff();
-    finish();
-    return;
-  }
-  const target = snapKnobs();
-  const sub: SubmittedJob = {
-    msg: buildAnalysisJob(opts.nsFull === true),
-    target,
-    finish,
-    epoch: knobEpoch,
-    chainK: chainKey(),
-    nsManualSig: nsManualSigNow(),
-  };
-  // the display keeps the settings it was drawn with; the DOM controls
-  // already show the user's choice, and the spinner covers the gap
-  applyKnobsSnap(knobTarget ?? prev);
-  knobTarget = target;
-  if (inFlight) queuedJob = sub;
-  else {
-    inFlight = sub;
-    analysisWorker.postMessage(sub.msg);
-  }
-  spinnerSoon();
-}
-// the spinner waits 150ms before showing: a fast worker roundtrip
-// should not flash a "thinking" pill for every notch of a slider
-const busyEl = document.getElementById("busy") as HTMLElement;
-let busyTimer: number | null = null;
-function spinnerSoon(): void {
-  if (busyTimer !== null || !busyEl.hidden) return;
-  busyTimer = window.setTimeout(() => {
-    busyTimer = null;
-    busyEl.hidden = false;
-  }, 150);
-}
-function spinnerOff(): void {
-  if (busyTimer !== null) {
-    clearTimeout(busyTimer);
-    busyTimer = null;
-  }
-  busyEl.hidden = true;
-}
 /** the repartition tween every routed handler replays on landing —
  *  matched discs glide together, a retracted link pulls back apart */
 function startRepartitionTween(before: { cl: Clustering; clay: ClusterLayout } | null): void {
@@ -2001,7 +1498,7 @@ function startRepartitionTween(before: { cl: Clustering; clay: ClusterLayout } |
 }
 
 function setMistakes(on: boolean): void {
-  commitKnobs(() => { showMistakes = on; }, () => {
+  A.commitKnobs(() => { A.showMistakes = on; }, () => {
     reflectOverlays();
     draw();
     void syncFragment();
@@ -2015,7 +1512,7 @@ document.getElementById("mistakes")!.addEventListener("change", (e) => {
 // new ones (purely cosmetic — both endpoints are honestly computed
 // partitions, and the tween feeds nothing)
 function setOverlays(mask: number): void {
-  commitKnobs(() => { overlays = mask & OV_ALL; }, () => {
+  A.commitKnobs(() => { A.overlays = mask & OV_ALL; }, () => {
     const before = repartitionStart();
     reflectOverlays();
     startRepartitionTween(before);
@@ -2027,7 +1524,7 @@ function setOverlays(mask: number): void {
 /** tutorial-driven staging of the change/payment identification's
  *  heuristics — the same repartition tween as a checkbox toggle */
 function setChangeTells(mask: number): void {
-  commitKnobs(() => { changeTells = mask & TELL_ALL; }, () => {
+  A.commitKnobs(() => { A.changeTells = mask & TELL_ALL; }, () => {
     const before = repartitionStart();
     reflectOverlays();
     startRepartitionTween(before);
@@ -2048,13 +1545,13 @@ function knobFinishLive(): void {
 // notch so dragging shows clusters splitting and re-linking as it moves
 document.getElementById("ciohmax")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
-  commitKnobs(() => { ciohMax = v; }, knobFinishLive);
+  A.commitKnobs(() => { A.ciohMax = v; }, knobFinishLive);
 });
 // the evidence bar re-runs the observer's map live per notch: raising
 // it shows change links letting go, coverage traded for caution
 document.getElementById("chev")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
-  commitKnobs(() => { changeEvidence = v; }, knobFinishLive);
+  A.commitKnobs(() => { A.changeEvidence = v; }, knobFinishLive);
 });
 // the tell checkboxes re-run the map too; the bar clamps to however
 // many kinds remain enabled
@@ -2063,8 +1560,8 @@ for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", 
     const on = (e.target as HTMLInputElement).checked;
     // the mutate runs on top of any in-flight target, so rapid toggles
     // of different tells compose instead of clobbering each other
-    commitKnobs(() => {
-      changeTells = on ? changeTells | bit : changeTells & ~bit;
+    A.commitKnobs(() => {
+      A.changeTells = on ? A.changeTells | bit : A.changeTells & ~bit;
     }, knobFinishLive);
   });
 }
@@ -2073,7 +1570,7 @@ for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", 
 // re-runs live per notch, so dragging shows names landing and clusters
 // fusing as the grant grows.
 function setGrants(kx: boolean, ax: number): void {
-  commitKnobs(() => { kycObs = kx; auxFrac = ax; }, () => {
+  A.commitKnobs(() => { A.kycObs = kx; A.auxFrac = ax; }, () => {
     const before = repartitionStart();
     reflectOverlays();
     startRepartitionTween(before);
@@ -2083,11 +1580,11 @@ function setGrants(kx: boolean, ax: number): void {
   });
 }
 document.getElementById("kycobs")!.addEventListener("change", (e) => {
-  setGrants((e.target as HTMLInputElement).checked, auxFrac);
+  setGrants((e.target as HTMLInputElement).checked, A.auxFrac);
 });
 document.getElementById("auxfrac")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value) / 100;
-  commitKnobs(() => { auxFrac = v; }, knobFinishLive);
+  A.commitKnobs(() => { A.auxFrac = v; }, knobFinishLive);
 });
 
 // --- ns-social controls. Every state change while the map is contracted
@@ -2101,7 +1598,7 @@ function withNsRepartition(mutate: () => void): void {
     selection = null;
     highlight = null;
   }
-  if (nsSecond !== null && !lensClustering().members.has(nsSecond)) nsSecond = null;
+  if (A.nsSecond !== null && !lensClustering().members.has(A.nsSecond)) A.nsSecond = null;
   startRepartitionTween(before);
   recomputeTrace();
   reflectOverlays();
@@ -2109,14 +1606,14 @@ function withNsRepartition(mutate: () => void): void {
   syncFragmentSoon();
 }
 function setNsSocial(on: boolean): void {
-  if (nsSocial === on) return;
+  if (A.nsSocial === on) return;
   // the knob mutates through the gateway; the cursor pin — which reads
   // the (possibly worker-computed) run — waits for the landing
-  commitKnobs(() => { nsSocial = on; }, () => {
+  A.commitKnobs(() => { A.nsSocial = on; }, () => {
     withNsRepartition(() => {
-      if (on) nsCursor = nsRun().length; // enabling shows the finished analysis
+      if (on) A.nsCursor = A.nsRun().length; // enabling shows the finished analysis
       else nsSetPlaying(false);
-      nsSecond = null;
+      A.nsSecond = null;
     });
     // the landing can race a tutorial camera move: the columns were fit
     // to whatever rect the camera showed at that instant, which a flyTo
@@ -2126,23 +1623,23 @@ function setNsSocial(on: boolean): void {
   }, { nsFull: on });
 }
 function nsSetPlaying(on: boolean): void {
-  nsPlaying = on;
-  if (nsPlayTimer !== null) {
-    clearTimeout(nsPlayTimer);
-    nsPlayTimer = null;
+  A.nsPlaying = on;
+  if (A.nsPlayTimer !== null) {
+    clearTimeout(A.nsPlayTimer);
+    A.nsPlayTimer = null;
   }
-  if (on) nsPlayTimer = window.setTimeout(nsStep, 100);
+  if (on) A.nsPlayTimer = window.setTimeout(nsStep, 100);
   reflectOverlays();
 }
 function nsStep(): void {
-  nsPlayTimer = null;
-  if (!nsPlaying) return;
-  if (nsCursor >= nsRun().length) {
+  A.nsPlayTimer = null;
+  if (!A.nsPlaying) return;
+  if (A.nsCursor >= A.nsRun().length) {
     nsSetPlaying(false);
     return;
   }
-  withNsRepartition(() => { nsCursor += 1; });
-  nsPlayTimer = window.setTimeout(nsStep, 1100);
+  withNsRepartition(() => { A.nsCursor += 1; });
+  A.nsPlayTimer = window.setTimeout(nsStep, 1100);
 }
 // #102: the manual examine/merge flow is parked while the playback
 // basics settle — no new proposal can be staged from the canvas. The
@@ -2153,16 +1650,16 @@ const NS_MANUAL_OVERRIDE: boolean = false;
  *  `forced` marks a pair the threshold alone would not admit */
 function nsMerge(a: string, b: string, score: number, forced: boolean): void {
   withNsRepartition(() => {
-    nsManual.push({ kind: "merge", a, b, score, ...(forced ? { forced: true } : {}) });
-    nsSecond = null;
+    A.nsManual.push({ kind: "merge", a, b, score, ...(forced ? { forced: true } : {}) });
+    A.nsSecond = null;
   });
 }
 /** the pair under manual examination: the selected cluster and the
  *  second-clicked one, or the last two selected coins' vertices */
 function nsProposalPair(): [string, string] | null {
-  if (!NS_MANUAL_OVERRIDE || !nsActive()) return null;
-  if (selection?.kind === "cluster" && nsSecond !== null && nsSecond !== selection.id) {
-    return [selection.id, nsSecond];
+  if (!NS_MANUAL_OVERRIDE || !A.nsActive()) return null;
+  if (selection?.kind === "cluster" && A.nsSecond !== null && A.nsSecond !== selection.id) {
+    return [selection.id, A.nsSecond];
   }
   if (selection?.kind === "coins" && selection.ids.length >= 2) {
     const cl = lensClustering();
@@ -2181,23 +1678,23 @@ document.getElementById("nsth")!.addEventListener("input", (e) => {
   // read before nsSetPlaying: its reflectOverlays writes the old value back
   const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  commitKnobs(() => { nsThreshold = v / 100; }, () => {
-    withNsRepartition(() => { nsCursor = nsRun().length; });
+  A.commitKnobs(() => { A.nsThreshold = v / 100; }, () => {
+    withNsRepartition(() => { A.nsCursor = A.nsRun().length; });
   }, { nsFull: true });
 });
 document.getElementById("nsparts")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  commitKnobs(() => { nsParts = v; }, () => {
-    withNsRepartition(() => { nsCursor = nsRun().length; });
+  A.commitKnobs(() => { A.nsParts = v; }, () => {
+    withNsRepartition(() => { A.nsCursor = A.nsRun().length; });
   }, { nsFull: true });
 });
 document.getElementById("nsplay")!.addEventListener("click", () => {
-  if (!nsPlaying && nsCursor >= nsRun().length) {
+  if (!A.nsPlaying && A.nsCursor >= A.nsRun().length) {
     // replay from the top: matches retract, then land one by one
-    withNsRepartition(() => { nsCursor = 0; });
+    withNsRepartition(() => { A.nsCursor = 0; });
   }
-  nsSetPlaying(!nsPlaying);
+  nsSetPlaying(!A.nsPlaying);
 });
 // #102: the analysis lands finished (setNsSocial pins the cursor to the
 // end); this slider rewinds it. Dragging back retracts matches with the
@@ -2206,39 +1703,39 @@ document.getElementById("nsplay")!.addEventListener("click", () => {
 document.getElementById("nsprog")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  withNsRepartition(() => { nsCursor = v; });
+  withNsRepartition(() => { A.nsCursor = v; });
 });
 
 // --- ns-netflix controls: the same repartition tween; playback is the
 // greedy ranking landing best-first — no undo, matched vertices are
 // never revisited, so there is nothing to go back to
 function setNf(on: boolean): void {
-  if (nfOn === on) return;
-  commitKnobs(() => { nfOn = on; }, () => {
+  if (A.nfOn === on) return;
+  A.commitKnobs(() => { A.nfOn = on; }, () => {
     withNsRepartition(() => {
-      if (on) nfCursor = nfRun().length; // enabling shows the finished run
+      if (on) A.nfCursor = A.nfRun().length; // enabling shows the finished run
       else nfSetPlaying(false);
     });
   });
 }
 function nfSetPlaying(on: boolean): void {
-  nfPlaying = on;
-  if (nfPlayTimer !== null) {
-    clearTimeout(nfPlayTimer);
-    nfPlayTimer = null;
+  A.nfPlaying = on;
+  if (A.nfPlayTimer !== null) {
+    clearTimeout(A.nfPlayTimer);
+    A.nfPlayTimer = null;
   }
-  if (on) nfPlayTimer = window.setTimeout(nfStep, 100);
+  if (on) A.nfPlayTimer = window.setTimeout(nfStep, 100);
   reflectOverlays();
 }
 function nfStep(): void {
-  nfPlayTimer = null;
-  if (!nfPlaying) return;
-  if (nfCursor >= nfRun().length) {
+  A.nfPlayTimer = null;
+  if (!A.nfPlaying) return;
+  if (A.nfCursor >= A.nfRun().length) {
     nfSetPlaying(false);
     return;
   }
-  withNsRepartition(() => { nfCursor += 1; });
-  nfPlayTimer = window.setTimeout(nfStep, 1100);
+  withNsRepartition(() => { A.nfCursor += 1; });
+  A.nfPlayTimer = window.setTimeout(nfStep, 1100);
 }
 document.getElementById("nsnf")!.addEventListener("change", (e) => {
   setNf((e.target as HTMLInputElement).checked);
@@ -2250,22 +1747,22 @@ document.getElementById("nsnfth")!.addEventListener("input", (e) => {
   // read before nfSetPlaying: its reflectOverlays writes the old value back
   const v = Number((e.target as HTMLInputElement).value);
   nfSetPlaying(false);
-  commitKnobs(() => { nfThreshold = v / 100; }, () => {
-    withNsRepartition(() => { nfCursor = nfRun().length; });
+  A.commitKnobs(() => { A.nfThreshold = v / 100; }, () => {
+    withNsRepartition(() => { A.nfCursor = A.nfRun().length; });
   });
 });
 document.getElementById("nsnfplay")!.addEventListener("click", () => {
-  if (!nfPlaying && nfCursor >= nfRun().length) {
+  if (!A.nfPlaying && A.nfCursor >= A.nfRun().length) {
     // replay from the top: matches retract, then land best-first
-    withNsRepartition(() => { nfCursor = 0; });
+    withNsRepartition(() => { A.nfCursor = 0; });
   }
-  nfSetPlaying(!nfPlaying);
+  nfSetPlaying(!A.nfPlaying);
 });
 // #102: the greedy run's rewind slider, same semantics as ns-social's
 document.getElementById("nfprog")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   nfSetPlaying(false);
-  withNsRepartition(() => { nfCursor = v; });
+  withNsRepartition(() => { A.nfCursor = v; });
 });
 overlaysPanel.addEventListener("change", (e) => {
   const id = (e.target as HTMLElement).id;
@@ -2279,7 +1776,7 @@ overlaysPanel.addEventListener("change", (e) => {
   });
   // the CIOH box reads checked while sub-tx forces it — that forced
   // reading must not overwrite the user's own (possibly off) setting
-  if ((overlays & OV_SUBSUM) !== 0) mask = (mask & ~OV_CIOH) | (overlays & OV_CIOH);
+  if ((A.overlays & OV_SUBSUM) !== 0) mask = (mask & ~OV_CIOH) | (A.overlays & OV_CIOH);
   setOverlays(mask);
 });
 
@@ -2637,8 +2134,8 @@ function harvestChoices(): void {
 function clearSelection(): void {
   selection = null;
   highlight = null;
-  nsSecond = null;
-  if (nfOn) reflectOverlays(); // the fingerprint readout empties
+  A.nsSecond = null;
+  if (A.nfOn) reflectOverlays(); // the fingerprint readout empties
 }
 function recomputeTrace(): void {
   if (!selection) {
@@ -2648,7 +2145,7 @@ function recomputeTrace(): void {
   const s = active();
   // the observer's candidate sets read the fused model — the same
   // partition the lens draws, grants and matches compounded (#124)
-  const opts = lens === 0 ? { truth: true } : lens === 1 ? { cl: observerModel() } : {};
+  const opts = lens === 0 ? { truth: true } : lens === 1 ? { cl: A.observerModel() } : {};
   if (selection.kind === "coins") {
     const live = selection.ids.filter((id) => s.chain.coins.has(id));
     highlight = live.length > 0 ? traceCoins(s.chain, live, opts) : null;
@@ -2672,18 +2169,18 @@ function applySelection(hit: Hit): void {
     if (at >= 0) ids.splice(at, 1);
     else ids.push(hit.id);
     selection = ids.length > 0 ? { kind: "coins", ids } : null;
-  } else if (hit.kind === "cluster" && NS_MANUAL_OVERRIDE && nsActive() && collapsed &&
+  } else if (hit.kind === "cluster" && NS_MANUAL_OVERRIDE && A.nsActive() && collapsed &&
       selection?.kind === "cluster" && selection.id !== hit.id) {
     // ns-social paused examination: the second vertex completes a
     // proposal (clicking the same second vertex again withdraws it)
-    nsSecond = nsSecond === hit.id ? null : hit.id;
+    A.nsSecond = A.nsSecond === hit.id ? null : hit.id;
     reflectOverlays();
   } else if (selection?.kind === hit.kind && selection.id === hit.id) {
     selection = null; // clicking the selected tx/cluster again deselects
-    nsSecond = null;
+    A.nsSecond = null;
   } else {
     selection = { kind: hit.kind, id: hit.id };
-    nsSecond = null;
+    A.nsSecond = null;
     if (hit.kind === "cluster" && lens === 0) {
       // under the all-seeing lens a cluster IS a person: open their profile
       const o = active().chain.coins.get(hit.id)?.owner;
@@ -2692,7 +2189,7 @@ function applySelection(hit: Hit): void {
   }
   recomputeTrace();
   // the fingerprint readout follows the selection
-  if (nfOn) reflectOverlays();
+  if (A.nfOn) reflectOverlays();
 }
 
 /** hit-test whatever the current view phase shows */
@@ -2849,7 +2346,7 @@ const steps = [
   ),
   ...nsNetflixSteps(
     () => clusterLayout().bounds,
-    () => ({ matches: nfRun().length, threshold: nfThreshold }),
+    () => ({ matches: A.nfRun().length, threshold: A.nfThreshold }),
   ),
   ...settlementSteps(
     () => active().bip.bounds,
@@ -2871,7 +2368,7 @@ const steps = [
   ),
   ...nsSocialSteps(
     () => clusterLayout().bounds,
-    () => ({ matches: nsRun().length, parts: nsParts }),
+    () => ({ matches: A.nsRun().length, parts: A.nsParts }),
   ),
   ...coinjoinSteps(
     () => active().bip.bounds,
@@ -2974,7 +2471,7 @@ function freshOriginExhibit(): { coin: Focused; clusters: number } | undefined {
   const chain = eco?.chain;
   const tid = denseCoinjoin();
   if (!chain || !tid) return undefined;
-  const cl = observerBase();
+  const cl = A.observerBase();
   const hit = freshOrigin(chain, (id) => cl.rep.get(id) ?? id, tid);
   if (!hit) return undefined;
   return { coin: { id: hit.out, rect: txRect(tid) }, clusters: hit.clusters };
@@ -3187,8 +2684,8 @@ const tutorial = new Tutorial(steps, {
     synthSpot = 0; // leaving mid-chapter must not strand the spotlight
     setScene(1, eco ? economy().day : 0);
     setOverlays(OV_ALL);
-    if (changeTells !== TELL_ALL) setChangeTells(TELL_ALL);
-    if (grantsOn()) setGrants(false, 0); // the dial is the player's to turn
+    if (A.changeTells !== TELL_ALL) setChangeTells(TELL_ALL);
+    if (A.grantsOn()) setGrants(false, 0); // the dial is the player's to turn
     readableHandoff();
   },
   onStepChange: (index) => {
@@ -3258,17 +2755,17 @@ const tutorial = new Tutorial(steps, {
     if (l !== lens || l === 2) setLens(l);
   },
   onOverlays: (ov) => {
-    if (ov !== overlays) setOverlays(ov);
+    if (ov !== A.overlays) setOverlays(ov);
   },
   onChangeTells: (ct) => {
-    if (ct !== changeTells) setChangeTells(ct);
+    if (ct !== A.changeTells) setChangeTells(ct);
   },
   onGrants: (kyc, aux) => {
-    if ((kyc === 1) !== kycObs || aux / 100 !== auxFrac) setGrants(kyc === 1, aux / 100);
+    if ((kyc === 1) !== A.kycObs || aux / 100 !== A.auxFrac) setGrants(kyc === 1, aux / 100);
   },
   onNf: (on) => setNf(on),
   onNs: (on) => setNsSocial(on),
-  onMi: (on) => { if (showMistakes !== on) setMistakes(on); },
+  onMi: (on) => { if (A.showMistakes !== on) setMistakes(on); },
   onScene: (s, minDay) => setScene(s, minDay, true),
   onSelect: (sel) => {
     if (sel === null) clearSelection();
@@ -3497,21 +2994,21 @@ async function syncFragment(ref?: FragmentState["ref"]): Promise<string> {
   }
   if (lens !== 0) state.l = lens;
   if (lens === 2 && lensAgent !== null) state.a = lensAgent;
-  if (lens === 1 && overlays !== OV_ALL) state.ov = overlays;
-  if (lens === 1 && ciohMax < CIOH_MAX_OFF) state.cm = ciohMax;
-  if (lens === 1 && changeEvidence !== 1) state.ce = changeEvidence;
-  if (lens === 1 && changeTells !== TELL_ALL) state.ct = changeTells;
-  if (lens === 1 && grantsOn()) state.ai = [kycObs ? 1 : 0, Math.round(auxFrac * 100)];
-  if (lens === 1 && showMistakes) state.mi = 1;
-  if (lens === 1 && nsSocial) {
-    state.ns = [1, Math.round(nsThreshold * 100), nsParts, Math.min(nsCursor, nsRun().length)];
-    if (nsManual.length > 0) {
-      state.nm = nsManual.map((e) =>
+  if (lens === 1 && A.overlays !== OV_ALL) state.ov = A.overlays;
+  if (lens === 1 && A.ciohMax < CIOH_MAX_OFF) state.cm = A.ciohMax;
+  if (lens === 1 && A.changeEvidence !== 1) state.ce = A.changeEvidence;
+  if (lens === 1 && A.changeTells !== TELL_ALL) state.ct = A.changeTells;
+  if (lens === 1 && A.grantsOn()) state.ai = [A.kycObs ? 1 : 0, Math.round(A.auxFrac * 100)];
+  if (lens === 1 && A.showMistakes) state.mi = 1;
+  if (lens === 1 && A.nsSocial) {
+    state.ns = [1, Math.round(A.nsThreshold * 100), A.nsParts, Math.min(A.nsCursor, A.nsRun().length)];
+    if (A.nsManual.length > 0) {
+      state.nm = A.nsManual.map((e) =>
         [e.a, e.b, Math.round(e.score * 1000), e.forced ? 1 : 0]);
     }
   }
-  if (lens === 1 && nfOn) {
-    state.nf = [1, Math.round(nfThreshold * 100), Math.min(nfCursor, nfRun().length)];
+  if (lens === 1 && A.nfOn) {
+    state.nf = [1, Math.round(A.nfThreshold * 100), Math.min(A.nfCursor, A.nfRun().length)];
   }
   if (forceLayout) state.fd = 1;
   if (scene === 1) {
@@ -3672,53 +3169,53 @@ async function init(): Promise<void> {
   }
   if (session.manual !== null) setManual(session.manual); // light the decisions panel
   if (state?.ov !== undefined) {
-    overlays = state.ov & OV_ALL; // sub-tx forcing is effOverlays' business
+    A.overlays = state.ov & OV_ALL; // sub-tx forcing is effOverlays' business
     simRev += 1;
     reflectOverlays();
   }
   if (state?.cm !== undefined) {
-    ciohMax = Math.min(state.cm, CIOH_MAX_OFF);
+    A.ciohMax = Math.min(state.cm, CIOH_MAX_OFF);
     simRev += 1;
     reflectOverlays();
   }
   if (state?.ce !== undefined) {
-    changeEvidence = Math.min(state.ce, CHANGE_EV_MAX);
+    A.changeEvidence = Math.min(state.ce, CHANGE_EV_MAX);
     simRev += 1;
     reflectOverlays();
   }
   if (state?.ct !== undefined) {
-    changeTells = state.ct & TELL_ALL;
+    A.changeTells = state.ct & TELL_ALL;
     simRev += 1;
     reflectOverlays();
   }
   if (state?.mi === 1) {
-    showMistakes = true;
+    A.showMistakes = true;
     reflectOverlays();
   }
   if (state?.ai !== undefined) {
-    kycObs = state.ai[0] === 1;
-    auxFrac = state.ai[1] / 100;
+    A.kycObs = state.ai[0] === 1;
+    A.auxFrac = state.ai[1] / 100;
     reflectOverlays();
   }
   if (state?.ns !== undefined && state.ns[0] === 1) {
-    nsSocial = true;
-    nsThreshold = state.ns[1] / 100;
-    nsParts = state.ns[2];
+    A.nsSocial = true;
+    A.nsThreshold = state.ns[1] / 100;
+    A.nsParts = state.ns[2];
     // the manual entries restore before the cursor clamps against the run
     if (state.nm !== undefined) {
-      nsManual = state.nm.map(([a, b, s, f]) => ({
+      A.nsManual = state.nm.map(([a, b, s, f]) => ({
         kind: "merge" as const, a, b, score: s / 1000, ...(f === 1 ? { forced: true } : {}),
       }));
     }
-    nsCursor = state.ns[3];
-    nsRun(); // clamps the cursor against the actual run length
+    A.nsCursor = state.ns[3];
+    A.nsRun(); // clamps the cursor against the actual run length
     reflectOverlays();
   }
   if (state?.nf !== undefined && state.nf[0] === 1) {
-    nfOn = true;
-    nfThreshold = state.nf[1] / 100;
-    nfCursor = state.nf[2];
-    nfRun(); // clamps the cursor against the actual run length
+    A.nfOn = true;
+    A.nfThreshold = state.nf[1] / 100;
+    A.nfCursor = state.nf[2];
+    A.nfRun(); // clamps the cursor against the actual run length
     reflectOverlays();
   }
   if (state?.fd === 1) setForceLayout(true, false);
