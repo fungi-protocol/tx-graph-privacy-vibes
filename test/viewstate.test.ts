@@ -56,6 +56,29 @@ test("knob gestures keep every state canonical and remember the arrangement", ()
   }
 });
 
+test("grouping composes with any layout (#141 slice 4d): the gesture rewrites only the grouping", () => {
+  // the checkbox contracts the current picture in place instead of
+  // detouring through the chord ring
+  for (const vs of legal) {
+    for (const g of ["clustered", "unclustered"] as const) {
+      const next = withGrouping(vs, g);
+      assert.deepEqual(next, { ...vs, grouping: g }, JSON.stringify(vs));
+    }
+  }
+  // checking under ltr lands the band, under force the force map
+  const ltr: ViewState = { view: "graph", arrange: "ltr", chord: false, grouping: "unclustered" };
+  assert.equal(contractedArrangement(withGrouping(ltr, "clustered")), "band");
+  const force: ViewState = { ...ltr, arrange: "force" };
+  assert.equal(contractedArrangement(withGrouping(force, "clustered")), "map");
+  // unchecking under chord stays on the ring — the singleton ring, not
+  // an expansion
+  const ring: ViewState = { view: "graph", arrange: "ltr", chord: true, grouping: "clustered" };
+  const singleton = withGrouping(ring, "unclustered");
+  assert.equal(singleton.chord, true);
+  assert.equal(contractedArrangement(singleton), "ring");
+  assert.equal(contracted(singleton), true);
+});
+
 test("chord round trip: enter chord from anywhere, expand back to the graph", () => {
   for (const vs of legal.filter((s) => !s.chord)) {
     const inChord = withLayout(vs, "chord");

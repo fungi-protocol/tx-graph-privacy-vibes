@@ -78,9 +78,13 @@ def main() -> None:
         for seg in ("ltr", "force", "chord"):
             page.locator(f'#layoutbtn button[data-l="{seg}"]').click()
             page.wait_for_timeout(1200)
-        page.locator('#groupingbtn button[data-g="unclustered"]').click()  # expand
+        # grouping is a checkbox (#141 slice 4d) that composes with the
+        # layout: unchecking on the ring repartitions to the singleton
+        # ring, rechecking walks back up the lattice — toggle it at the
+        # DOM level (the label styling defeats the actionability wait)
+        page.evaluate("document.getElementById('groupcheck').click()")  # singleton ring
         page.wait_for_timeout(1200)
-        page.locator('#groupingbtn button[data-g="clustered"]').click()  # contract again
+        page.evaluate("document.getElementById('groupcheck').click()")  # clustered again
         page.wait_for_timeout(1200)
         # the checkbox input is styled (label covers it), so playwright's
         # actionability wait never passes — toggle it at the DOM level

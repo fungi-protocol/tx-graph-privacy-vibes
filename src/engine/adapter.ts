@@ -9,10 +9,10 @@
 //   is not an engine axis — curve x force settles to the sequenced
 //   curve (slice 1); the ordering is a registry mode, and flipping it
 //   replays as a REPARTITION catch-up, exactly like a lens change.
-// - The UI couples "clustered" to entering via chord (withGrouping
-//   forces chord on); the engine does not — a clustered plane cell is
-//   the band or the force map. cellOf translates faithfully whatever
-//   combination the ViewState holds.
+// - Grouping composes with any graph layout (#141 slice 4d matched
+//   the UI to the engine here): a clustered plane cell is the band or
+//   the force map. cellOf translates faithfully whatever combination
+//   the ViewState holds.
 import { type ViewState, type Arrange, canonical } from "../ui/viewstate";
 import {
   type EngineViewState, type GraphCell,

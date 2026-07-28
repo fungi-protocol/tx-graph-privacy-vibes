@@ -1003,13 +1003,13 @@ function originsPart(): string {
 // so the state is readable at a glance and a click names its target.
 const viewSeg = document.getElementById("viewtoggle") as HTMLDivElement;
 const layoutSeg = document.getElementById("layoutbtn") as HTMLDivElement;
-const groupSeg = document.getElementById("groupingbtn") as HTMLDivElement;
+const groupSeg = document.getElementById("groupingbtn") as HTMLLabelElement;
+const groupCheck = document.getElementById("groupcheck") as HTMLInputElement;
 const lensSeg = document.getElementById("lens") as HTMLDivElement;
 const segButtons = (seg: HTMLDivElement): HTMLButtonElement[] =>
   [...seg.querySelectorAll("button")];
 const viewSegButtons = segButtons(viewSeg);
 const layoutSegButtons = segButtons(layoutSeg);
-const groupSegButtons = segButtons(groupSeg);
 const lensSegButtons = segButtons(lensSeg);
 /** light the segment whose data tag matches the active value */
 function segSync(buttons: HTMLButtonElement[], tag: string, value: string): void {
@@ -1090,15 +1090,15 @@ function setUnclustered(on: boolean, animate = true): void {
   draw();
   void syncFragment();
 }
-// the grouping picker is the contract/expand gesture (#140): choosing
-// clusters enters the contracted map (the chord ring), choosing coins
-// expands back to the plain coin graph — the clusters/expand shortcut
-// it replaces was redundant with the layout knob's chord position
-for (const b of groupSegButtons) {
-  b.addEventListener("click", () => {
-    applyViewState(withGrouping(currentViewState(), b.dataset["g"] as Grouping));
-  });
-}
+// the grouping checkbox (#141 slice 4d): clusters composes with any
+// graph layout — checking contracts the current picture in place (the
+// band under ltr, the force map under force, the clustered ring under
+// chord), unchecking lands its ungrouped counterpart (the singleton
+// ring under chord). The picker's forced detour through the ring died.
+groupCheck.addEventListener("change", () => {
+  applyViewState(withGrouping(currentViewState(),
+    groupCheck.checked ? "clustered" : "unclustered"));
+});
 /** contract into (or expand out of) the map, toward the given state —
  *  the target carries the arrangement and grouping the request needs
  *  (slice 4a: no flags to read them from) */
@@ -1211,7 +1211,7 @@ for (const b of layoutSegButtons) {
 // through the model, and this executor turns the difference into the
 // primitive transitions the setters animate.
 /** every segment lights off the one canonical state; the grouping
- *  picker covers the whole graph view (any of its four pictures), and
+ *  checkbox covers the whole graph view (any of its pictures), and
  *  the chord segment shows only while it means something — the map is
  *  contracted (or a tutorial step parked the singleton ring) */
 function syncKnobButtons(): void {
@@ -1219,7 +1219,7 @@ function syncKnobButtons(): void {
   const k = knobs(cur);
   segSync(viewSegButtons, "v", cur.view);
   segSync(layoutSegButtons, "l", k.layout);
-  segSync(groupSegButtons, "g", k.grouping);
+  groupCheck.checked = k.grouping === "clustered";
   const chordBtn = layoutSegButtons.find((b) => b.dataset["l"] === "chord");
   if (chordBtn) {
     chordBtn.style.display =
@@ -2032,10 +2032,13 @@ window.addEventListener("keydown", (e) => {
     applyViewState(withView(cur, cur.view === "graph" ? "cards" : "graph"));
   }
   if (e.key === "c") {
-    // the grouping gesture (#140): contract into the clustered map, or
-    // expand back to the plain coin graph
+    // toggle the clusters grouping (#141 slice 4d) — the checkbox's
+    // key; like the checkbox, it speaks only in the graph view
     const cur = currentViewState();
-    applyViewState(withGrouping(cur, contracted(cur) ? "unclustered" : "clustered"));
+    if (cur.view === "graph") {
+      applyViewState(withGrouping(cur,
+        cur.grouping === "clustered" ? "unclustered" : "clustered"));
+    }
   }
   if (e.key === "o") setLens(((lens + 1) % 3) as 0 | 1 | 2);
   if (e.key === "h") { hideDim = !hideDim; draw(); }

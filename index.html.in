@@ -51,7 +51,13 @@
   .seg button.on { background: #4a4e57; color: #ffffff; }
   #viewtoggle { top: 16px; }
   #layoutbtn { top: 56px; }
-  #groupingbtn { top: 96px; }
+  /* the grouping control is a checkbox (#141 slice 4d): clusters
+     composes with any graph layout, so it is one on/off, not a picker */
+  #groupingbtn { position: fixed; left: 16px; top: 96px; align-items: center;
+                 gap: 7px; background: #33363e; border: 1px solid #4a4e57;
+                 border-radius: 6px; padding: 6px 10px; font-size: 13px;
+                 color: #d8dade; cursor: pointer; user-select: none; }
+  #groupingbtn:hover { background: #3d414a; }
   #lens { top: 136px; }
   /* staged introductions (#116): the story reveals these; boot decides */
   #viewtoggle, #layoutbtn, #groupingbtn, #lens { display: none; }
@@ -187,9 +193,9 @@
 <div id="layoutbtn" class="seg" title="graph arrangement: layered timeline (left to right) or force-directed (springs and repulsion — no time axis). While clusters are on, chord bends the timeline around a circle — the cluster map's home shape">
   <button data-l="ltr" class="on">layered</button><button data-l="force">force</button><button data-l="chord" style="display:none">chord</button>
 </div>
-<div id="groupingbtn" class="seg" title="coins: every coin its own vertex. clusters: collapse each of the lens's clusters into one vertex — the observer's user graph (c)">
-  <button data-g="unclustered" class="on">coins</button><button data-g="clustered">clusters</button>
-</div>
+<label id="groupingbtn" title="collapse each of the lens's clusters into one vertex — the observer's user graph. Composes with any graph layout (c)">
+  <input type="checkbox" id="groupcheck"> clusters
+</label>
 <div id="lens" class="seg" title="whose knowledge the picture shows: everything, a third-party observer's guesses, or one wallet's view (o)">
   <button data-le="0" class="on">all-seeing</button><button data-le="1">observer</button><button data-le="2">one wallet</button>
 </div>
@@ -199,7 +205,7 @@
   <h3>keys (hold ?)</h3>
   <dl>
     <dt>v</dt><dd>flip between the card and graph drawings</dd>
-    <dt>c</dt><dd>collapse into the cluster map / expand back</dd>
+    <dt>c</dt><dd>toggle the clusters grouping (graph view)</dd>
     <dt>o</dt><dd>cycle the lens: all-seeing, observer, one wallet's</dd>
     <dt>h</dt><dd>hide everything a trace dims</dd>
     <dt>r</dt><dd>force layout: re-arrange with only the shown nodes</dd>

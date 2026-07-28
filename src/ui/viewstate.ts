@@ -1,7 +1,7 @@
 // The control model of the display (#115): three user-facing knobs —
 // view (cards | graph), layout (ltr | force | chord, graph only), and
-// grouping (clustered | unclustered, contracted map only) — over one
-// canonical state. main.ts keeps its tween scalars and setters; this
+// grouping (a clusters checkbox, graph only — composes with any
+// layout since #141 slice 4d) — over one canonical state. main.ts keeps its tween scalars and setters; this
 // module owns WHAT the knobs mean: which states are representable,
 // how a knob gesture rewrites the state, and in what order the
 // primitive transitions must run so every change animates as one
@@ -84,15 +84,17 @@ export function withLayout(vs: ViewState, layout: GraphLayout): ViewState {
     : canonical({ ...vs, view: "graph", chord: false, arrange: layout });
 }
 
-/** the grouping knob IS the contract/expand gesture (#140): choosing
- *  the clusters grouping enters the contracted map — as the chord ring,
- *  the map's home arrangement — and choosing coins leaves it for the
- *  plain coin graph. The clusters/expand shortcut this replaces was
- *  redundant with the layout knob's chord position. */
+/** the grouping checkbox (#141 slice 4d): clusters composes with any
+ *  graph layout, so the gesture rewrites ONLY the grouping. Checking
+ *  it contracts the current picture in place — the band under ltr,
+ *  the force map under force, the clustered ring under chord — and
+ *  unchecking lands the ungrouped counterpart (under chord that is
+ *  the singleton ring, not an expansion). The old picker's coupling —
+ *  clusters forced a detour through the chord ring, coins forced an
+ *  expansion — is dead. The control shows only in the graph view;
+ *  the rewrite itself stays total (a cards state passes through). */
 export function withGrouping(vs: ViewState, grouping: Grouping): ViewState {
-  return grouping === "clustered"
-    ? canonical({ ...vs, grouping, view: "graph", chord: true })
-    : { ...vs, grouping, chord: false };
+  return canonical({ ...vs, grouping });
 }
 
 // --- legacy bridge: the flag set main.ts stores between slices ---
