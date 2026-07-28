@@ -101,7 +101,12 @@ export interface TutorialCallbacks {
   /** steps stage the mistakes grading (the storyteller's error display) */
   onMi?: (on: boolean) => void;
   /** scene change + fast-forward requirement, fired before focus */
-  onScene?: (scene: 0 | 1, minDay: number) => void;
+  /** advance the scene and the economy to the step's minDay. When the
+   *  step jumps time forward, the visible day RIDES there (#24) — and
+   *  the step's exhibit may not exist until the ride lands, so onRode
+   *  fires once the visible day reaches minDay (and only then; a step
+   *  that moved no time never calls it). */
+  onScene?: (scene: 0 | 1, minDay: number, onRode?: () => void) => void;
   /** steps that trace something fire this after lens, before focus */
   onSelect?: (sel: { kind: "coin" | "tx"; id: string } | null) => void;
   /** the learner pressed "done ✓" on the last step: hand the town over */
@@ -161,7 +166,24 @@ export class Tutorial {
     // rendering the body: html() closures that stage an exhibit off the
     // record must read the chain the step is written for, not whatever
     // day a fragment jump happens to restore into
-    if (animate && step.scene !== undefined) this.cb.onScene?.(step.scene, step.minDay ?? 0);
+    // a step whose minDay lies ahead of the visible day rides time
+    // forward; its body/select/focus closures read the VISIBLE chain, so
+    // anything they staged before the ride landed (an exhibit that does
+    // not exist yet, a camera framing that fell back to the whole graph)
+    // is re-dispatched once the day arrives
+    if (animate && step.scene !== undefined) {
+      this.cb.onScene?.(step.scene, step.minDay ?? 0, () => {
+        if (this.steps[this.index] !== step || this.panel.style.display === "none") return;
+        this.body.innerHTML = typeof step.html === "function" ? step.html() : step.html;
+        if (step.select) {
+          const sel = step.select();
+          if (sel !== undefined) this.cb.onSelect?.(sel);
+        }
+        if (step.focus) {
+          this.cb.onFocus(typeof step.focus === "function" ? step.focus() : step.focus);
+        }
+      });
+    }
     this.body.innerHTML = typeof step.html === "function" ? step.html() : step.html;
     this.prevBtn.disabled = this.index === 0;
     this.nextBtn.textContent = this.index === this.steps.length - 1 ? "done ✓" : "next →";

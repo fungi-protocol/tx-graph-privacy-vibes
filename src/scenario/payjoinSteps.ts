@@ -2,20 +2,23 @@
 // idea (#114b): heuristics are sometimes wrong, and a transaction can
 // be built deliberately to invalidate them — this is where the
 // observer's map and the ground truth stop being refinements of each
-// other and can disagree outright. The one-author assumption breaks,
-// CIOH is falsified by construction; the observer-side beats run
-// first (the honest size of the win, the rest of the graph's answer,
-// fingerprints), and only then the counterparty's view: the record
-// cannot settle an outsider's suspicion, but the payee simply knows.
+// other and can disagree outright. Sequence (steer 2026-07-27): the
+// heuristics were fully accurate until day 30; the payjoin introduces
+// errors and the map-wide error grading appears; then the warning that
+// there is no privacy from the counterparty (the payee simply knows);
+// then the observer-side beats — in many cases there is no privacy
+// from the observer either, if they pay closer attention to the
+// transaction graph (the honest size of the win, the rest of the
+// graph's answer, fingerprints).
 // Within the observer beats: the honest SIZE of the win (#110: the
-// 2-in-2-out shape admits exactly THREE readings — one payer, or a
-// payjoin paired either way — at most log2(3) ≈ 1.6 bits, not
+// 2-in-2-out shape admits exactly THREE interpretations — one payer, or
+// a payjoin paired either way — at most log2(3) ≈ 1.6 bits, not
 // necessarily equiprobable), and the way context spends it: the
 // neighboring transactions, above all the ones spending this
 // transaction's outputs, are clustered by CIOH + change identification
 // with this transaction's own merge set aside; when the two inputs
 // land in distinct clusters with evidence of their own, the one-owner
-// reading loses to detection — two clusters cooperating — which breaks
+// interpretation loses to detection — two clusters cooperating — which breaks
 // the payjoin retroactively (Yuval's steer superseding the old "doubt
 // spreads" step, whose claim ran the wrong way). Then the second detection
 // channel (#103, per Sabouri 2026): wallet fingerprints — the observer
@@ -106,11 +109,25 @@ export function selectPayjoinExhibit(
 
 export function payjoinSteps(
   bipBounds: () => Rect,
+  clusterBounds: () => Rect,
   payjoinFocus: () => Rect,
   payjoinTx: () => string | undefined,
   detection: () => PayjoinDetection | undefined,
   families: () => ScriptKind[],
+  outputs: () => { id: string; script: ScriptKind }[],
 ): TutorialStep[] {
+  // the exhibit's locally-odd output, if it has one: a script type no
+  // other coin on the transaction wears — a fingerprint readable off
+  // the transaction's own face, so the step can select it and let the
+  // display carry the point
+  const oddOutput = (): { id: string; script: ScriptKind } | undefined => {
+    const outs = outputs();
+    const counts = new Map<ScriptKind, number>();
+    for (const s of [...families(), ...outs.map((o) => o.script)]) {
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return outs.find((o) => counts.get(o.script) === 1);
+  };
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
   // the chapter's exhibit is one concrete transaction: keep it selected
   // (traced) while the steps walk around it, so the eye never loses it
@@ -162,8 +179,10 @@ export function payjoinSteps(
         cluster a fragment of one real wallet. This transaction put a
         cluster on the map that is <b>no one</b>: payer and payee fused.
         From here the map and the truth can disagree outright.</p>
-        <p>Because they can, this story adds a control no observer has:
-        <b>point out mistakes</b>, now in the panel and switched on. It
+        <p>You have been watching from a vantage no observer gets:
+        this story shows you the true owners the observer can only
+        guess at. That vantage allows an extra control,
+        <b>point out mistakes</b> — now in the panel and switched on. It
         grades the map against the hidden truth — marking each
         transaction where a heuristic's local call went wrong, like the
         false merge in front of you. The storyteller's ruler, not an
@@ -178,27 +197,82 @@ export function payjoinSteps(
       select: selectIt,
     },
     {
+      id: "grading-the-whole-map",
+      title: "Grading the whole map",
+      html: `<p>The mistake you just watched was one transaction's. To
+        see what the mistakes add up to, collapse the graph back into
+        the observer's map of clusters. With <b>point out mistakes</b>
+        on, the storyteller grades every cluster against the hidden
+        truth: each disc's colored slices show whose coins really sit
+        inside it, and the caption beneath a cluster scores it —
+        <b>errors</b>, the share of its coins that belong to someone
+        other than its main owner, and <b>complete</b>, how much of
+        that owner's coins it gathered.</p>
+        <p>Read the map as the observer's report card. An analyst wants
+        errors low and completeness high, and the two pull against each
+        other: every heuristic switched on gathers more coins into
+        clusters — completeness rises — and every wrong guess it makes
+        puts someone else's coin in the pile — errors rise with it. The
+        payjoin you just met is on this map somewhere as a cluster that
+        is no one: payer and payee fused. Flip the heuristics on the
+        left and watch both numbers move.</p>`,
+      focus: () => pad(clusterBounds()),
+      view: 2,
+      lens: 1,
+      scene: 1,
+      minDay: 35,
+      select: selectIt,
+    },
+    {
+      id: "no-privacy-from-the-counterparty",
+      title: "No privacy from the counterparty",
+      html: `<p>Before measuring what the observer lost, note who lost
+        nothing. The payee contributed their coin, so they know
+        <b>exactly</b> which inputs were the payer's — no heuristic
+        needed, no doubt to spend. What a counterparty learns is a fixed
+        point, and each payment adds another.</p>
+        <p>The outsider's position is weaker, but not as weak as the
+        false merge suggests. An outsider <i>can suspect</i> a payjoin —
+        any two-input spend could be one, and sometimes an input looks
+        unnecessary, more coin than the payment needed (the literature's
+        <i>unnecessary input heuristic</i>). Suspicion needs evidence to
+        become a verdict, and the next steps show how much evidence the
+        record actually offers an observer who looks past the one
+        transaction.</p>
+        <p>You are looking through the payee's eyes now: their own coins,
+        everything their payments taught them — <b>known</b> for direct
+        evidence, <b>likely</b> where it seeds the public heuristics — and
+        gray where they are as blind as any outsider.</p>`,
+      focus: () => pad(payjoinFocus()),
+      view: 0,
+      lens: 2,
+      scene: 1,
+      minDay: 35,
+      select: selectIt,
+    },
+    {
       id: "how-big-is-the-doubt",
       title: "How much doubt?",
-      html: `<p>Be honest about the size of the win. Two inputs, two
-        outputs: the record admits exactly <b>three readings</b>. One
-        payer — both inputs one wallet's, one output the payment, the
-        other its change. Or a payjoin, paired one way — the first
-        input's owner takes the first output, the second the second. Or
-        a payjoin paired the other way. Three maps of who-owns-what,
-        each consistent with everything on the transaction's face —
-        though nothing says they are equally likely.</p>
-        <p>Three readings is at most log<sub>2</sub>3 ≈ 1.6 bits of
-        uncertainty. It is real doubt: in two of the three readings the
+      html: `<p>Two inputs, two outputs: the record admits exactly
+        <b>three interpretations</b> of who spent what. One payer —
+        both inputs one wallet's, the whole transaction a single spend.
+        Or a payjoin, paired one way — the first input's owner takes
+        the first output, the second the second. Or a payjoin paired
+        the other way. Three maps of who-owns-what, each consistent
+        with everything the transaction itself records — though nothing
+        says they are equally likely.</p>
+        <p>Three interpretations is at most log<sub>2</sub>3 ≈ 1.6 bits
+        of uncertainty. It is real doubt: in two of the three the
         inputs belong to different people, so the one-owner merge is
         wrong — and once the inputs are not one wallet's, the change
         linkage has no single payer to hand the remainder to; it could
-        belong to either input's owner. But it is a <b>bounded</b>
-        doubt, counted on this transaction alone.</p>
-        <p>And piling on more inputs raises the count of readings
-        without buying cover to match: attacks later in this story —
-        the candidate origins, the intersections — feed on exactly
-        those extra inputs.</p>`,
+        belong to either input's owner.</p>
+        <p>Adding inputs raises the number of interpretations quickly —
+        the ways to split a transaction into sub-transactions grow
+        exponentially with its inputs (the <i>Bell numbers</i>). But
+        the count alone doesn't buy what it suggests: the analyses
+        still to come — the candidate origins, the intersections —
+        work on exactly those extra inputs.</p>`,
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 1,
@@ -214,28 +288,31 @@ export function payjoinSteps(
         const fires = detectionFires(d);
         const setup = `<p>The observer holds more than this one
           transaction: the whole <b>transaction graph</b>, already
-          clustered by the heuristics you have. The transactions around
-          this one — above all the ones that <b>spend its outputs</b>,
-          its neighbors on the graph even when they are far apart in
-          time — carry evidence about which of the three readings is
-          right. So ask: setting this transaction's own CIOH merge
-          aside, where do CIOH and the change identification, run over
-          every <i>other</i> transaction, put its two inputs?</p>`;
+          clustered by the heuristics you have. Set this transaction's
+          own CIOH merge aside and ask where CIOH and the change
+          identification, run over every <i>other</i> transaction, put
+          its two inputs. Nothing about the transaction itself has to
+          look unusual for this to work: the evidence lives in the
+          <b>clusterings of the transactions around it</b> — above all
+          the ones that spend its outputs, its neighbors on the graph
+          even when they are far apart in time — and those clusterings
+          vote between the three interpretations.</p>`;
         if (fires) {
           const [a, b] = d!.sizes;
           return `${setup}
             <p>Here they land in <b>two different clusters</b>, with ${a}
-            and ${b} coins of evidence behind them. The one-owner reading
-            now asks the observer to believe those two clusters were one
-            wallet all along; the payjoin readings ask nothing. With
-            independent evidence on both sides, the observer resolves it
-            as a <b>detection</b>: two people's coins in one transaction.
-            The false merge is unwound retroactively — and the observer
-            walks away with something new, an <b>edge between the two
-            clusters</b>, a record that these two pseudonyms transact.
-            Strong evidence, not proof — the prior clusters are
-            themselves built from heuristics — but it is the reading the
-            evidence favors.</p>
+            and ${b} coins of evidence behind them. The one-owner
+            interpretation now asks the observer to believe those two
+            clusters were one wallet all along; the payjoin
+            interpretations ask nothing. With independent evidence on
+            both sides, the observer resolves it as a <b>detection</b>:
+            two people's coins in one transaction. The false merge is
+            unwound retroactively — and the observer walks away with
+            something new, an <b>edge between the two clusters</b>, a
+            record that these two pseudonyms transact. Strong evidence,
+            not proof — the prior clusters are themselves built from
+            heuristics — but it is the interpretation the evidence
+            favors.</p>
             <p>The lesson cuts against the last step's comfort: a
             payjoin's ~1.6 bits are spent by <b>good prior clustering</b>
             — and this town's, with scant address reuse and simple
@@ -245,17 +322,14 @@ export function payjoinSteps(
           <p>In this run the neighbors don't decide it: clustering every
           other transaction does not put both inputs into distinct
           clusters carrying evidence of their own, so the one-owner
-          reading stands and the three readings survive. Don't read that
+          interpretation stands and all three survive. Don't read that
           as the defense working — the prior clustering in this small
           town is <b>thin</b>, luck rather than protection. On a chain
           with address reuse and years of history, the two payers' coins
           usually arrive already clustered, and the same check resolves
-          the readings into a detection: two clusters cooperating, the
+          the question into a detection: two clusters cooperating, the
           payjoin broken retroactively, a new edge between the two
-          pseudonyms as the prize.</p>
-          <p>And prior clustering is not the only channel: the next two
-          steps read evidence that needs no history at all — the
-          wallets' own fingerprints.</p>`;
+          pseudonyms as the prize.</p>`;
       },
       focus: () => pad(payjoinFocus()),
       view: 0,
@@ -266,11 +340,11 @@ export function payjoinSteps(
     },
     {
       id: "wallets-sign-their-work",
-      title: "Wallets sign their work",
+      title: "Wallet fingerprints",
       html: () => {
         const f = families();
         const kinds = [...new Set(f)].map(scriptTitle);
-        const reading = kinds.length >= 2
+        const inputRead = kinds.length >= 2
           ? `they sit on <b>two script types</b> — ${kinds.join(" and ")}.
           A wallet keeps its addresses on one type, so two types among
           one transaction's inputs read like <b>two wallets' coins in one
@@ -281,29 +355,54 @@ export function payjoinSteps(
           transaction.`
             : `the intro scene's coins carry no named wallet, so the
           record is mute here.`;
+        const odd = oddOutput();
+        const outputRead = odd
+          ? `<p>The outputs carry the same kind of evidence: the
+          <b>${scriptTitle(odd.script)}</b> output — highlighted — wears
+          a script type no other coin on this transaction does. That
+          stands out with no other transaction consulted. What it marks
+          is not settled locally, though: a payment landing in a
+          different wallet and a payer's own change on freshly migrated
+          software look exactly the same.</p>`
+          : `<p>The outputs carry the same kind of evidence — an output
+          whose script type no other coin on the transaction wears
+          stands out with no other transaction consulted. On this one
+          every coin matches, so that axis is mute here.</p>`;
         return `<p>The record holds one more layer this story has so far
-        only mentioned in passing. Every wallet product ships a bundle
-        of defaults, and each one is written into the transactions it
-        builds: the <b>script type</b> its addresses pay to (public on
-        the face of every output), the <b>nLockTime</b> its drafts
-        carry, the <b>size of its signatures</b> — some wallets grind
-        every signature a byte smaller, the rest leave sizes mixed. None
-        of this is secret. It is formatting, and formatting is a
-        <b>fingerprint</b>.</p>
-        <p>Read this transaction's inputs that way: ${reading}</p>
-        <p>And a coin's fingerprint reaches past its own face: the
-        transaction that eventually <b>spends</b> it was built by the
-        wallet that held it, so that transaction's habits count as the
-        coin's too. On the graph the spend sits one edge away from the
-        coin, however many months later it happens — vicinity here is
-        topology, not time.</p>`;
+        only mentioned in passing. Wallet software varies in <b>how it
+        constructs transactions</b>, and each variation is visible on
+        the transactions it builds: the <b>script type</b> its addresses
+        pay to (recorded publicly on every output), the
+        <b>nLockTime</b> field it sets in its drafts, the <b>size of the
+        signatures</b> it produces — some wallets retry the signing
+        until the encoding comes out a byte smaller, most accept mixed
+        sizes. Any construction detail that differs between wallets and
+        shows on the record is a <b>fingerprint</b>: it narrows down
+        which software built the transaction.</p>
+        <p>Unlike the last step's evidence, a fingerprint is read off
+        the <b>transaction's own face</b>. Its inputs: ${inputRead}
+        Each party signs its own inputs, so signature sizes can split
+        the input side the same local way — one full-size signature
+        rules the retrying wallets out for that input. (This map draws
+        the script type under each coin; signature sizes it keeps off
+        the picture.)</p>
+        ${outputRead}
+        <p>An output's fingerprints also fill in later: the transaction
+        that eventually <b>spends</b> it was built by the wallet that
+        held it, so the spend's construction details annotate the coin
+        with its owner's software. On the graph that evidence sits one
+        edge away, however many months later the spend happens —
+        vicinity here is topology, not time.</p>`;
       },
       focus: () => pad(payjoinFocus()),
       view: 0,
       lens: 1,
       scene: 1,
       minDay: 35,
-      select: selectIt,
+      select: () => {
+        const odd = oddOutput();
+        return odd ? { kind: "coin" as const, id: odd.id } : selectIt();
+      },
     },
     {
       id: "the-fingerprint-check",
@@ -311,13 +410,30 @@ export function payjoinSteps(
       html: () => {
         const f = families();
         const divergent = new Set(f).size >= 2;
-        const setup = `<p><i>Statistical fingerprinting</i> just joined
-        the panel on the left, switched on. With it, the observer acts
-        on what the last step read: a transaction whose inputs sit on
-        different script types is taken as <b>probable
-        collaboration</b> — two wallets, two people — and CIOH
-        <b>abstains</b> rather than record the one-owner reading it
-        knows is suspect.</p>`;
+        const setup = `<p>One transaction is a small sample, and a
+        single construction detail can mislead. Signature sizes cut
+        only one way: a wallet that retries its signatures never
+        produces a large one, but a wallet that doesn't still produces
+        small ones by luck — so small signatures prove little, and only
+        a large one rules the retrying wallets out. nLockTime has the
+        same shape. Any one transaction can pass for most wallets'
+        work.</p>
+        <p>The observer is not limited to the one transaction — or to
+        differences it shows on its face at all. Each input arrives
+        from a <b>cluster</b>, and a cluster carries a whole history of
+        transactions that minted and spent its coins. Compare the
+        <b>statistics</b> of the construction details across the
+        clusters on either side of the transaction of interest — many
+        records' habits instead of one record's luck — and the
+        unreliable single observations firm up or wash out. Two inputs
+        that look identical on this transaction can still come apart
+        here, because the clusters behind them keep different habits.
+        That comparison joins the panel on the left as <i>statistical
+        fingerprinting</i>, switched on. Acting on it, a transaction
+        whose inputs read as different wallets' is taken as
+        <b>probable collaboration</b>: two wallets, two people — and
+        CIOH <b>abstains</b> rather than record the one-owner
+        interpretation the evidence contradicts.</p>`;
         const verdict = divergent
           ? `<p>On this transaction the check <b>fires</b>: the false
         merge this chapter opened with never forms, and the payer's and
@@ -329,13 +445,13 @@ export function payjoinSteps(
         a payjoin's cover extends exactly as far as the participants'
         fingerprints agree, and these two happen to match.</p>`;
         return `${setup}${verdict}
-        <p>This reading generalizes. The change identification already
+        <p>This evidence generalizes. The change identification already
         used one coin feature — change usually sits on the same script
         type as the inputs — to tell payment from change. Here the same
         kind of evidence splits a transaction between <b>owners</b>:
-        amounts alone admitted three readings, and the coins' features
-        vote between them. The coming chapters push the idea further —
-        reading a whole cluster's feature profile instead of a single
+        amounts alone admitted three interpretations, and the coins'
+        features vote between them. The coming chapters push the idea
+        further — a whole cluster's feature profile instead of a single
         coin's, and splitting a transaction into the several payments
         hiding inside it.</p>
         <p>The check is a heuristic like the others, and its failure
@@ -356,36 +472,6 @@ export function payjoinSteps(
       select: selectIt,
     },
     {
-      id: "no-privacy-from-the-counterparty",
-      title: "No privacy from the counterparty",
-      html: `<p>One party was never fooled for a moment. The payee
-        contributed their coin, so they know <b>exactly</b> which inputs
-        were the payer's — no heuristic needed, no doubt to spend. What a
-        counterparty learns is a fixed point, and each payment adds
-        another.</p>
-        <p>Set that against everything the last steps made the outsider
-        work for. An outsider <i>can suspect</i> a payjoin — any
-        two-input spend could be one, and sometimes an input looks
-        unnecessary, more coin than the payment needed (the literature's
-        <i>unnecessary input heuristic</i>); the rest of the graph and
-        the fingerprints can tilt the reading further. But where nothing
-        tips it, every feature the record shows — amounts, inputs,
-        outputs, structure — is consistent with both readings, and
-        suspicion stays suspicion. The counterparty skips all of it:
-        what the outsider must infer, they were handed at the
-        table.</p>
-        <p>You are looking through the payee's eyes now: their own coins,
-        everything their payments taught them — <b>known</b> for direct
-        evidence, <b>likely</b> where it seeds the public heuristics — and
-        gray where they are as blind as any outsider.</p>`,
-      focus: () => pad(payjoinFocus()),
-      view: 0,
-      lens: 2,
-      scene: 1,
-      minDay: 35,
-      select: selectIt,
-    },
-    {
       id: "many-senders",
       title: "More senders, same limits",
       html: `<p>The payjoin generalizes, and each rung inherits the same
@@ -401,7 +487,7 @@ export function payjoinSteps(
         that much more. <b>Many senders, many receivers</b>:
         payments to different receivers share one transaction, and each
         hidden payment still relates one payer to one amount — so the
-        amounts themselves keep discriminating between readings. (The
+        amounts themselves keep discriminating between interpretations. (The
         settlement chapter names the analysis that runs exactly that
         arithmetic.)</p>
         <p>The town doesn't run these forms — batched payouts need a

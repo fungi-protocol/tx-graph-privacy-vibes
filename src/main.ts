@@ -160,7 +160,7 @@ function dayTxCount(d: number): number {
 // record, a chapter jump replays the recorded days through the cursor —
 // the reader watches time pass. Bumping the generation cancels a ride.
 let rideGen = 0;
-function rideDays(from: number, to: number): void {
+function rideDays(from: number, to: number, onDone?: () => void): void {
   const gen = ++rideGen;
   viewDay = from;
   simRev += 1;
@@ -183,6 +183,7 @@ function rideDays(from: number, to: number): void {
     if (gen !== rideGen) return;
     if (shown < to) showDay(to);
     void syncFragment();
+    onDone?.();
   } });
   kick();
 }
@@ -337,8 +338,11 @@ function singletonRing(): ClusterLayout {
 function lensClusterPaint(): ClusterPaint {
   const chain = active().chain;
   const cl = lensClustering();
+  // tolerant lookup: while the tutorial rides time forward, a partition
+  // computed against the full record can briefly hold coins the visible
+  // slice has not reached yet — they paint neutral instead of throwing
   const truthColor = (id: string): string => {
-    const o = chain.coins.get(id)!.owner;
+    const o = chain.coins.get(id)?.owner ?? null;
     return o === null ? "#e8e5da" : ownerColor(o);
   };
   // the observer's own reading of a coin, mirroring observerPaint's
@@ -361,7 +365,7 @@ function lensClusterPaint(): ClusterPaint {
     return { ...base, label: () => "", center: () => "" };
   }
   if (lens === 0) {
-    const ownerOf = (id: string): number | null => chain.coins.get(id)!.owner;
+    const ownerOf = (id: string): number | null => chain.coins.get(id)?.owner ?? null;
     return {
       ...base,
       label: (rep) => { const o = ownerOf(rep); return o === null ? "outside town" : castList()[o]!.name; },
@@ -1890,7 +1894,7 @@ function dayLabel(): string {
   if (rewound()) return `day ${cursorDay()} of ${economy().day}`;
   return `day ${economy().day}`;
 }
-function setScene(s: 0 | 1, minDay = 0, ride = false): void {
+function setScene(s: 0 | 1, minDay = 0, ride = false, onRode?: () => void): void {
   let rideFrom = -1;
   if (s === 1) {
     // the day the reader was looking at before anything moves
@@ -1909,7 +1913,7 @@ function setScene(s: 0 | 1, minDay = 0, ride = false): void {
     simRev += 1;
     clearSelection();
   }
-  if (rideFrom >= 0) rideDays(rideFrom, minDay);
+  if (rideFrom >= 0) rideDays(rideFrom, minDay, onRode);
   syncTimebar();
   renderDecisions();
   draw();
@@ -2403,6 +2407,7 @@ const steps = [
   ...observerSteps(() => active().bip.bounds, () => clusterLayout().bounds),
   ...payjoinSteps(
     () => active().bip.bounds,
+    () => clusterLayout().bounds,
     () => {
       // frame the first payjoin transaction (there is one by minDay 35) in
       // whichever view the step just asked for; prefer a 2-input one so
@@ -2418,6 +2423,16 @@ const steps = [
     () => {
       const tid = payjoinExhibit();
       return tid ? inputFamilies(active().chain, tid) : [];
+    },
+    () => {
+      const tid = payjoinExhibit();
+      const s = active();
+      const tx = tid ? s.chain.txs.get(tid) : undefined;
+      if (!tx) return [];
+      return tx.outputs.flatMap((o) => {
+        const script = s.chain.coins.get(o)?.addr?.script;
+        return script === undefined ? [] : [{ id: o, script }];
+      });
     },
   ),
   ...nsNetflixSteps(
@@ -2842,7 +2857,7 @@ const tutorial = new Tutorial(steps, {
   onNf: (on) => setNf(on),
   onNs: (on) => setNsSocial(on),
   onMi: (on) => { if (A.showMistakes !== on) setMistakes(on); },
-  onScene: (s, minDay) => setScene(s, minDay, true),
+  onScene: (s, minDay, onRode) => setScene(s, minDay, true, onRode),
   onSelect: (sel) => {
     if (sel === null) clearSelection();
     else applySelection(sel);

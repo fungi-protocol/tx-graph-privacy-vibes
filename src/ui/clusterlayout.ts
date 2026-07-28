@@ -104,7 +104,10 @@ function seriation(cl: Clustering, chain: Chain | undefined, mode: "time" | "for
   let order = [...cl.members.keys()].sort((a, b) => cl.rank.get(a)! - cl.rank.get(b)!);
   if (chain) {
     const day = (id: CoinId): number => {
-      const c = chain.coins.get(id)!;
+      // tolerant: a full-record clustering can hold coins a rewound
+      // chain slice has not shown yet — they don't vote on ordering
+      const c = chain.coins.get(id);
+      if (!c) return Infinity;
       return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
     };
     const earliest = new Map<CoinId, number>();
@@ -289,7 +292,9 @@ export function layoutClusterColumns(
   mode: "time" | "force" = "time",
 ): ClusterLayout {
   const day = (id: CoinId): number => {
-    const c = chain.coins.get(id)!;
+    // tolerant, as in seriation(): unseen members don't vote
+    const c = chain.coins.get(id);
+    if (!c) return Infinity;
     return c.producer ? chain.txs.get(c.producer)!.timestep : (c.entered ?? -1);
   };
   const earliest = new Map<CoinId, number>();
