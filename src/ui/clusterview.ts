@@ -150,8 +150,8 @@ export function drawContraction(
   // movement used to end too fast (#95).
   const P: MapPose = pose ?? poseFromScalar(t, !!ring);
   const discT = 1 - Math.pow(1 - Math.min(1, P.stackT), 3);
-  // tolerant: during an animated exit the collapse state is pinned
-  // (main.ts exitPin) while the visible chain can keep growing under
+  // tolerant: during an animated exit the collapse state is frozen
+  // (main.ts exitFreeze) while the visible chain can keep growing under
   // it, so a coin minted after the pin has no rep and no disc — the
   // drawing passes fall back to the coin's own morph frame instead of
   // reading a slot that does not exist

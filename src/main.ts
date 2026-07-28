@@ -50,7 +50,7 @@ import { createAnalysisController, memoLRU } from "./ui/analysisController";
 import { createEngine, request as engineRequest, tick as engineTick, snapTo } from "./engine/engine";
 import { cellOf, viewStateOf } from "./engine/adapter";
 import { type EngineViewState } from "./engine/state";
-import { projectScalars } from "./engine/project";
+import { projectScalars, mapValue } from "./engine/project";
 import { mapPose } from "./engine/pose";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -306,8 +306,17 @@ const collapseMemo = memoLRU<CollapseState>(16);
 /** the entry the contracted view last computed — what a repartition
  *  tween animates from */
 let lastCollapse: CollapseState | null = null;
+/** the contracted map frozen for the length of an exit (#141 slice 4b,
+ *  the successor of the slice-3 exitPin): the destination flips with
+ *  the request, so the derived knobs read as the expanded scene the
+ *  moment an exit is requested — and async landings (a lens flip,
+ *  grants turning off, the day riding forward) must not re-key the
+ *  shape mid-uncurl either. Captured at the request boundary, released
+ *  when the motion rests; the reader leaves the map they were looking
+ *  at, and a fresh partition forms the next time a map is entered. */
+let exitFreeze: CollapseState | null = null;
 function collapseState(): CollapseState {
-  if (exitPin) return (lastCollapse = exitPin);
+  if (exitFreeze) return (lastCollapse = exitFreeze);
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
   // the anchor is part of the key: the same partition anchored at a
   // different point is a different placement, and a knob toggled back
@@ -666,8 +675,10 @@ const anim = new Animator();
 // (slice 4a: the knob flags are READS of the engine, not stores); the
 // rAF loop ticks the engine and reads viewT/collapseT back off the
 // projection, so the leg queue is the single clock behind both
-// scalars. The setters keep their side effects (camera, cluster
-// tweens, knob sync) until the slice-4b sequencing switchover.
+// scalars — and the single sequencer (slice 4b): a multi-move journey
+// is ONE request, and the side effects that must land mid-journey
+// (camera flights, the morph hold, the map anchor, the plane
+// re-layout) attach to leg boundaries through the settle waiters.
 const engine = createEngine(cellOf(canonical({
   view: "cards", arrange: "ltr", chord: false, grouping: "unclustered",
 })));
@@ -676,6 +687,11 @@ const engine = createEngine(cellOf(canonical({
  *  The knob flags read the result back off the engine. */
 function requestCell(vs: ViewState, animate: boolean): void {
   const cell = cellOf(canonical(vs));
+  // an animated request away from the map while a contracted scene
+  // shows IS an exit: freeze the shape being uncurled (see exitFreeze)
+  exitFreeze = animate && collapseT > 0 && mapValue(cell) === 0
+    ? exitFreeze ?? lastCollapse ?? collapseState()
+    : null;
   if (animate) {
     engineRequest(engine, cell);
     kick();
@@ -703,6 +719,18 @@ let morphHold: [number, number] | null = null;
 function applyEngineScalars(): void {
   const s = projectScalars(engine);
   const viewMoved = s.viewT !== viewT;
+  // the hold captures itself on the first frame the MORPH leg moves —
+  // however deep in a journey it sits (#141 slice 4b: an exit's morph
+  // starts only after the uncurl landed and the camera flew home, so a
+  // capture at request time would anchor to a stale screen point) —
+  // and releases when the morph lands
+  if (viewMoved && morphHold === null && (viewT === 0 || viewT === 1)) {
+    const r = selectionRect();
+    if (r) {
+      morphHold = worldToScreen(cam, canvas.clientWidth, canvas.clientHeight,
+        r.x + r.w / 2, r.y + r.h / 2);
+    }
+  }
   viewT = s.viewT;
   collapseT = s.collapseT;
   if (morphHold && viewMoved) {
@@ -716,6 +744,7 @@ function applyEngineScalars(): void {
       };
     }
   }
+  if (viewMoved && (s.viewT === 0 || s.viewT === 1)) morphHold = null;
   // recomputed per waiter: a fired callback can start new motion,
   // and the waiters behind it must then hold for that motion
   const idle = (): boolean => engine.active === null && engine.pending === null;
@@ -727,6 +756,9 @@ function applyEngineScalars(): void {
       w.fn();
     }
   }
+  // the exit's frozen shape is released once the motion rests (a fired
+  // waiter can start new motion, so this check comes last)
+  if (idle()) exitFreeze = null;
 }
 
 function resize(): void {
@@ -995,14 +1027,10 @@ function setView(view: 0 | 1, animate = true, onDone?: () => void): void {
     onDone?.();
     return;
   }
-  // the selection is the same entity in both drawings — hold it steady on
-  // screen while everything else rearranges around it (applied per frame
-  // by the engine-scalar projection while the morph rides)
-  const startRect = selectionRect();
-  morphHold = startRect
-    ? worldToScreen(cam, canvas.clientWidth, canvas.clientHeight,
-        startRect.x + startRect.w / 2, startRect.y + startRect.h / 2)
-    : null;
+  // the selection is the same entity in both drawings — the morph hold
+  // keeps it steady on screen while everything else rearranges around
+  // it (captured and applied per frame by the engine-scalar projection
+  // while the MORPH leg rides)
   requestCell(target, true);
   syncKnobButtons();
   onSettle(() => viewT === view, () => {
@@ -1077,16 +1105,10 @@ for (const b of groupSegButtons) {
 function setCollapsed(target: ViewState, animate = true, onDone?: () => void): void {
   const on = contracted(target);
   collapsed = on;
-  // the map forms anchored on the point the camera already watches, so
-  // the collapse carries no panning motion — the camera only zooms
-  // about that point to frame the map's intrinsic-scale bounds (#140).
-  // A restore (animate = false) keeps the fragment's anchor and camera.
-  if (on && animate) {
-    const c = flyCam ?? cam;
-    mapAnchor = { x: c.x, y: c.y };
-  }
   if (!animate) {
     collapseT = on ? 1 : 0;
+    viewT = target.view === "graph" ? 1 : 0;
+    morphHold = null;
     requestCell(target, false);
     syncKnobButtons();
     draw();
@@ -1094,11 +1116,29 @@ function setCollapsed(target: ViewState, animate = true, onDone?: () => void): v
     onDone?.();
     return;
   }
-  // the engine plans the legs (detail, flatten, curl, stack — and the
-  // exact reverse out); collapseT rides the projection
+  // the engine plans the legs (a MORPH first when the journey starts
+  // at the cards, then detail, flatten, curl, stack — and the exact
+  // reverse out); collapseT rides the projection
   requestCell(target, true);
   syncKnobButtons();
-  if (on) flyToMap();
+  if (on) {
+    // the map forms anchored on the point the camera watches when the
+    // contraction begins, so the collapse carries no panning motion —
+    // the camera only zooms about that point to frame the map's
+    // intrinsic-scale bounds (#140). From the cards that point exists
+    // only AFTER the morph: the engine's plan puts every contraction
+    // leg behind the MORPH, so the anchor arms exactly at that leg
+    // boundary — and re-checks the destination when it fires, in case
+    // a takeover mid-morph retargeted the journey (#141 slice 4b).
+    const arm = (): void => {
+      if (!contracted(currentViewState())) return;
+      const c = flyCam ?? cam;
+      mapAnchor = { x: c.x, y: c.y };
+      flyToMap();
+    };
+    if (viewT === 1) arm();
+    else onSettle(() => viewT === 1, arm);
+  }
   const to = on ? 1 : 0;
   onSettle(() => collapseT === to, () => { void syncFragment(); onDone?.(); });
 }
@@ -1194,19 +1234,6 @@ function syncKnobButtons(): void {
  *  discs glide from where the old arrangement drew them to the new
  *  one's slots (the same tween whether the partition or only the
  *  arrangement changed) */
-// leaving the contracted map is a sequence (#136): while the uncurl
-// plays, moves that must wait for it (the view morph, a camera fly the
-// same tutorial step requested) queue here and run when it completes
-let expandQueue: (() => void)[] | null = null;
-let expandGen = 0;
-/** the contracted map frozen for the length of an exit uncurl: a
- *  tutorial step that leaves the map also commits lens/heuristic/grant
- *  changes and rides time forward, and those land asynchronously MID
- *  uncurl — without the pin they re-key collapseState and the shape
- *  being uncurled snaps to a different partition one frame in. The
- *  reader leaves the map they were looking at; the new partition forms
- *  fresh the next time the map is entered. */
-let exitPin: CollapseState | null = null;
 function beginClusterTween(before: { cl: Clustering; clay: ClusterLayout } | null): void {
   // a tween landing while another is in flight rebases onto the running
   // one's source: a tutorial step commits its grouping change and its
@@ -1233,54 +1260,40 @@ function applyViewState(nextRaw: ViewState, animate = true): void {
   const next = canonical(nextRaw);
   const cur = currentViewState();
   const wasMap = contracted(cur), willMap = contracted(next);
-  // a new state takeover cancels any exit sequence still in flight
-  expandQueue = null;
-  exitPin = null;
-  const myGen = ++expandGen;
-  // leaving the contracted map runs first: expand from whatever
-  // arrangement is showing before anything else moves. When the view
-  // (or arrangement) changes too, those moves WAIT for the expansion —
-  // the ring uncurls back into the graph as one visible motion, and
-  // only then does the picture morph away (any camera move the same
-  // dispatch requested runs after, off the queue) — instead of every
-  // tween firing at once and the morph clobbering the uncurl
+  // leaving the contracted map is ONE engine journey (#141 slice 4b):
+  // the plan itself sequences the unstack, the uncurl, any plane
+  // re-arrangement and the morph to the cards — the leg queue is the
+  // sequencer, and a second gesture mid-flight coalesces in the engine
+  // instead of racing a callback chain. The followers (camera flights,
+  // the plane re-layout, a tutorial step's own focus) attach to leg
+  // boundaries through the settle waiters; each re-checks the engine's
+  // destination when it fires, so a takeover retargets them rather
+  // than replaying a stale journey.
   if (wasMap && !willMap) {
-    // the uncurl lands in the plain coin graph at the CURRENT
-    // arrangement; the followers (view morph, arrangement glide) each
-    // state their own destination when they run
-    const expandTarget: ViewState =
-      { view: "graph", arrange: cur.arrange, chord: false, grouping: "unclustered" };
-    const followers: (() => void)[] = [];
-    if (cur.view !== next.view) {
-      followers.push(() => setView(next.view === "graph" ? 1 : 0, animate));
-      // the second leg of the journey re-frames onto the cards drawing
-      if (animate && next.view === "cards") followers.push(() => flyHome("cards"));
+    // arrangeMemo carries the target arrangement where the destination
+    // cell cannot (the cards); plane cells state their own
+    if (cur.arrange !== next.arrange) arrangeMemo = next.arrange;
+    setCollapsed(next, animate, cur.arrange !== next.arrange
+      // the uncurl lands in the coin graph at the OLD arrangement (the
+      // bip layouts are recomputed only here); the glide to the new
+      // one follows as its own visible move, as the layout knob does
+      ? () => relayoutGraph(animate)
+      : undefined);
+    if (animate) {
+      // the map lives at its own coordinates (#140): the camera flies
+      // home to the coin graph's bounds alongside the unstacking —
+      // coins and viewport travel together (a tutorial step's focus,
+      // registered behind this, overrides)
+      flyHome("graph");
+      if (next.view === "cards") {
+        // the journey's second frame target: once the uncurl lands and
+        // the MORPH leg takes over, re-frame onto the cards drawing
+        onSettle(() => collapseT === 0, () => {
+          if (destCell().view === "cards") flyHome("cards");
+        });
+        onSettle(() => collapseT === 0 && viewT === 0, () => void syncFragment());
+      }
     }
-    if (cur.arrange !== next.arrange) followers.push(() => setForceLayout(next.arrange === "force", animate));
-    // the map lives at its own coordinates (#140): the uncurl always
-    // lands in the coin graph, so the camera flies home to its bounds
-    // alongside the unstacking — coins and viewport travel together (a
-    // tutorial step's own focus, queued behind the uncurl, overrides)
-    if (animate) flyHome("graph");
-    if (animate && collapseT > 0.05) {
-      const queue = followers;
-      expandQueue = queue;
-      // freeze the shape being uncurled: async landings (a lens flip,
-      // grants turning off, the day riding forward) must not re-key it
-      // (the engine's destination flipped with the request, so the
-      // derived knobs already read as the expanded graph — the pin is
-      // what keeps the contraction drawing the shape it uncurls FROM)
-      exitPin = lastCollapse ?? collapseState();
-      setCollapsed(expandTarget, true, () => {
-        if (myGen !== expandGen) return;
-        expandQueue = null;
-        exitPin = null;
-        for (const f of queue) f();
-      });
-      return;
-    }
-    setCollapsed(expandTarget, animate);
-    for (const f of followers) f();
     return;
   }
   if (willMap && !wasMap) {
@@ -1296,16 +1309,10 @@ function applyViewState(nextRaw: ViewState, animate = true): void {
       recomputeTrace();
     }
     // entering from the cards is a sequence, mirroring the exit (#140):
-    // the cards morph into the coin graph first, and only then does the
-    // graph contract into the map — two moves the eye can track, not
-    // one blur of both tweens at once
-    if (cur.view !== next.view) {
-      setView(1, animate, () => {
-        if (myGen !== expandGen) return;
-        setCollapsed(next, animate);
-      });
-      return;
-    }
+    // the engine's plan morphs the cards into the coin graph first and
+    // contracts after — two moves the eye can track, not one blur of
+    // both tweens at once (the map's anchor arms at the same boundary,
+    // inside setCollapsed)
     setCollapsed(next, animate);
     return;
   }
@@ -2935,9 +2942,17 @@ function readableHandoff(): void {
 }
 
 const tutorial = new Tutorial(steps, {
-  // a step that exits the contracted map queues its camera move behind
-  // the uncurl + view morph rather than flying mid-sequence
-  onFocus: (focus) => { if (expandQueue) expandQueue.push(() => flyTo(focus)); else flyTo(focus); },
+  // a step that exits the contracted map lands its camera move behind
+  // the uncurl rather than flying mid-sequence — and behind the exit's
+  // own homing flights, which it overrides (the waiters fire in
+  // registration order, and the step's state change dispatched first)
+  onFocus: (focus) => {
+    if (collapseT > 0 && mapValue(destCell()) === 0) {
+      onSettle(() => collapseT === 0, () => flyTo(focus));
+    } else {
+      flyTo(focus);
+    }
+  },
   onDone: () => {
     allRowsSeen = true; // the town is theirs — the whole panel with it
     reflectOverlays();
