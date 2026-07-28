@@ -58,6 +58,28 @@ export const LEG_DURATION_MS: Record<LegKind, number> = {
   PINCH: 600, UNBUNDLE: 600,
 };
 
+// --- the camera table (#141 slice 4f). A gesture carries at most ONE
+// camera flight, targeting the FINAL rest state's fit — intermediate
+// waypoints get no separate fit, so multi-leg gestures never pump the
+// zoom. Whether a plan carries that one flight at all is a property of
+// its legs: REPARTITION legs carry zero camera delta (#13 — a lens or
+// heuristic repartition re-forms the map about the standing anchor at
+// the standing zoom), and the detail legs run in place.
+export const LEG_CAMERA: Record<LegKind, "fit" | "none"> = {
+  MORPH: "fit", REARRANGE: "fit", DETAIL: "none",
+  FLATTEN: "fit", UNFLATTEN: "fit", CURL: "fit", UNCURL: "fit",
+  STACK: "fit", UNSTACK: "fit", OPEN: "fit", CLOSE: "fit",
+  REPARTITION: "none", PINCH: "none", UNBUNDLE: "none",
+};
+
+/** the one-flight-per-gesture rule, read off a plan: "fit" when any
+ *  leg moves the picture enough to owe the final rest state its one
+ *  framing, "none" for plans of purely in-place legs (the engine's
+ *  own catch-up REPARTITION above all) */
+export function planCameraCue(legs: readonly { kind: LegKind }[]): "fit" | "none" {
+  return legs.some((l) => LEG_CAMERA[l.kind] === "fit") ? "fit" : "none";
+}
+
 /** the one global animation-speed knob: 1 = authored pace, 2 = twice
  *  as fast. Mutable by design — a settings feature writes it. */
 export const timing = { speed: 1 };

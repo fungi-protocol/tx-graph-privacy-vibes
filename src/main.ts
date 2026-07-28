@@ -47,7 +47,7 @@ import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
 import { type Chain, addrKey, addrText } from "./model/chain";
 import { createAnalysisController, memoLRU } from "./ui/analysisController";
-import { createEngine, request as engineRequest, tick as engineTick, snapTo } from "./engine/engine";
+import { createEngine, request as engineRequest, tick as engineTick, snapTo, integrate } from "./engine/engine";
 import { cellOf, viewStateOf } from "./engine/adapter";
 import { type EngineViewState } from "./engine/state";
 import { projectScalars, mapValue } from "./engine/project";
@@ -237,6 +237,9 @@ let lensAgent: number | null = null;
 // and the #84 worker gateway — all behind this one object. The host
 // closure below is the only path from analysis back into the app
 // shell, read lazily so the shell's mutable state stays where it is.
+// Landings announce through this indirection: the display engine that
+// consumes them is created further down (#141 slice 4f).
+let onAnalysisLanded: (() => void) | null = null;
 const A = createAnalysisController({
   chain: () => active().chain,
   priceAt: () => (scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined),
@@ -254,6 +257,7 @@ const A = createAnalysisController({
   unclustered: () => unclusteredKnob(),
   bumpSimRev: () => { simRev += 1; },
   busy: document.getElementById("busy") as HTMLElement,
+  landed: () => { onAnalysisLanded?.(); },
 });
 
 
@@ -682,6 +686,26 @@ const anim = new Animator();
 const engine = createEngine(cellOf(canonical({
   view: "cards", arrange: "ltr", chord: false, grouping: "unclustered",
 })));
+// --- async analysis results integrate as engine events (#141 slice
+// 4f): every knob landing — the warm sync path, a worker reply, the
+// worker-down fallback — reports the signature the display now draws
+// from, with a monotone revision. A landing mid-motion owes the view
+// one coalesced catch-up leg at the next rest point (never a tween
+// racing the gesture); rapid slider notches coalesce into one leg the
+// same way. The engine only acts on the DISPLAYED key, so the key is
+// set first: a landing is by definition what the view shows next.
+let analysisRev = 0;
+/** identity of the analysis the display draws from: the observer map
+ *  plus the matcher state fused over it (mapSig embeds chainKey) */
+function displayedSig(): string {
+  return `${A.mapSig()}§${A.matchSig()}`;
+}
+onAnalysisLanded = () => {
+  const key = displayedSig();
+  engine.displayedKey = key;
+  integrate(engine, { key, revision: ++analysisRev });
+  kick(); // the catch-up leg runs at rest — make sure the clock ticks
+};
 /** a gesture states its destination (#141 slice 4a): a plan toward
  *  its cell (animate) or an instant jump (restores, silent settles).
  *  The knob flags read the result back off the engine. */
@@ -1067,6 +1091,24 @@ function flyToMap(): void {
   const b = clusterLayout().bounds;
   flyTo({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 }, 1400);
 }
+/** the map's one camera move per gesture (#141 slice 4f): ZOOM-ONLY
+ *  about the shared anchor. The map forms centered on the anchor
+ *  (anchorClusterLayout), so the flight's scale goes to the new
+ *  arrangement's unobscured fit while the anchor holds its screen
+ *  point — zero pan, the point the reader watches never slides. The
+ *  legs.ts camera table is the rule this implements: only fit-cue
+ *  legs (STACK, CURL, MORPH…) get this flight; REPARTITION legs carry
+ *  zero camera delta (#13), so lens and heuristic repartitions never
+ *  call here. */
+function flyZoomMap(): void {
+  if (canvas.clientWidth === 0) return;
+  if (!mapAnchor) { flyToMap(); return; }
+  const b = clusterLayout().bounds;
+  flyToCamera({
+    x: mapAnchor.x, y: mapAnchor.y,
+    scale: fitScale({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 }),
+  }, 1400);
+}
 /** frame an uncontracted scene: expanding the map (or morphing views)
  *  lands on the whole drawing at its natural coordinates */
 function flyHome(view: "cards" | "graph"): void {
@@ -1084,8 +1126,9 @@ function setUnclustered(on: boolean, animate = true): void {
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
   A.nsSecond = null;
   beginClusterTween(before);
-  // the regrouped map keeps intrinsic scale, so its bounds moved (#140)
-  if (collapsed && animate) flyToMap();
+  // the regrouped map keeps intrinsic scale, so its bounds moved
+  // (#140); the gesture's one flight zooms about the standing anchor
+  if (collapsed && animate) flyZoomMap();
   recomputeTrace();
   draw();
   void syncFragment();
@@ -1134,7 +1177,7 @@ function setCollapsed(target: ViewState, animate = true, onDone?: () => void): v
       if (!contracted(currentViewState())) return;
       const c = flyCam ?? cam;
       mapAnchor = { x: c.x, y: c.y };
-      flyToMap();
+      flyZoomMap();
     };
     if (viewT === 1) arm();
     else onSettle(() => viewT === 1, arm);
@@ -1155,8 +1198,9 @@ function setForceLayout(on: boolean, animate = true): void {
   requestCell({ ...cur, arrange: on ? "force" : "ltr" }, animate);
   syncKnobButtons();
   beginClusterTween(beforeRing);
-  // the re-arranged map has different natural bounds — fly to them
-  if (collapsed && animate) flyToMap();
+  // the re-arranged map has different natural bounds — one zoom-only
+  // flight about the standing anchor (#141 slice 4f)
+  if (collapsed && animate) flyZoomMap();
   relayoutGraph(animate);
 }
 /** recompute both scenes' graph arrangements and glide the nodes over —
@@ -1280,18 +1324,20 @@ function applyViewState(nextRaw: ViewState, animate = true): void {
       ? () => relayoutGraph(animate)
       : undefined);
     if (animate) {
-      // the map lives at its own coordinates (#140): the camera flies
-      // home to the coin graph's bounds alongside the unstacking —
-      // coins and viewport travel together (a tutorial step's focus,
-      // registered behind this, overrides)
-      flyHome("graph");
+      // ONE camera flight per gesture (#141 slice 4f): the flight
+      // targets the FINAL rest state's fit — the intermediate uncurled
+      // waypoints get no separate framing, so a multi-leg exit never
+      // pumps the zoom. The map lives at its own coordinates (#140),
+      // so the flight departs alongside the unstacking — coins and
+      // viewport travel together (a tutorial step's focus, registered
+      // behind this, overrides). When the exit also re-arranges the
+      // plane, the final graph bounds exist only after the re-layout,
+      // and relayoutGraph's own re-frame IS the gesture's one flight.
       if (next.view === "cards") {
-        // the journey's second frame target: once the uncurl lands and
-        // the MORPH leg takes over, re-frame onto the cards drawing
-        onSettle(() => collapseT === 0, () => {
-          if (destCell().view === "cards") flyHome("cards");
-        });
+        flyHome("cards");
         onSettle(() => collapseT === 0 && viewT === 0, () => void syncFragment());
+      } else if (cur.arrange === next.arrange) {
+        flyHome("graph");
       }
     }
     return;
@@ -1324,8 +1370,9 @@ function applyViewState(nextRaw: ViewState, animate = true): void {
       const before = repartitionStart(animate);
       requestCell({ ...cur, chord: next.chord }, animate);
       beginClusterTween(before);
-      // the ring and the band/map have different natural bounds (#140)
-      if (animate) flyToMap();
+      // the ring and the band/map have different natural bounds
+      // (#140); the curl's one flight zooms about the standing anchor
+      if (animate) flyZoomMap();
     }
     if (cur.arrange !== next.arrange) setForceLayout(next.arrange === "force", animate);
     if (cur.grouping !== next.grouping) {
@@ -1366,8 +1413,9 @@ function setLens(l: 0 | 1 | 2): void {
     if (selection?.kind === "cluster") { selection = null; highlight = null; }
     A.nsSecond = null;
     beginClusterTween(before);
-    // a different lens's partition has different natural bounds (#140)
-    if (collapseT > 0.9) flyToMap();
+    // NO camera move: a lens change is a REPARTITION, and repartition
+    // legs carry zero camera delta (#13) — the new partition re-forms
+    // about the standing anchor at the standing zoom
   }
   draw();
   void syncFragment();
@@ -2517,6 +2565,11 @@ let pendingFly: { rect: Rect; ms: number } | null = null;
 /** the destination of a camera fly in flight — visibleWorldRect()
  *  treats it as where the camera already is */
 let flyCam: Camera | null = null;
+/** the scale that fits a world rect into the unobscured region */
+function fitScale(rect: Rect): number {
+  const vp = visibleViewport();
+  return Math.min(80, Math.max(0.05, Math.min(vp.w / rect.w, vp.h / rect.h)));
+}
 function flyTo(rect: Rect, ms = 700): void {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (w <= 0 || h <= 0) {
@@ -2524,14 +2577,16 @@ function flyTo(rect: Rect, ms = 700): void {
     return;
   }
   const vp = visibleViewport();
-  const scale = Math.min(80, Math.max(0.05, Math.min(vp.w / rect.w, vp.h / rect.h)));
-  const target: Camera = {
+  const scale = fitScale(rect);
+  flyToCamera({
     // cam.x/y is the world point at CANVAS center; steer the rect's
     // center to the unobscured region's center instead
     x: rect.x + rect.w / 2 - (vp.x + vp.w / 2 - w / 2) / scale,
     y: rect.y + rect.h / 2 - (vp.y + vp.h / 2 - h / 2) / scale,
     scale,
-  };
+  }, ms);
+}
+function flyToCamera(target: Camera, ms: number): void {
   const from = { ...cam };
   flyCam = target;
   anim.add(ms, (t) => {

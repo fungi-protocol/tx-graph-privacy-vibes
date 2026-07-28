@@ -87,6 +87,13 @@ interface SubmittedJob {
   nsManualSig: string;
 }
 
+/** the worker surface the gateway drives — a seam, so tests hand in a
+ *  counting fake and the page hands in the real inlined worker */
+export interface WorkerLike {
+  postMessage(msg: AnalysisJob): void;
+  addEventListener(type: "message" | "error", fn: (ev: { data?: unknown }) => void): void;
+}
+
 /** everything the controller needs from the app shell, read lazily so
  *  the shell's own mutable state (scene, cursor, lens) stays where it
  *  is — the controller never caches a host answer across calls */
@@ -115,6 +122,13 @@ export interface AnalysisHost {
   bumpSimRev(): void;
   /** the "thinking" pill the worker gateway shows on a cold wait */
   busy: HTMLElement | null;
+  /** seam: build the analysis worker — tests hand in a counting fake;
+   *  when absent the page's inlined worker source is used */
+  makeWorker?: () => WorkerLike | null;
+  /** called after every knob landing — the sync path, a worker reply,
+   *  and the worker-down fallback all announce here, so the display
+   *  engine can integrate() the new map (#141 slice 4f) */
+  landed?: () => void;
 }
 
 export type AnalysisController = ReturnType<typeof createAnalysisController>;
@@ -146,18 +160,23 @@ export function createAnalysisController(host: AnalysisHost) {
   let knobTarget: KnobSnap | null = null;
   let workerDown = false;
   let jobSeq = 0;
-  const analysisWorker: Worker | null = (() => {
+  const analysisWorker: WorkerLike | null = (() => {
+    const w = host.makeWorker ? host.makeWorker() : makePageWorker();
+    if (w) {
+      w.addEventListener("message", (ev) => { onWorkerReply(ev.data as AnalysisReply); });
+      w.addEventListener("error", () => { onWorkerDown(); });
+    }
+    return w;
+  })();
+  function makePageWorker(): WorkerLike | null {
     const src = (window as unknown as { __WORKER_SRC?: string }).__WORKER_SRC;
     if (!src || typeof Worker === "undefined") return null;
     try {
-      const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), { name: "analysis" });
-      w.addEventListener("message", (ev) => { onWorkerReply(ev.data as AnalysisReply); });
-      w.addEventListener("error", () => { onWorkerDown(); });
-      return w;
+      return new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), { name: "analysis" });
     } catch {
       return null;
     }
-  })();
+  }
 
   function snapKnobs(): KnobSnap {
     return {
@@ -262,6 +281,7 @@ export function createAnalysisController(host: AnalysisHost) {
     }
     job.finish();
     if (A.chainKey() === job.chainK) tryInstallNf(job, reply.bundle);
+    host.landed?.();
   }
   function onWorkerDown(): void {
     workerDown = true;
@@ -275,6 +295,7 @@ export function createAnalysisController(host: AnalysisHost) {
       applyKnobsSnap(last.target);
       host.bumpSimRev();
       last.finish();
+      host.landed?.();
     }
   }
 
@@ -532,6 +553,7 @@ export function createAnalysisController(host: AnalysisHost) {
         queuedJob = null;
         A.spinnerOff();
         finish();
+        host.landed?.();
         return;
       }
       const target = snapKnobs();

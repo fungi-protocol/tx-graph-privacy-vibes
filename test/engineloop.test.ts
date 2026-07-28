@@ -7,7 +7,7 @@ import {
   createEngine, request, tick, integrate, restPoint,
   enterNsModal, exitNsModal,
 } from "../src/engine/engine";
-import { legDurationMs, LEG_DURATION_MS, timing, CATCHUP_ACCEL } from "../src/engine/legs";
+import { legDurationMs, LEG_DURATION_MS, timing, CATCHUP_ACCEL, LEG_CAMERA, planCameraCue } from "../src/engine/legs";
 
 const chordC = presetCell("chord", "clustered");
 const forceU = presetCell("force", "ungrouped");
@@ -82,6 +82,24 @@ test("integration: keyed, monotone, view moves only via a queued catch-up leg", 
   integrate(e, { key: "keyA", revision: 1 });
   tick(e, 16);
   assert.equal(e.active, null);
+});
+
+test("#13: REPARTITION legs carry zero camera delta; a gesture's plan carries at most one fit", () => {
+  // the camera table's rule rows: repartitions and in-place detail
+  // legs move the camera not at all
+  assert.equal(LEG_CAMERA.REPARTITION, "none");
+  assert.equal(LEG_CAMERA.DETAIL, "none");
+  // the engine's own catch-up leg is a REPARTITION plan — camera-free
+  const e = createEngine(chordC, "k");
+  integrate(e, { key: "k", revision: 1 });
+  tick(e, 16);
+  assert.ok(e.active, "catch-up leg in flight");
+  assert.equal(planCameraCue(e.active!.legs), "none",
+    "a worker landing repartitions with zero camera delta");
+  runToRest(e);
+  // a gesture's plan (uncurl out of the ring) owes the one final fit
+  request(e, band);
+  assert.equal(planCameraCue(e.active!.legs), "fit");
 });
 
 test("catch-up waits for the active motion; cards needs no leg", () => {
