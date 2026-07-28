@@ -8,8 +8,9 @@
 //
 // The constants here are today's ring/band rules, preserved and
 // documented as contracts: slot width 2r + (90 if size >= 2 else 12),
-// seam gap max(80, 4% of total), ring radius max(320, T/2pi), the
-// 1.35 horizontal stretch that makes the ring an ellipse.
+// seam gap max(80, 4% of total), ring radius pinned to the coin count
+// (ringRadius below, #142), the 1.35 horizontal stretch that makes the
+// ring an ellipse.
 
 /** a slot holder: a partition vertex with its intrinsic disc radius */
 export interface SlotItem {
@@ -38,6 +39,18 @@ export interface CurveAxis {
   R: number;
 }
 
+/** every partition of one record shares ONE circle (#142): the radius
+ *  is a function of the COIN COUNT — each coin contributes a singleton
+ *  footprint to the circumference — never of the partition's own slot
+ *  widths, so a grouping walk keeps each vertex on the circle it
+ *  started on and the stacking motion is a pure glide along the rim.
+ *  (The singleton disc radius is 5, see discRadius in clusterlayout.) */
+export function ringRadius(coins: number): number {
+  const single = Math.max(1, coins) * slotWidth(1, 5);
+  const C = single + Math.max(80, single * 0.04);
+  return Math.max(320, C / (2 * Math.PI));
+}
+
 /** accumulate the shared axis: each vertex's s is the center of its
  *  slot, in the order given (the caller has already seriated) */
 export function curveAxis(items: SlotItem[]): CurveAxis {
@@ -51,7 +64,7 @@ export function curveAxis(items: SlotItem[]): CurveAxis {
   const total = Math.max(1, cum);
   const gap = Math.max(80, total * 0.04);
   const T = total + gap;
-  const R = Math.max(320, T / (2 * Math.PI));
+  const R = ringRadius(items.reduce((n, it) => n + it.size, 0));
   return { s, total, gap, T, R };
 }
 

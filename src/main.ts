@@ -51,6 +51,7 @@ import { createEngine, request as engineRequest, tick as engineTick, snapTo, int
 import { cellOf, viewStateOf } from "./engine/adapter";
 import { type EngineViewState, sameCell } from "./engine/state";
 import { projectScalars, mapValue } from "./engine/project";
+import { legDurationMs } from "./engine/legs";
 import { mapPose } from "./engine/pose";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -168,6 +169,9 @@ function dayTxCount(d: number): number {
 // record, a chapter jump replays the recorded days through the cursor —
 // the reader watches time pass. Bumping the generation cancels a ride.
 let rideGen = 0;
+/** newest deferred ride wins: scene jumps queued while a gesture is
+ *  still in motion (#142) each schedule a ride; only the last runs */
+let rideWaitSeq = 0;
 function rideDays(from: number, to: number, onDone?: () => void): void {
   const gen = ++rideGen;
   viewDay = from;
@@ -240,6 +244,11 @@ let lensAgent: number | null = null;
 // Landings announce through this indirection: the display engine that
 // consumes them is created further down (#141 slice 4f).
 let onAnalysisLanded: (() => void) | null = null;
+/** the gesture gate (#142), wired alongside onAnalysisLanded: while a
+ *  journey's legs run, a knob landing holds instead of re-keying the
+ *  picture mid-motion — the controller parks the apply here and it
+ *  fires at the next rest point */
+let onHoldLanding: ((apply: () => void) => boolean) | null = null;
 const A = createAnalysisController({
   chain: () => active().chain,
   priceAt: () => (scene === 1 && eco ? (d: number): number | undefined => eco!.prices[d] : undefined),
@@ -258,6 +267,7 @@ const A = createAnalysisController({
   bumpSimRev: () => { simRev += 1; },
   busy: document.getElementById("busy") as HTMLElement,
   landed: () => { onAnalysisLanded?.(); },
+  holdLanding: (apply) => onHoldLanding ? onHoldLanding(apply) : false,
 });
 
 
@@ -327,6 +337,11 @@ let lastCollapse: CollapseState | null = null;
  *  when the motion rests; the reader leaves the map they were looking
  *  at, and a fresh partition forms the next time a map is entered. */
 let exitFreeze: CollapseState | null = null;
+/** the paint frozen alongside the shape (#142): a step that leaves the
+ *  map may also flip the lens or a grant in the same breath, and the
+ *  dissolving discs must keep wearing the captions and colors they
+ *  were contracted under — not sprout the next lens's labels mid-exit */
+let exitPaint: ClusterPaint | null = null;
 function collapseState(): CollapseState {
   if (exitFreeze) return (lastCollapse = exitFreeze);
   const agent = lens === 2 ? (lensAgent ?? 0) : -1;
@@ -714,6 +729,11 @@ onAnalysisLanded = () => {
   integrate(engine, { key, revision: ++analysisRev });
   kick(); // the catch-up leg runs at rest — make sure the clock ticks
 };
+onHoldLanding = (apply) => {
+  if (engine.active === null && engine.pending === null) return false;
+  onSettle(() => engine.active === null && engine.pending === null, apply);
+  return true;
+};
 /** a gesture states its destination (#141 slice 4a): a plan toward
  *  its cell (animate) or an instant jump (restores, silent settles).
  *  The knob flags read the result back off the engine. */
@@ -721,9 +741,9 @@ function requestCell(vs: ViewState, animate: boolean): void {
   const cell = cellOf(canonical(vs));
   // an animated request away from the map while a contracted scene
   // shows IS an exit: freeze the shape being uncurled (see exitFreeze)
-  exitFreeze = animate && collapseT > 0 && mapValue(cell) === 0
-    ? exitFreeze ?? lastCollapse ?? collapseState()
-    : null;
+  const exiting = animate && collapseT > 0 && mapValue(cell) === 0;
+  exitFreeze = exiting ? exitFreeze ?? lastCollapse ?? collapseState() : null;
+  exitPaint = exiting ? exitPaint ?? lensClusterPaint() : null;
   if (animate) {
     engineRequest(engine, cell);
     kick();
@@ -790,7 +810,7 @@ function applyEngineScalars(): void {
   }
   // the exit's frozen shape is released once the motion rests (a fired
   // waiter can start new motion, so this check comes last)
-  if (idle()) exitFreeze = null;
+  if (idle()) { exitFreeze = null; exitPaint = null; }
 }
 
 function resize(): void {
@@ -877,7 +897,7 @@ function draw(): void {
   ctx.translate(-cam.x, -cam.y);
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
-      clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
+      clusterLayout(), lensClustering(), collapseT, exitPaint ?? lensClusterPaint(), clusterTrans ?? undefined,
       hover?.kind === "cluster" ? hover.id
         : hover?.kind === "coin" ? lensClustering().rep.get(hover.id)
         : undefined, singletonRing(),
@@ -1097,7 +1117,20 @@ function repartitionStart(animate = true): { cl: Clustering; clay: ClusterLayout
 function flyToMap(): void {
   if (canvas.clientWidth === 0) return;
   const b = clusterLayout().bounds;
-  flyTo({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 }, 1400);
+  flyTo({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 }, journeyMs());
+}
+/** the wall-clock left in the active journey: the gesture's one camera
+ *  flight spans the WHOLE motion — a multi-leg contraction gets a
+ *  flight that arrives WITH its last leg, not 1400ms into it with the
+ *  remaining legs sliding under a parked camera (#142) */
+function journeyMs(): number {
+  const a = engine.active;
+  if (!a) return 1400;
+  let ms = 0;
+  for (let i = a.index; i < a.legs.length; i++) {
+    ms += legDurationMs(a.legs[i]!.kind, a.speed > 1) * (i === a.index ? 1 - a.progress : 1);
+  }
+  return Math.max(700, Math.round(ms));
 }
 /** the map's one camera move per gesture (#141 slice 4f): ZOOM-ONLY
  *  about the shared anchor. The map forms centered on the anchor
@@ -1115,7 +1148,7 @@ function flyZoomMap(): void {
   flyToCamera({
     x: mapAnchor.x, y: mapAnchor.y,
     scale: fitScale({ x: b.x - 60, y: b.y - 60, w: b.w + 120, h: b.h + 120 }),
-  }, 1400);
+  }, journeyMs());
 }
 /** frame an uncontracted scene: expanding the map (or morphing views)
  *  lands on the whole drawing at its natural coordinates */
@@ -1123,17 +1156,21 @@ function flyHome(view: "cards" | "graph"): void {
   if (canvas.clientWidth === 0) return;
   const s = active();
   const b = view === "graph" ? s.bip.bounds : s.layout.bounds;
-  flyTo({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 }, 1400);
+  // co-timed like the entry's zoom (#142): the exit's one flight
+  // arrives home with the journey's last leg, not seconds before it
+  flyTo({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 }, journeyMs());
 }
 function setUnclustered(on: boolean, animate = true): void {
   const cur = currentViewState();
   if ((cur.grouping === "unclustered") === on) return;
-  const before = repartitionStart(animate);
+  // the STACK/UNSTACK leg IS the grouping animation (#142): the coins
+  // glide along the shared circle into (or out of) their piles under
+  // the engine's clock — a fragment tween running beside it would move
+  // the same discs twice
   requestCell({ ...cur, grouping: on ? "unclustered" : "clustered" }, animate);
   syncKnobButtons();
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
   A.nsSecond = null;
-  beginClusterTween(before);
   // the regrouped map keeps intrinsic scale, so its bounds moved
   // (#140); the gesture's one flight zooms about the standing anchor
   if (collapsed && animate) flyZoomMap();
@@ -2274,7 +2311,25 @@ function setScene(s: 0 | 1, minDay = 0, ride = false, onRode?: () => void): void
     simRev += 1;
     clearSelection();
   }
-  if (rideFrom >= 0) rideDays(rideFrom, minDay, onRode);
+  if (rideFrom >= 0) {
+    // the ride starts only once the step's own motion rests (#142): a
+    // step that both leaves the map and moves the day must not grow
+    // the record under the dissolving discs. The view pins to the day
+    // the reader was watching; the replay follows as its own beat.
+    // (Deferred past this dispatch cycle: the step's view change is
+    // requested AFTER onScene, and the wait must see that gesture.)
+    viewDay = rideFrom;
+    simRev += 1;
+    const seq = ++rideWaitSeq;
+    const rg = rideGen;
+    queueMicrotask(() => onSettle(
+      () => engine.active === null && engine.pending === null,
+      () => {
+        // superseded by a newer scene jump, or the reader took the dial
+        if (seq !== rideWaitSeq || rg !== rideGen) return;
+        rideDays(rideFrom, minDay, onRode);
+      }));
+  }
   syncTimebar();
   renderDecisions();
   draw();
@@ -3145,6 +3200,12 @@ const tutorial = new Tutorial(steps, {
   onFocus: (focus) => {
     if (collapseT > 0 && mapValue(destCell()) === 0) {
       onSettle(() => collapseT === 0, () => flyTo(focus));
+    } else if (mapValue(destCell()) === 1
+        && (engine.active !== null || engine.pending !== null)) {
+      // a step heading into (or re-arranging) the contracted map: the
+      // journey's zoom about the anchor is the gesture's one camera
+      // flight (#140 intrinsic scale) — the step's own whole-map focus
+      // flying beside it was the second, fighting move of #142
     } else {
       flyTo(focus);
     }

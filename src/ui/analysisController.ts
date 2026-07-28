@@ -129,6 +129,11 @@ export interface AnalysisHost {
    *  and the worker-down fallback all announce here, so the display
    *  engine can integrate() the new map (#141 slice 4f) */
   landed?: () => void;
+  /** the gesture gate (#142): when the display engine is mid-journey a
+   *  landing must not re-key the picture its legs are drawing. The
+   *  host parks `apply` until the motion rests and returns true; false
+   *  means nothing is moving and the landing may apply now. */
+  holdLanding?: (apply: () => void) => boolean;
 }
 
 export type AnalysisController = ReturnType<typeof createAnalysisController>;
@@ -272,16 +277,21 @@ export function createAnalysisController(host: AnalysisHost) {
     }
     A.spinnerOff();
     if (!job || job.msg.id !== reply.id || job.epoch !== knobEpoch) return;
-    knobTarget = null;
-    applyKnobsSnap(job.target);
-    host.bumpSimRev();
-    if (A.chainKey() === job.chainK) {
-      installBundle(reply.bundle);
-      tryInstallNf(job, reply.bundle);
-    }
-    job.finish();
-    if (A.chainKey() === job.chainK) tryInstallNf(job, reply.bundle);
-    host.landed?.();
+    const land = (): void => {
+      if (job.epoch !== knobEpoch) return; // a warm landing took over mid-hold
+      if (knobTarget === job.target) knobTarget = null;
+      applyKnobsSnap(job.target);
+      host.bumpSimRev();
+      if (A.chainKey() === job.chainK) {
+        installBundle(reply.bundle);
+        tryInstallNf(job, reply.bundle);
+      }
+      job.finish();
+      if (A.chainKey() === job.chainK) tryInstallNf(job, reply.bundle);
+      host.landed?.();
+    };
+    // mid-gesture the landing holds (#142): see commitKnobs
+    if (!host.holdLanding?.(land)) land();
   }
   function onWorkerDown(): void {
     workerDown = true;
@@ -291,11 +301,15 @@ export function createAnalysisController(host: AnalysisHost) {
     A.spinnerOff();
     if (last && last.epoch === knobEpoch) {
       // land the change synchronously after all: one jank, not a lost click
-      knobTarget = null;
-      applyKnobsSnap(last.target);
-      host.bumpSimRev();
-      last.finish();
-      host.landed?.();
+      const land = (): void => {
+        if (last.epoch !== knobEpoch) return;
+        if (knobTarget === last.target) knobTarget = null;
+        applyKnobsSnap(last.target);
+        host.bumpSimRev();
+        last.finish();
+        host.landed?.();
+      };
+      if (!host.holdLanding?.(land)) land();
     }
   }
 
@@ -540,7 +554,7 @@ export function createAnalysisController(host: AnalysisHost) {
      *  (memos warm, no worker, or not the live economy) or freeze the
      *  display and finish when the worker's results land */
     commitKnobs(mutate: () => void, finish: () => void, opts: { nsFull?: boolean } = {}): void {
-      const prev = knobTarget ?? snapKnobs();
+      const shown = snapKnobs(); // the settings the display is drawn with
       if (knobTarget) applyKnobsSnap(knobTarget);
       mutate();
       host.bumpSimRev(); // the observer's map — and every lens seeded from it — changes
@@ -549,11 +563,27 @@ export function createAnalysisController(host: AnalysisHost) {
         // may install (right keys, right data) but must not re-apply an
         // older target over this newer state
         knobEpoch += 1;
-        knobTarget = null;
         queuedJob = null;
         A.spinnerOff();
-        finish();
-        host.landed?.();
+        const target = snapKnobs();
+        const epoch = knobEpoch;
+        const land = (): void => {
+          if (epoch !== knobEpoch) return; // a newer landing took over
+          if (knobTarget === target) knobTarget = null;
+          applyKnobsSnap(target);
+          finish();
+          host.landed?.();
+        };
+        // mid-gesture the landing holds (#142): the display keeps the
+        // settings its running legs are drawn with, and the change
+        // lands — with its own tween — at the next rest point
+        if (host.holdLanding?.(land)) {
+          applyKnobsSnap(shown);
+          knobTarget = target;
+          return;
+        }
+        knobTarget = null;
+        land();
         return;
       }
       const target = snapKnobs();
@@ -567,7 +597,7 @@ export function createAnalysisController(host: AnalysisHost) {
       };
       // the display keeps the settings it was drawn with; the DOM controls
       // already show the user's choice, and the spinner covers the gap
-      applyKnobsSnap(knobTarget ?? prev);
+      applyKnobsSnap(shown);
       knobTarget = target;
       if (inFlight) queuedJob = sub;
       else {

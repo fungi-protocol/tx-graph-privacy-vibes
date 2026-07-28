@@ -7,6 +7,7 @@ import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { type Clustering } from "../analysis/clusters";
 import { type Rect } from "./blockview";
 import { contractedScene, incidenceId } from "./scene";
+import { ringRadius } from "../engine/curve";
 
 export interface ClusterNode {
   rep: CoinId;
@@ -179,7 +180,13 @@ export function layoutClusterGraph(
   const total = Math.max(1, items.reduce((s, it) => s + it.width, 0));
   const gapW = Math.max(80, total * 0.04); // the seam at six o'clock
   const T = total + gapW;
-  const R = Math.max(320, T / (2 * Math.PI));
+  // every partition of one record shares ONE circle (#142): the radius
+  // comes from the coin count (ringRadius), never from the partition's
+  // own slot widths, so a grouping walk keeps each vertex on the
+  // circle it started on and the stacking motion is a pure glide along
+  // the rim. Slot widths still split the turn (T), so a coarser
+  // partition spreads its fewer vertices farther apart.
+  const R = ringRadius(items.reduce((s, it) => s + it.size, 0));
   let cum = 0;
   for (const it of items) {
     // six o'clock is PI/2 in screen coordinates (y down); the gap
