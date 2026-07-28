@@ -11,9 +11,15 @@
   #view:active { cursor: grabbing; }
   #hud { position: fixed; left: 10px; bottom: 8px; opacity: 0.6; font-size: 12px;
          pointer-events: none; user-select: none; }
+  /* a flex column with the scroll on the BODY alone (#78, #141 slice
+     6): however long a step's prose runs, the title and the nav row
+     stay pinned inside the clamped panel — the next button can never
+     lay out below the fold of a panel-wide scroll */
   #tutorial { position: fixed; right: 16px; bottom: 16px; width: 340px; max-height: calc(100vh - 48px);
-              overflow-y: auto; background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
+              display: flex; flex-direction: column;
+              background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
               padding: 14px 16px; box-shadow: 0 6px 24px #0006; }
+  .tut-body { overflow-y: auto; min-height: 0; }
   .tut-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
               margin-bottom: 6px; }
   .tut-title { font-weight: 600; font-size: 15px; }

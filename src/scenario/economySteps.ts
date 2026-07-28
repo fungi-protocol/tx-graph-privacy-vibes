@@ -27,6 +27,7 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
       focus,
       view: 1,
       scene: 1,
+      stages: ["cast"], // the aside points at the button — unhide it here
     },
     {
       id: "days-pass",

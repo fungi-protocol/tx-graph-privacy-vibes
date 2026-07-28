@@ -73,10 +73,9 @@ export function nsSocialSteps(
         shape of their neighborhoods — whom they touch, and whom those
         touch — consulting no amounts at all. A match is an ownership
         claim, "these two pseudonyms are one user's", and accepting it
-        merges the clusters. The matcher ${count}. Press
-        <i>play</i> to watch: the map opens into one column per epoch
-        and the run lands match by match; the <i>progress</i> slider
-        rewinds and re-applies it.</p>`;
+        merges the clusters. The matcher ${count}. The next page opens
+        the map into one column per epoch and plays the run match by
+        match.</p>`;
       },
       // no focus: the map re-partitions in place when the ns knob lands
       // (a repartition carries zero camera delta, #13), and the epoch
@@ -87,6 +86,37 @@ export function nsSocialSteps(
       lens: 1,
       ns: true,
       reveals: ["nssoc"],
+      scene: 1,
+      minDay: 60,
+    },
+    {
+      id: "watch-the-run",
+      title: "Watch the run",
+      html: () => {
+        const r = run();
+        const what = r.matches === 0
+          ? `This run accepted no matches, so there is nothing to
+            land — the columns open and close again unchanged.`
+          : `Each accepted match draws its claim between the columns
+            and <b>merges</b> the two clusters it names; when the run
+            finishes, the columns fold back into the map with every
+            merge applied.`;
+        return `<p>The record is open as <b>one column per epoch</b>,
+        oldest on the left — the same clusters as before, cut by
+        stretch of history. The matcher is walking its accepted claims
+        in its own order. ${what}</p>
+        <p>The panel's <i>progress</i> slider holds the same run:
+        dragging back retracts matches, dragging forward re-applies
+        them, and <i>play</i> runs the rest from wherever the slider
+        points.</p>`;
+      },
+      // no focus: the epoch columns frame themselves (the modal's
+      // OPEN leg carries the one camera fit)
+      select: () => null,
+      view: 2,
+      lens: 1,
+      ns: true,
+      replay: "ns",
       scene: 1,
       minDay: 60,
     },

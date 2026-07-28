@@ -105,6 +105,7 @@ export function gameSteps(
       lens: 0,
       scene: 1,
       minDay: GAME_DAY + 3,
+      stages: ["params"], // the step hands over the world-re-rolling panel
     },
   ];
 }

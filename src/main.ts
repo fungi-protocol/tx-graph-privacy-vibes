@@ -1543,6 +1543,14 @@ function reflectStagedWidgets(): void {
   show(viewSeg, allRowsSeen || seenWidgets.has("view"));
   show(layoutSeg, allRowsSeen || seenWidgets.has("layout"));
   show(lensSeg, allRowsSeen || seenWidgets.has("lens"));
+  // the cast and params panels wait for the steps that name them (#141
+  // slice 6 — the full reveal schedule); their buttons are inline-block
+  const showBtn = (id: string, on: boolean): void => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? "" : "none";
+  };
+  showBtn("castbtn", allRowsSeen || seenWidgets.has("cast"));
+  showBtn("paramsbtn", allRowsSeen || seenWidgets.has("params"));
   syncKnobButtons(); // the grouping button folds staging into its view rule
 }
 function rowsOnNow(): Record<PanelRow, boolean> {
@@ -1946,7 +1954,7 @@ function withNsRepartition(mutate: () => void): void {
 function nsModalOpen(): boolean {
   return engine.modal.kind === "ns";
 }
-function nsEnterReplay(then?: () => void): void {
+function nsEnterReplay(then?: () => void, live?: () => boolean): void {
   if (nsModalOpen()) {
     then?.();
     return;
@@ -1960,7 +1968,12 @@ function nsEnterReplay(then?: () => void): void {
     () => engine.active === null && engine.pending === null && sameCell(engine.committed, ringCell),
     () => {
       // gen-guard: a takeover mid-journey (or the knob flipping off
-      // while the ring formed) retargets the navigation — no modal
+      // while the ring formed) retargets the navigation — no modal.
+      // `live` lets the caller retract a deferred entry outright: a
+      // tutorial step can be left for one whose cell is the SAME ring
+      // (no takeover to catch), and its stale entry must not open the
+      // columns on a step that never asked for them
+      if (live && !live()) return;
       if (!A.nsSocial || nsModalOpen() || !sameCell(engine.committed, ringCell)) return;
       pausePlay(); // the epoch columns' premise is per-day: time holds
       const before = repartitionStart();
@@ -3121,6 +3134,9 @@ function readableHandoff(): void {
   flyTo({ x: b.x - 120, y: b.y - 120, w: b.w + 240, h: b.h + 240 });
 }
 
+// every onReplay dispatch bumps this; a pending analysis-landing poll
+// from an older step landing sees the mismatch and dies
+let replayGen = 0;
 const tutorial = new Tutorial(steps, {
   // a step that exits the contracted map lands its camera move behind
   // the uncurl rather than flying mid-sequence — and behind the exit's
@@ -3230,6 +3246,45 @@ const tutorial = new Tutorial(steps, {
   onNf: (on) => setNf(on),
   onNs: (on) => setNsSocial(on),
   onMi: (on) => { if (A.showMistakes !== on) setMistakes(on); },
+  // a replay step runs the analysis's own playback; any other step
+  // stops it (the ns modal needs no stopping here — the new step's
+  // applyViewState backstop already closed it). During a time ride the
+  // engine can look at rest between days, so the early dispatch defers
+  // to the onRode re-dispatch — the run must be computed from the
+  // step's own day, not a passing one. The step's own ns/nf switch may
+  // still be in the analysis worker when the step lands (a jump, or a
+  // fast "next"), so entry polls briefly for the landing; a newer
+  // dispatch (the story moved on) invalidates a pending poll
+  onReplay: (kind) => {
+    replayGen += 1;
+    if (kind !== "nf" && A.nfPlaying) nfSetPlaying(false);
+    if (kind === null || playTimer !== null) return;
+    const gen = replayGen;
+    const tryEnter = (tries: number): void => {
+      if (gen !== replayGen) return;
+      const on = kind === "ns" ? A.nsSocial : A.nfOn;
+      if (!on) {
+        if (tries > 0) window.setTimeout(() => tryEnter(tries - 1), 300);
+        return;
+      }
+      if (kind === "ns") {
+        nsEnterReplay(() => {
+          if (!A.nsSocial || A.nsPlaying || gen !== replayGen) return;
+          if (A.nsCursor >= A.nsRun().length) {
+            // replay from the top: matches retract, then land one by one
+            withNsRepartition(() => { A.nsCursor = 0; });
+          }
+          nsSetPlaying(true);
+        }, () => gen === replayGen);
+      } else if (!A.nfPlaying) {
+        if (A.nfCursor >= A.nfRun().length) {
+          withNsRepartition(() => { A.nfCursor = 0; });
+        }
+        nfSetPlaying(true);
+      }
+    };
+    tryEnter(20);
+  },
   onScene: (s, minDay, onRode) => setScene(s, minDay, true, onRode),
   onSelect: (sel) => {
     if (sel === null) clearSelection();

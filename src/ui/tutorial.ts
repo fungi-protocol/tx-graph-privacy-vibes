@@ -58,29 +58,49 @@ export interface TutorialStep {
    * a step that invites the reader to flip a switch itself. Walked-path
    * rule like `overlays`: revealed at every step at or after this one */
   reveals?: string[];
+  /** top-level controls this step introduces explicitly — for widgets
+   * whose reveal is not derivable from the step's view/lens (the cast
+   * and params panels). Same prefix rule as the derived reveals */
+  stages?: TutorialWidget[];
+  /** start the named analysis playback when the step lands: "ns" opens
+   * the epoch-columns modal and replays the propagation from the top,
+   * "nf" replays the greedy matching in place. NOT walked-path
+   * inherited — the playback belongs to this one step; stepping away
+   * stops it (the navigation backstop closes the ns modal) */
+  replay?: "ns" | "nf";
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
 /** the stageable top-level controls: the view/layout/grouping knobs,
- *  the clusters shortcut, and the lens cycler. "chord" is not a button
- *  of its own but the layout knob's third position — staged separately
- *  so the cycle skips the ring until the tour has drawn it */
-export type TutorialWidget = "view" | "layout" | "cluster" | "uncluster" | "lens" | "chord";
+ *  the clusters shortcut, the lens cycler, and the cast/params panel
+ *  buttons. "chord" is not a button of its own but the layout knob's
+ *  third position — staged separately so the cycle skips the ring
+ *  until the tour has drawn it */
+export type TutorialWidget =
+  "view" | "layout" | "cluster" | "uncluster" | "lens" | "chord" | "cast" | "params";
 
-/** which controls the walked path has introduced by `index` (#116):
- *  the graph knobs appear with the first step drawn in the graph, the
- *  contraction controls with the first step that flattens it, the lens
- *  with the first step seen through other eyes. A prefix property, so
- *  a jump to any step reveals exactly what walking there would have —
- *  and re-scanning after a back-step can only re-add, never hide. */
+/** which controls the walked path has introduced by `index` (#116, the
+ *  full schedule per #141 slice 6): everything starts hidden; the view
+ *  knob AND the layout knob (layered|force — no chord position yet)
+ *  appear with the first step drawn in the graph — the bipartite
+ *  slide; the chord position appears with the ring's introduction (the
+ *  singleton ring, view 3); the grouping controls with the first step
+ *  that stacks the ring into cluster discs (view 2 — which also covers
+ *  chord, for a tour that never shows the bare ring); the lens with
+ *  the first step seen through other eyes; the cast and params panels
+ *  where a step names them (`stages`). A prefix property, so a jump to
+ *  any step reveals exactly what walking there would have — and
+ *  re-scanning after a back-step can only re-add, never hide. */
 export function widgetRevealsAt(steps: TutorialStep[], index: number): Set<TutorialWidget> {
   const out = new Set<TutorialWidget>();
   for (let i = 0; i <= Math.min(index, steps.length - 1); i++) {
     const s = steps[i]!;
     if (s.view !== undefined && s.view >= 1) { out.add("view"); out.add("layout"); }
-    if (s.view === 2 || s.view === 3) { out.add("cluster"); out.add("uncluster"); out.add("chord"); }
+    if (s.view === 3) out.add("chord");
+    if (s.view === 2) { out.add("cluster"); out.add("uncluster"); out.add("chord"); }
     if (s.lens === 1 || s.lens === 2) out.add("lens");
+    for (const w of s.stages ?? []) out.add(w);
   }
   return out;
 }
@@ -102,6 +122,11 @@ export interface TutorialCallbacks {
   onNs?: (on: boolean) => void;
   /** steps stage the mistakes grading (the storyteller's error display) */
   onMi?: (on: boolean) => void;
+  /** fired on every step landing with the step's `replay` (null when it
+   *  has none, so a running playback stops when the story moves on);
+   *  re-fired after a time ride lands — the run the playback walks is
+   *  computed from the day the step is written for */
+  onReplay?: (kind: "ns" | "nf" | null) => void;
   /** scene change + fast-forward requirement, fired before focus */
   /** advance the scene and the economy to the step's minDay. When the
    *  step jumps time forward, the visible day RIDES there (#24) — and
@@ -184,6 +209,7 @@ export class Tutorial {
         if (step.focus) {
           this.cb.onFocus(typeof step.focus === "function" ? step.focus() : step.focus);
         }
+        this.cb.onReplay?.(step.replay ?? null);
       });
     }
     this.body.innerHTML = typeof step.html === "function" ? step.html() : step.html;
@@ -205,6 +231,7 @@ export class Tutorial {
     if (animate) this.cb.onNf?.(this.flagAt(this.index, "nf"));
     if (animate) this.cb.onNs?.(this.flagAt(this.index, "ns"));
     if (animate) this.cb.onMi?.(this.flagAt(this.index, "mi"));
+    if (animate) this.cb.onReplay?.(step.replay ?? null);
     if (animate && step.select) {
       const sel = step.select();
       if (sel !== undefined) this.cb.onSelect?.(sel);
@@ -213,7 +240,7 @@ export class Tutorial {
       this.cb.onFocus(typeof step.focus === "function" ? step.focus() : step.focus);
     }
     this.cb.onStepChange?.(this.index);
-    this.panel.style.display = "block";
+    this.panel.style.display = "flex"; // the panel is a flex column (body scrolls alone)
   }
 
   /** effective heuristics at a step: the last explicit `overlays` at or

@@ -95,6 +95,35 @@ export function nsNetflixSteps(
       minDay: 55,
     },
     {
+      id: "watch-the-matches-land",
+      title: "Watch the matches land",
+      html: () => {
+        const r = run();
+        const what = r.matches === 0
+          ? `<p>The matcher accepted nothing this run, so the replay has
+            nothing to land and the map holds still — on a run with
+            matches, this page plays them back.</p>`
+          : `<p>The run is replaying on the map: the accepted matches
+            land <b>one at a time, best score first</b>. Each teal link
+            arrives and merges its two clusters, so you can watch the
+            map coarsen claim by claim instead of receiving the result
+            all at once.</p>`;
+        return `${what}
+        <p>The panel's <i>progress</i> slider holds the same run:
+        dragging back retracts matches — merged clusters split apart
+        again — and dragging forward re-applies them in the same
+        order.</p>`;
+      },
+      focus: () => pad(clusterBounds()),
+      select: () => null,
+      view: 2,
+      lens: 1,
+      nf: true,
+      replay: "nf",
+      scene: 1,
+      minDay: 55,
+    },
+    {
       id: "similar-not-the-same",
       title: "Similar, not the same",
       html: `<p>The honesty that came with every heuristic applies with
