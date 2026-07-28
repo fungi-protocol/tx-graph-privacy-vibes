@@ -8,7 +8,10 @@ import {
   CARDS, BRIDGE, PLANE, LINE, CIRCLE, segments, graphCell, presetCell,
   sameCell, cellClass,
 } from "../src/engine/state";
-import { type ViewState, canonical, withGrouping, withLayout, DEFAULT_VIEW_STATE } from "../src/ui/viewstate";
+import {
+  type ViewState, canonical, withGrouping, withLayout, DEFAULT_VIEW_STATE,
+  fragmentView, viewFromFragment,
+} from "../src/ui/viewstate";
 
 test("cellOf: the knob-reachable states map onto the stable cells", () => {
   const cases: [ViewState, ReturnType<typeof cellOf>][] = [
@@ -63,6 +66,34 @@ test("ringMode: curve cells take the memo, plane cells their own axis", () => {
   assert.equal(ringMode(presetCell("chord", "ungrouped"), "ltr"), "time");
   assert.equal(ringMode(BRIDGE, "force"), "time");
   assert.equal(ringMode(presetCell("force", "clustered"), "ltr"), "force");
+});
+
+test("the fragment names the canonical cell (#141 slice 4c): v/fd/uc round-trips every reachable stable cell", () => {
+  // slice 4c resolution: no schema bump is needed — the v5 wire triple
+  // already determines the canonical cell uniquely. The one ViewState
+  // the triple cannot carry (a clusters grouping remembered under the
+  // cards view) is not a READ state either: viewStateOf(CARDS) always
+  // reports unclustered (#140 collapsed cards-clustered deliberately),
+  // so what the app can show, the fragment can say.
+  const stable = [
+    CARDS, BRIDGE,
+    presetCell("force", "ungrouped"),
+    presetCell("layered", "clustered"), presetCell("force", "clustered"),
+    presetCell("chord", "ungrouped"), presetCell("chord", "clustered"),
+  ];
+  for (const memo of ["ltr", "force"] as const) {
+    for (const cell of stable) {
+      const vs = viewStateOf(cell, memo);
+      const f = fragmentView(vs);
+      const back = viewFromFragment(f.v, f.fd, f.uc);
+      // the decoded ViewState IS the encoded one: nothing readable is lost
+      assert.deepEqual(back, vs, `${JSON.stringify(cell)} memo=${memo}`);
+      // and it names the same cell — the fragment encodes the cell
+      assert.ok(sameCell(cellOf(back), cell), `${JSON.stringify(cell)} memo=${memo}`);
+      // the memo itself survives through fd wherever the cell leaves it open
+      assert.equal(back.arrange, vs.arrange);
+    }
+  }
 });
 
 test("knob gestures compose with the adapter: every #115 rewrite lands on a stable cell", () => {
