@@ -37,3 +37,27 @@ jobs:
         run: |
           nix build --no-link --no-update-lock-file --print-build-logs \
             .#checks.x86_64-linux.browser
+
+  # the knob-matrix VM test (#141 slice 4e): drives every single-knob
+  # gesture at desktop + mobile viewports; the t=-1 and settled
+  # captures come out of the VM as a reviewable artifact (assertions
+  # are DOM-state only — screenshots are for human review, never
+  # pixel-compared).
+  browser-knobs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          extra-conf: |
+            system-features = nixos-test kvm big-parallel benchmark
+      - name: Browser knob-matrix check (NixOS VM + playwright)
+        run: |
+          out=$(nix build --no-link --print-out-paths --no-update-lock-file \
+            --print-build-logs .#checks.x86_64-linux.browser-knobs)
+          echo "shots=$out" >> "$GITHUB_ENV"
+      - name: Upload knob-walk captures
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: knob-walk-captures
+          path: ${{ env.shots }}

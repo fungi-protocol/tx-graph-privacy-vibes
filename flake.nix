@@ -86,8 +86,8 @@
           # NixOS VM: serve the built page and drive the whole tutorial
           # with playwright's headless chromium (Linux only — VM tests
           # need a Linux builder)
-          browser = pkgs.testers.runNixOSTest {
-            name = "browser-tutorial";
+          browserVM = name: driver: extra: pkgs.testers.runNixOSTest {
+            inherit name;
             nodes.machine = _: {
               virtualisation.memorySize = 3072;
               virtualisation.cores = 2;
@@ -106,10 +106,20 @@
               machine.succeed(
                   "PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers} "
                   "PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true "
-                  "python3 ${./test/drive-tutorial.py} >&2"
+                  "python3 ${driver} >&2"
               )
-            '';
+            '' + extra;
           };
+          browser = browserVM "browser-tutorial" ./test/drive-tutorial.py "";
+          # the knob matrix (#141 slice 4e): its own VM — the tutorial
+          # drive alone is long for the 3GB/2-core VM. The t=-1 and
+          # settled captures land in $out as reviewable artifacts; they
+          # are never pixel-compared (chromium/font pins make image
+          # diffs flake) — assertions run against the DOM state inside
+          # the driver.
+          browser-knobs = browserVM "browser-knobs" ./test/drive-knobs.py ''
+            machine.copy_from_machine("/tmp/shots", "")
+          '';
         in
         {
           devShells.default = pkgs.mkShell {
@@ -122,7 +132,7 @@
             inherit unit typecheck determinism;
             build = app;
           } // lib.optionalAttrs pkgs.stdenv.isLinux {
-            inherit browser;
+            inherit browser browser-knobs;
           };
         };
     };
