@@ -47,6 +47,9 @@ import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
 import { type Chain, addrKey, addrText } from "./model/chain";
 import { createAnalysisController, memoLRU } from "./ui/analysisController";
+import { createEngine, request as engineRequest, tick as engineTick, snapTo } from "./engine/engine";
+import { cellOf } from "./engine/adapter";
+import { projectScalars } from "./engine/project";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -615,6 +618,73 @@ let clusterTrans: ClusterTransition | null = null;
 
 const anim = new Animator();
 
+// --- the display engine (#141 slice 3c): one queue of legs, one
+// clock. Every knob/tutorial gesture mirrors the flag state it wrote
+// into an engine request; the rAF loop ticks the engine and reads
+// viewT/collapseT back off the projection, so the leg queue is the
+// single clock behind both scalars — the anim tweens that used to
+// drive them are gone. The setters keep their flags and side effects
+// (camera, cluster tweens, knob sync) until the slice-4 switchover.
+const engine = createEngine(cellOf(canonical({
+  view: "cards", arrange: "ltr", chord: false, grouping: "unclustered",
+})));
+/** mirror the just-written flag state into the engine: a plan toward
+ *  its cell (animate) or an instant jump (restores, silent settles) */
+function syncEngine(animate: boolean): void {
+  const cell = cellOf(currentViewState());
+  if (animate) {
+    engineRequest(engine, cell);
+    kick();
+  } else {
+    snapTo(engine, cell);
+  }
+}
+/** the sequencing hook that replaced the tween done-callbacks: fn runs
+ *  on the first frame where test holds — or, as the legacy tweens did,
+ *  when the motion has fully settled even if a preemption re-routed it
+ *  away from the tested value (callers gen-guard where it matters) */
+const settleWaiters: { test: () => boolean; fn: () => void }[] = [];
+function onSettle(test: () => boolean, fn: () => void): void {
+  if (test()) {
+    fn();
+    return;
+  }
+  settleWaiters.push({ test, fn });
+  kick();
+}
+/** the view morph holds the selection steady on screen (#140): the
+ *  screen point captured when the morph began, re-anchored per frame */
+let morphHold: [number, number] | null = null;
+/** apply the engine clock to the legacy scalars, once per frame */
+function applyEngineScalars(): void {
+  const s = projectScalars(engine);
+  const viewMoved = s.viewT !== viewT;
+  viewT = s.viewT;
+  collapseT = s.collapseT;
+  if (morphHold && viewMoved) {
+    const r = selectionRect();
+    if (r) {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      cam = {
+        ...cam,
+        x: r.x + r.w / 2 - (morphHold[0] - w / 2) / cam.scale,
+        y: r.y + r.h / 2 - (morphHold[1] - h / 2) / cam.scale,
+      };
+    }
+  }
+  // recomputed per waiter: a fired callback can start new motion,
+  // and the waiters behind it must then hold for that motion
+  const idle = (): boolean => engine.active === null && engine.pending === null;
+  for (let i = 0; i < settleWaiters.length; i++) {
+    const w = settleWaiters[i]!;
+    if (w.test() || idle()) {
+      settleWaiters.splice(i, 1);
+      i -= 1;
+      w.fn();
+    }
+  }
+}
+
 function resize(): void {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(canvas.clientWidth * dpr);
@@ -871,35 +941,27 @@ function setView(view: 0 | 1, animate = true, onDone?: () => void): void {
   syncKnobButtons();
   if (!animate) {
     viewT = view;
+    morphHold = null;
+    syncEngine(false);
     draw();
     void syncFragment();
     onDone?.();
     return;
   }
-  const from = viewT;
   // the selection is the same entity in both drawings — hold it steady on
-  // screen while everything else rearranges around it
-  const startRect = view <= 1 && from <= 1 ? selectionRect() : null;
-  const hold = startRect
+  // screen while everything else rearranges around it (applied per frame
+  // by the engine-scalar projection while the morph rides)
+  const startRect = selectionRect();
+  morphHold = startRect
     ? worldToScreen(cam, canvas.clientWidth, canvas.clientHeight,
         startRect.x + startRect.w / 2, startRect.y + startRect.h / 2)
     : null;
-  // slow enough to follow each card unfolding into its coins (#140)
-  anim.add(700 + 600 * Math.abs(view - from), (t) => {
-    viewT = from + (view - from) * t;
-    if (hold) {
-      const r = selectionRect();
-      if (r) {
-        const w = canvas.clientWidth, h = canvas.clientHeight;
-        cam = {
-          ...cam,
-          x: r.x + r.w / 2 - (hold[0] - w / 2) / cam.scale,
-          y: r.y + r.h / 2 - (hold[1] - h / 2) / cam.scale,
-        };
-      }
-    }
-  }, { done: () => { void syncFragment(); onDone?.(); } });
-  kick();
+  syncEngine(true);
+  onSettle(() => viewT === view, () => {
+    morphHold = null;
+    void syncFragment();
+    onDone?.();
+  });
 }
 // the view control is a two-segment picker (#140): choosing a segment
 // dispatches the whole journey — from the contracted map, picking
@@ -942,6 +1004,7 @@ function setUnclustered(on: boolean, animate = true): void {
   const before = repartitionStart(animate);
   unclustered = on;
   syncKnobButtons();
+  syncEngine(animate);
   if (selection?.kind === "cluster") { selection = null; highlight = null; }
   A.nsSecond = null;
   beginClusterTween(before);
@@ -974,17 +1037,17 @@ function setCollapsed(on: boolean, animate = true, onDone?: () => void): void {
   }
   if (!animate) {
     collapseT = on ? 1 : 0;
+    syncEngine(false);
     draw();
     void syncFragment();
     onDone?.();
     return;
   }
-  const from = collapseT;
+  // the engine plans the legs (detail, flatten, curl, stack — and the
+  // exact reverse out); collapseT rides the projection
+  syncEngine(true);
   const to = on ? 1 : 0;
-  // three legs need room: shrink, flatten, stack (#95)
-  anim.add(80 + 2100 * Math.abs(to - from), (t) => { collapseT = from + (to - from) * t; },
-    { done: () => { void syncFragment(); onDone?.(); } });
-  kick();
+  onSettle(() => collapseT === to, () => { void syncFragment(); onDone?.(); });
 }
 // --- graph layout mode (#44): layered timeline vs force-directed. The
 // bipartite view can be drawn either way; both scenes swap their bip
@@ -996,6 +1059,7 @@ function setForceLayout(on: boolean, animate = true): void {
   const beforeRing = repartitionStart(animate);
   forceLayout = on;
   syncKnobButtons();
+  syncEngine(animate);
   beginClusterTween(beforeRing);
   // the re-arranged map has different natural bounds — fly to them
   if (collapsed && animate) flyToMap();
@@ -1204,6 +1268,7 @@ function applyViewState(nextRaw: ViewState, animate = true): void {
     if (cur.chord !== next.chord) {
       const before = repartitionStart(animate);
       chordArr = next.chord;
+      syncEngine(animate);
       beginClusterTween(before);
       // the ring and the band/map have different natural bounds (#140)
       if (animate) flyToMap();
@@ -2329,9 +2394,11 @@ function hitAt(wx: number, wy: number): Hit | null {
 
 // --- animation loop ---
 let rafLive = false;
+let lastFrameAt: number | null = null;
 function kick(): void {
   if (rafLive) return;
   rafLive = true;
+  lastFrameAt = null; // dt restarts: idle time never fast-forwards legs
   const frame = (now: number): void => {
     // a throw mid-frame must not leave rafLive latched true with the
     // loop dead — that silently bricks every animation for the rest of
@@ -2340,10 +2407,15 @@ function kick(): void {
     // exception surface on the console either way.
     let more = false;
     try {
-      more = anim.tick(now);
+      const dt = lastFrameAt === null ? 0 : now - lastFrameAt;
+      lastFrameAt = now;
+      const engineLive = engineTick(engine, dt);
+      applyEngineScalars();
+      more = anim.tick(now) || engineLive
+        || engine.active !== null || settleWaiters.length > 0;
       draw();
     } catch (e) {
-      more = anim.active;
+      more = anim.active || engine.active !== null;
       throw e;
     } finally {
       if (more) requestAnimationFrame(frame);

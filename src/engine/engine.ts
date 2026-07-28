@@ -92,6 +92,18 @@ export function request(e: DisplayEngine, nextRaw: EngineViewState): void {
   startPlan(e, next);
 }
 
+/** jump with no motion (fragment restore, tutorial resets, tests):
+ *  the engine lands at the cell instantly, dropping any plan. The ns
+ *  modal backstop applies as for request. */
+export function snapTo(e: DisplayEngine, cell: EngineViewState): void {
+  if (e.modal.kind === "ns") return;
+  const c = canonicalCell(cell);
+  if (cellClass(c) === "invalid") throw new Error("engine: invalid snap cell");
+  e.committed = c;
+  e.active = null;
+  e.pending = null;
+}
+
 function startPlan(e: DisplayEngine, target: EngineViewState): void {
   const legs = pathBetween(e.committed, target);
   if (legs.length === 0) { e.committed = canonicalCell(target); return; }
