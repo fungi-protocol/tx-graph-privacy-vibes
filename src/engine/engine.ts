@@ -2,7 +2,7 @@
 // preemption by acceleration, async results by monotone catch-up.
 // Pure — time arrives as an argument, rendering is the caller's
 // problem; the engine only says which leg is in flight and how far.
-import { type EngineViewState, canonicalCell, sameCell, cellClass } from "./state";
+import { type EngineViewState, canonicalCell, sameCell, cellClass, graphCell, segments } from "./state";
 import { type Leg, legDurationMs, CATCHUP_ACCEL } from "./legs";
 import { pathBetween } from "./path";
 
@@ -177,20 +177,30 @@ function maybeCatchUp(e: DisplayEngine): void {
   };
 }
 
-/** enter the ns replay modal (only from chord × clusters; the caller
- *  writes those knobs first — entry IS an explicit navigation) */
-export function enterNsModal(e: DisplayEngine, cursor: number): boolean {
+/** enter the ns replay modal (only from chord × clusters at rest; the
+ *  caller writes those knobs first — entry IS an explicit navigation).
+ *  On success the engine itself queues the OPEN leg (mirroring
+ *  maybeCatchUp — engine-queued, never planned by a gesture) and
+ *  commits to the k-segment columns cell (#141 slice 5). */
+export function enterNsModal(e: DisplayEngine, cursor: number, k: number): boolean {
   if (e.modal.kind === "ns") return true;
   const here = e.committed;
   const chordClusters = here.view === "graph" && !here.layout.plane
-    && here.layout.shape.curve === "circle" && here.grouping === "clustered";
-  if (!chordClusters || e.active) return false;
+    && here.layout.shape.curve === "circle" && here.arrange === "sequenced"
+    && here.grouping === "clustered";
+  if (!chordClusters || e.active || e.pending) return false;
+  const to = graphCell(segments(Math.max(2, k)), "sequenced", "clustered");
+  e.active = { legs: [{ kind: "OPEN", from: here, to }], index: 0, progress: 0, speed: 1 };
+  e.committed = to;
   e.modal = { kind: "ns", cursor };
   return true;
 }
 
-/** leave the modal; a deferred catch-up (analyses that landed during
- *  the replay) runs as usual once the close motion rests */
+/** leave the modal: the flag clears, gestures unblock — the caller
+ *  then requests the chord ring (pathBetween plans CLOSE from the
+ *  transient segments source; an exit mid-OPEN rides the standing
+ *  preemption rule). A deferred catch-up (analyses that landed during
+ *  the replay) runs as usual once the close motion rests. */
 export function exitNsModal(e: DisplayEngine): void {
   if (e.modal.kind !== "ns") return;
   e.modal = { kind: "none" };

@@ -64,23 +64,24 @@ export function nsSocialSteps(
           : `accepted <b>${r.matches} matches</b> this run`;
         return `<p>Here is what that shape is worth to an observer
         (Narayanan&nbsp;&amp;&nbsp;Shmatikov, 2009, retold on this
-        graph). Cut the record into ${r.parts} <b>epochs</b> — the
-        columns you see, one per stretch of the town's history. People
-        keep paying the same people, so each epoch's graph grows into
-        much the same shape as the last.</p>
+        graph). Cut the record into ${r.parts} <b>epochs</b>, one per
+        stretch of the town's history. People keep paying the same
+        people, so each epoch's graph grows into much the same shape as
+        the last.</p>
         <p><i>Social-network analysis</i> just joined the panel,
         switched on: it matches vertices <b>across</b> the epochs by the
         shape of their neighborhoods — whom they touch, and whom those
         touch — consulting no amounts at all. A match is an ownership
         claim, "these two pseudonyms are one user's", and accepting it
-        merges the clusters. The matcher ${count}; the
-        <i>progress</i> slider rewinds the run, and the play button
-        walks it again match by match.</p>`;
+        merges the clusters. The matcher ${count}. Press
+        <i>play</i> to watch: the map opens into one column per epoch
+        and the run lands match by match; the <i>progress</i> slider
+        rewinds and re-applies it.</p>`;
       },
-      // no focus: the columns don't exist until the ns knob lands (the
-      // run rides the analysis worker), so a rect computed at dispatch
-      // would frame the folded map — setNsSocial flies to the fitted
-      // columns itself when the landing arrives
+      // no focus: the map re-partitions in place when the ns knob lands
+      // (a repartition carries zero camera delta, #13), and the epoch
+      // columns exist only inside the replay modal the play button
+      // opens — which frames itself
       select: () => null,
       view: 2,
       lens: 1,

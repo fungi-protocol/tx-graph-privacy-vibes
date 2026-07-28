@@ -47,8 +47,12 @@
                 border-left: 1px solid #4a4e57; padding: 6px 10px;
                 font: inherit; font-size: 13px; cursor: pointer; }
   .seg button:first-child { border-left: none; }
-  .seg button:hover { background: #3d414a; }
+  .seg button:hover:not(:disabled) { background: #3d414a; }
   .seg button.on { background: #4a4e57; color: #ffffff; }
+  /* the ns replay modal greys every layout-affecting control (#141
+     slice 5); one rule covers segments, checkboxes, sliders and the
+     time tape alike */
+  .seg button:disabled, input:disabled, #timebar button:disabled { opacity: 0.4; cursor: default; }
   #viewtoggle { top: 16px; }
   #layoutbtn { top: 56px; }
   /* the grouping control is a checkbox (#141 slice 4d): clusters

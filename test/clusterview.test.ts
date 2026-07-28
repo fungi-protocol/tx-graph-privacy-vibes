@@ -478,3 +478,26 @@ test("the transition interpolates identical ids: t=0 IS the old shape, t=1 the n
     assert.ok(Math.abs(mid.x0 - (o.quad.x0 + n.quad.x0) / 2) < 1e-9);
   }
 });
+
+// #10 (slice 5 acceptance): the ns replay's epoch columns draw the SAME
+// discs the ring does — a cluster's radius is a pure function of its
+// membership (discRadius), never of the arrangement, so opening the
+// modal resizes nothing and the reader can track each disc across the
+// OPEN/CLOSE legs by size as well as color.
+test("columns and ring draw identical disc radii for the same partition (#10)", async () => {
+  const { layoutClusterColumns } = await import("../src/ui/clusterview");
+  const { partitionColumns } = await import("../src/analysis/nssocial");
+  const eco = new Economy("golden");
+  eco.runTo(60);
+  const chain = eco.chain;
+  const cl = clusterObserver(chain, (d) => eco.prices[d]);
+  const cols = partitionColumns(cl, chain, 3);
+  const lanes = new Map([...cols].map(([rep, c]) => [rep, [c]]));
+  const ring = layoutClusterGraph(cl, chain, "time");
+  const columns = layoutClusterColumns(cl, chain, lanes, 3, "time");
+  assert.equal(columns.nodes.size, ring.nodes.size, "same vertex set");
+  for (const [rep, n] of columns.nodes) {
+    assert.equal(n.r, ring.nodes.get(rep)!.r, `disc ${rep} resized between ring and columns`);
+    assert.equal(n.r, discRadius(n.size), `disc ${rep} radius is not the membership function`);
+  }
+});

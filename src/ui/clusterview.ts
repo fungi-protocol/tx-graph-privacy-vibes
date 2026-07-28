@@ -411,13 +411,19 @@ export function drawContraction(
     const toN = toN0 as ClusterNode[];
     if (columns) {
       // the column layout keeps its lane-aware pair shapes, one edge
-      // per (input cluster, output cluster) pair
+      // per (input cluster, output cluster) pair. Within one epoch's
+      // lane the arc DIMS by default (#4): the modal's subject is the
+      // cross-lane correspondence, so the intra-epoch wiring recedes —
+      // while highlighting (a touched trace, a hovered disc) restores
+      // exactly the alpha the ring gives it
       for (const fn of fromN) {
         const p0 = posOf(fn);
         for (const tn of toN) {
           const p1 = posOf(tn);
           const sameLane = fn.lanes !== undefined && tn.lanes !== undefined &&
             fn.lanes.length === 1 && tn.lanes.length === 1 && fn.lanes[0] === tn.lanes[0];
+          const dimmed = sameLane && !touched && hov === undefined;
+          if (dimmed) ctx.strokeStyle = paint.color(tx.inputs[0]!) + "2e";
           const bowSign = sameLane && fn.lanes![0]! < (maxLane + 1) / 2 ? -1 : 1;
           const tan = columnEdge(ctx, p0.x, p0.y, p1.x, p1.y, sameLane, bowSign);
           ctx.stroke();
@@ -425,6 +431,7 @@ export function drawContraction(
           arrowAt(ctx,
             p1.x - (tan.tx / d) * (tn.r + 3), p1.y - (tan.ty / d) * (tn.r + 3),
             tan.tx, tan.ty);
+          if (dimmed) { ctx.strokeStyle = color; ctx.fillStyle = color; }
         }
       }
       continue;

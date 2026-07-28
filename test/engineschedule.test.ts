@@ -60,7 +60,9 @@ function run(schedule: Action[], horizonMs: number): DisplayEngine {
       } else if (a.do === "integrate") {
         integrate(e, { key: a.key, revision: a.revision });
       } else if (a.do === "nsEnter") {
-        modalHeld = enterNsModal(e, 0);
+        // entry queues the OPEN leg itself (slice 5); the schedule's
+        // exits request the ring afterward, as the UI does
+        modalHeld = enterNsModal(e, 0, 3);
       } else {
         exitNsModal(e);
         modalHeld = false;

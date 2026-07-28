@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  CARDS, BRIDGE, graphCell, presetCell, sameCell, PLANE,
+  CARDS, BRIDGE, graphCell, presetCell, sameCell, PLANE, segments,
 } from "../src/engine/state";
 import {
   createEngine, request, tick, integrate, restPoint,
@@ -121,21 +121,47 @@ test("catch-up waits for the active motion; cards needs no leg", () => {
   assert.equal(cards.active, null, "cards redraws without a leg");
 });
 
-test("ns modal: entered only from chord×clusters at rest; gestures reject; catch-up defers to exit", () => {
+test("ns modal: entered only from chord×clusters at rest; the engine queues OPEN; gestures reject; catch-up defers to exit", () => {
   const e = createEngine(forceU, "k");
-  assert.equal(enterNsModal(e, 0), false, "not chord×clusters");
+  assert.equal(enterNsModal(e, 0, 3), false, "not chord×clusters");
   request(e, chordC);
-  assert.equal(enterNsModal(e, 0), false, "not at rest");
+  assert.equal(enterNsModal(e, 0, 3), false, "not at rest");
   runToRest(e);
-  assert.equal(enterNsModal(e, 3), true);
+  assert.equal(enterNsModal(e, 3, 3), true);
   assert.deepEqual(e.modal, { kind: "ns", cursor: 3 });
+  // entry queued the OPEN leg itself and committed to the columns cell
+  assert.equal(e.active!.legs[0]!.kind, "OPEN", "engine-queued OPEN");
+  const seg = graphCell(segments(3), "sequenced", "clustered");
+  assert.ok(sameCell(e.committed, seg));
+  runToRest(e); // the columns stand
   request(e, forceU); // layout-affecting gesture during the modal
   assert.equal(e.active, null, "rejected");
-  assert.ok(sameCell(e.committed, chordC));
+  assert.ok(sameCell(e.committed, seg));
   integrate(e, { key: "k", revision: 1 });
   tick(e, 16);
   assert.equal(e.active, null, "catch-up deferred inside the modal");
+  // exit clears the flag; the caller's ring request plans ONE CLOSE leg
   exitNsModal(e);
-  tick(e, 16);
-  assert.ok(e.active && e.active.legs[0]!.kind === "REPARTITION", "deferred catch-up runs on exit");
+  request(e, chordC);
+  assert.equal(e.active!.legs.length, 1);
+  assert.equal(e.active!.legs[0]!.kind, "CLOSE", "exit closes the columns back to the ring");
+  // the deferred catch-up arms the moment the close rests (runToRest
+  // drains it — verify it ran by watching the owed flag clear)
+  assert.equal(e.catchUpDue, true, "catch-up still owed as the close starts");
+  runToRest(e);
+  assert.ok(sameCell(e.committed, chordC));
+  assert.equal(e.catchUpDue, false, "deferred catch-up ran after the close rested");
+});
+
+test("ns modal: an exit mid-OPEN accelerates, then closes (the standing preemption rule)", () => {
+  const e = createEngine(chordC, "k");
+  assert.equal(enterNsModal(e, 0, 4), true);
+  tick(e, 100); // mid-OPEN
+  exitNsModal(e);
+  request(e, chordC);
+  assert.equal(e.active!.speed, CATCHUP_ACCEL, "the open hurries to its endpoint");
+  assert.ok(e.pending && sameCell(e.pending, chordC));
+  runToRest(e);
+  assert.ok(sameCell(e.committed, chordC));
+  assert.equal(e.modal.kind, "none");
 });

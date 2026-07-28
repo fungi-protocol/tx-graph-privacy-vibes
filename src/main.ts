@@ -47,9 +47,9 @@ import { Animator, easeOutQuad } from "./ui/anim";
 import { fmtSats } from "./core/sats";
 import { type Chain, addrKey, addrText } from "./model/chain";
 import { createAnalysisController, memoLRU } from "./ui/analysisController";
-import { createEngine, request as engineRequest, tick as engineTick, snapTo, integrate } from "./engine/engine";
+import { createEngine, request as engineRequest, tick as engineTick, snapTo, integrate, enterNsModal, exitNsModal } from "./engine/engine";
 import { cellOf, viewStateOf } from "./engine/adapter";
-import { type EngineViewState } from "./engine/state";
+import { type EngineViewState, sameCell } from "./engine/state";
 import { projectScalars, mapValue } from "./engine/project";
 import { mapPose } from "./engine/pose";
 
@@ -305,6 +305,14 @@ function unclusteredKnob(): boolean {
   const c = destCell();
   return c.view === "graph" && !c.layout.plane && c.grouping === "ungrouped";
 }
+/** whether the destination is the ns replay's epoch columns (#141
+ *  slice 5): true from the moment the modal's entry queues its OPEN
+ *  leg, false the moment an exit requests the ring — the columns are
+ *  a modal-only arrangement, never the steady-state clay */
+function segmentsKnob(): boolean {
+  const c = destCell();
+  return c.view === "graph" && !c.layout.plane && c.layout.shape.curve === "segments";
+}
 interface CollapseState { cl: Clustering; clay: ClusterLayout; ring: ClusterLayout; line: ClusterLayout }
 const collapseMemo = memoLRU<CollapseState>(16);
 /** the entry the contracted view last computed — what a repartition
@@ -326,8 +334,8 @@ function collapseState(): CollapseState {
   // different point is a different placement, and a knob toggled back
   // under an unmoved anchor reuses its arrangement
   const anchor = mapAnchor ? `${Math.round(mapAnchor.x)},${Math.round(mapAnchor.y)}` : "·";
-  const uncl = unclusteredKnob(), force = forceKnob(), chord = chordKnob();
-  const key = `${A.mapSig()}§${A.matchSig()}§${lens}|${agent}|${uncl ? 1 : 0}|${force ? 1 : 0}|${chord ? 1 : 0}|${anchor}`;
+  const uncl = unclusteredKnob(), force = forceKnob(), chord = chordKnob(), seg = segmentsKnob();
+  const key = `${A.mapSig()}§${A.matchSig()}§${lens}|${agent}|${uncl ? 1 : 0}|${force ? 1 : 0}|${chord ? 1 : 0}|${seg ? 1 : 0}|${anchor}`;
   lastCollapse = collapseMemo.get(key, () => {
     const base = uncl ? clusterSingletons(active().chain)
       : lens === 0 ? clusterByOwner(active().chain)
@@ -338,15 +346,15 @@ function collapseState(): CollapseState {
     // base the same way
     const cl = !uncl && lens === 1 ? A.observerModel() : A.fuseMatches(base);
     // the layout button generalizes to the ring: layered orders it by
-    // time, force reorders it to minimize edge crossings. Under the
-    // ns-social partition the circle opens into columns — one vertical
+    // time, force reorders it to minimize edge crossings. Inside the
+    // ns replay modal the circle opens into columns — one vertical
     // segment per epoch, matched vertices spanning the lanes they fused
     const mode = force ? "force" as const : "time" as const;
     // three arrangements of the same contracted scene (#115): the ns
-    // columns override everything, the chord bends the timeline around
-    // the ring (the layout button picks its ordering), and uncurled the
-    // layout button picks the band (layered) or the free force map
-    const clay0 = A.nsActive()
+    // modal's columns override everything, the chord bends the timeline
+    // around the ring (the layout button picks its ordering), and
+    // uncurled the layout button picks the band or the free force map
+    const clay0 = seg
       ? layoutClusterColumns(cl, active().chain, A.nsLanes(base, cl), A.nsParts, mode)
       : chord ? layoutClusterGraph(cl, active().chain, mode)
       : force ? layoutClusterForceMap(cl, active().chain)
@@ -1301,6 +1309,10 @@ function beginClusterTween(before: { cl: Clustering; clay: ClusterLayout } | nul
   kick();
 }
 function applyViewState(nextRaw: ViewState, animate = true): void {
+  // navigation while the ns replay modal is open (a tutorial jump, a
+  // hotkey — the knobs themselves are disabled) forces the modal exit
+  // first: the columns close, then this request runs (#141 slice 5)
+  if (nsModalOpen()) nsExitReplay(animate);
   const next = canonical(nextRaw);
   const cur = currentViewState();
   const wasMap = contracted(cur), willMap = contracted(next);
@@ -1395,6 +1407,10 @@ function applyViewState(nextRaw: ViewState, animate = true): void {
 }
 
 function setLens(l: 0 | 1 | 2): void {
+  // a lens change conflicts with the ns replay's columns (the same
+  // repartition conflict as the layout knobs — #141 slice 5); the lens
+  // control is disabled during the modal, and this backstops hotkeys
+  if (nsModalOpen()) nsExitReplay();
   // a lens change while the map is contracted is a walk through the
   // refinement lattice: the old partition's discs merge and split into
   // the new one's, the same repartition tween as a heuristic toggle
@@ -1605,26 +1621,31 @@ function reflectOverlays(): void {
   overlaysPanel.style.display = lens === 1 && anyRow ? "block" : "none";
   (overlaysPanel.querySelector("h4") as HTMLElement).style.display =
     anyHeuristic ? "" : "none";
+  // the ns replay modal locks every partition-affecting input (#141
+  // slice 5): a heuristic flipped mid-replay would re-form the columns
+  // under the reader — the replay's own controls stay live below
+  const lock = nsModalOpen();
   overlaysPanel.querySelectorAll("input[data-bit]").forEach((el) => {
     const input = el as HTMLInputElement;
     // the boxes show what RUNS — the forced CIOH reads checked while
     // sub-tx is on, though the user's own setting waits underneath
     input.checked = (A.effOverlays() & Number(input.dataset["bit"])) !== 0;
+    input.disabled = lock;
   });
   // while the sub-transaction analysis runs, CIOH is forced on and
   // greyed out (see effOverlays)
   const ciohBox = overlaysPanel.querySelector(`input[data-bit="${OV_CIOH}"]`) as HTMLInputElement;
-  ciohBox.disabled = (A.overlays & OV_SUBSUM) !== 0;
+  ciohBox.disabled = lock || (A.overlays & OV_SUBSUM) !== 0;
   const slider = document.getElementById("ciohmax") as HTMLInputElement;
   slider.value = String(A.ciohMax);
-  slider.disabled = (A.effOverlays() & OV_CIOH) === 0;
+  slider.disabled = lock || (A.effOverlays() & OV_CIOH) === 0;
   (document.getElementById("ciohmaxv") as HTMLOutputElement).textContent =
     A.ciohMax >= CIOH_MAX_OFF ? "off" : String(A.ciohMax);
   const changeOff = (A.overlays & OV_CHANGE) === 0;
   for (const [id, bit] of [["chusd", TELL_USD], ["chbtc", TELL_BTC], ["chscript", TELL_SCRIPT], ["chaux", TELL_AUX]] as const) {
     const box = document.getElementById(id) as HTMLInputElement;
     box.checked = (A.changeTells & bit) !== 0;
-    box.disabled = changeOff;
+    box.disabled = lock || changeOff;
   }
   // the bar counts kinds, so it can demand at most the enabled kinds —
   // and with none enabled nothing can clear it either way
@@ -1633,12 +1654,16 @@ function reflectOverlays(): void {
   chev.max = String(enabledKinds);
   A.changeEvidence = Math.min(A.changeEvidence, enabledKinds);
   chev.value = String(A.changeEvidence);
-  chev.disabled = changeOff || A.tellCount(A.changeTells) <= 1;
+  chev.disabled = lock || changeOff || A.tellCount(A.changeTells) <= 1;
   (document.getElementById("chevv") as HTMLOutputElement).textContent =
     A.changeEvidence === 1 ? "1 heuristic" : `${A.changeEvidence} heuristics`;
   (document.getElementById("mistakes") as HTMLInputElement).checked = A.showMistakes;
-  (document.getElementById("kycobs") as HTMLInputElement).checked = A.kycObs;
-  (document.getElementById("auxfrac") as HTMLInputElement).value = String(Math.round(A.auxFrac * 100));
+  const kycBox = document.getElementById("kycobs") as HTMLInputElement;
+  kycBox.checked = A.kycObs;
+  kycBox.disabled = lock;
+  const auxSlider = document.getElementById("auxfrac") as HTMLInputElement;
+  auxSlider.value = String(Math.round(A.auxFrac * 100));
+  auxSlider.disabled = lock;
   (document.getElementById("auxfracv") as HTMLOutputElement).textContent =
     A.auxFrac <= 0 ? "none" : A.auxFrac >= 1 ? "omniscient" : `${Math.round(A.auxFrac * 100)}%`;
   (document.getElementById("nssoc") as HTMLInputElement).checked = A.nsSocial;
@@ -1659,13 +1684,20 @@ function reflectOverlays(): void {
       `${Math.min(A.nsCursor, run.length)}/${run.length} · ${matches} match${matches === 1 ? "" : "es"}`;
     reflectNsProposal();
   }
-  (document.getElementById("nsnf") as HTMLInputElement).checked = A.nfOn;
+  const nfBox = document.getElementById("nsnf") as HTMLInputElement;
+  nfBox.checked = A.nfOn;
+  nfBox.disabled = lock; // the OTHER matcher stays put during a replay
   (document.getElementById("nsnfcontrols") as HTMLElement).style.display = A.nfOn ? "block" : "none";
   if (A.nfOn) {
-    (document.getElementById("nsnfth") as HTMLInputElement).value = String(Math.round(A.nfThreshold * 100));
+    const nfTh = document.getElementById("nsnfth") as HTMLInputElement;
+    nfTh.value = String(Math.round(A.nfThreshold * 100));
+    nfTh.disabled = lock;
     (document.getElementById("nsnfthv") as HTMLOutputElement).textContent =
       A.nfThreshold > 1 ? "none" : A.nfThreshold.toFixed(2);
-    (document.getElementById("nsnfplay") as HTMLButtonElement).textContent = A.nfPlaying ? "pause" : "play";
+    const nfPlay = document.getElementById("nsnfplay") as HTMLButtonElement;
+    nfPlay.textContent = A.nfPlaying ? "pause" : "play";
+    nfPlay.disabled = lock;
+    (document.getElementById("nfprog") as HTMLInputElement).disabled = lock;
     const run = A.nfRun();
     const applied = Math.min(A.nfCursor, run.length);
     const prog = document.getElementById("nfprog") as HTMLInputElement;
@@ -1891,27 +1923,101 @@ function withNsRepartition(mutate: () => void): void {
     highlight = null;
   }
   if (A.nsSecond !== null && !lensClustering().members.has(A.nsSecond)) A.nsSecond = null;
+  // the engine's modal cursor mirrors the replay position
+  if (engine.modal.kind === "ns") {
+    engine.modal = { kind: "ns", cursor: Math.min(A.nsCursor, A.nsRun().length) };
+  }
   startRepartitionTween(before);
   recomputeTrace();
   reflectOverlays();
   draw();
   syncFragmentSoon();
 }
+// --- the ns replay modal (#141 slice 5): the epoch columns exist ONLY
+// here. Entering (play or scrub from the panel) is explicit navigation:
+// the stored knobs become chord × clusters, the journey paths there if
+// not already there, and the engine's enterNsModal queues the OPEN leg
+// into the columns. During the modal every layout-affecting control is
+// disabled (the engine backstops by rejecting requests), the time tape
+// pauses, and async landings defer. Exit — playback finishing, the
+// checkbox turning off, or any navigation backstop — pins the cursor to
+// the run's fixpoint (pending proposals are subsumed by the conclusion)
+// and CLOSEs back to the ring, where the deferred catch-up runs.
+function nsModalOpen(): boolean {
+  return engine.modal.kind === "ns";
+}
+function nsEnterReplay(then?: () => void): void {
+  if (nsModalOpen()) {
+    then?.();
+    return;
+  }
+  const ring: ViewState = canonical({
+    view: "graph", arrange: arrangeMemo, chord: true, grouping: "clustered",
+  });
+  const ringCell = cellOf(ring);
+  if (!sameCell(destCell(), ringCell)) applyViewState(ring);
+  onSettle(
+    () => engine.active === null && engine.pending === null && sameCell(engine.committed, ringCell),
+    () => {
+      // gen-guard: a takeover mid-journey (or the knob flipping off
+      // while the ring formed) retargets the navigation — no modal
+      if (!A.nsSocial || nsModalOpen() || !sameCell(engine.committed, ringCell)) return;
+      pausePlay(); // the epoch columns' premise is per-day: time holds
+      const before = repartitionStart();
+      if (!enterNsModal(engine, Math.min(A.nsCursor, A.nsRun().length), A.nsParts)) return;
+      kick();
+      beginClusterTween(before); // the ring opening into the columns
+      flyZoomMap(); // the OPEN leg's one fit: the columns fill the viewport
+      reflectModalLock();
+      reflectOverlays();
+      if (then) onSettle(() => engine.active === null, then);
+    },
+  );
+}
+function nsExitReplay(animate = true): void {
+  if (!nsModalOpen()) return;
+  nsSetPlaying(false);
+  exitNsModal(engine);
+  const ringCell = cellOf(canonical({
+    view: "graph", arrange: arrangeMemo, chord: true, grouping: "clustered",
+  }));
+  if (animate) {
+    engineRequest(engine, ringCell); // ONE CLOSE leg from the columns
+    kick();
+    // leaving early jumps to the conclusion: the exit fixpoint subsumes
+    // any proposals the replay had not yet landed
+    withNsRepartition(() => { A.nsCursor = A.nsRun().length; });
+    flyZoomMap(); // the CLOSE leg's one fit: the ring's own bounds
+  } else {
+    snapTo(engine, ringCell);
+    withNsRepartition(() => { A.nsCursor = A.nsRun().length; });
+  }
+  reflectModalLock();
+  void syncFragment();
+}
+/** grey the controls the modal locks: the view/layout/lens segments,
+ *  the clusters checkbox and the whole time tape (the panel's own
+ *  inputs fold the lock into reflectOverlays) */
+function reflectModalLock(): void {
+  const lock = nsModalOpen();
+  for (const b of [...viewSegButtons, ...layoutSegButtons, ...lensSegButtons]) b.disabled = lock;
+  groupCheck.disabled = lock;
+  document.querySelectorAll<HTMLButtonElement | HTMLInputElement>("#timebar button, #timebar input")
+    .forEach((el) => { el.disabled = lock; });
+}
 function setNsSocial(on: boolean): void {
   if (A.nsSocial === on) return;
+  if (!on) nsExitReplay(); // unchecking mid-replay closes the columns first
   // the knob mutates through the gateway; the cursor pin — which reads
-  // the (possibly worker-computed) run — waits for the landing
+  // the (possibly worker-computed) run — waits for the landing. The
+  // toggle itself is a plain REPARTITION jump in the standing geometry:
+  // zero camera delta (#13), no columns (#141 slice 5)
   A.commitKnobs(() => { A.nsSocial = on; }, () => {
     withNsRepartition(() => {
       if (on) A.nsCursor = A.nsRun().length; // enabling shows the finished analysis
       else nsSetPlaying(false);
       A.nsSecond = null;
     });
-    // the landing can race a tutorial camera move: the columns were fit
-    // to whatever rect the camera showed at that instant, which a flyTo
-    // in flight is about to leave — settle the disagreement by framing
-    // the fitted layout (a no-op when the camera never moved)
-    if (on && collapsed) flyTo(clusterLayout().bounds);
   }, { nsFull: on });
 }
 function nsSetPlaying(on: boolean): void {
@@ -1927,7 +2033,9 @@ function nsStep(): void {
   A.nsPlayTimer = null;
   if (!A.nsPlaying) return;
   if (A.nsCursor >= A.nsRun().length) {
-    nsSetPlaying(false);
+    // finish IS an exit: the run stands complete, the columns close
+    // back to the ring (#141 slice 5)
+    nsExitReplay();
     return;
   }
   withNsRepartition(() => { A.nsCursor += 1; });
@@ -1981,21 +2089,35 @@ document.getElementById("nsparts")!.addEventListener("input", (e) => {
     withNsRepartition(() => { A.nsCursor = A.nsRun().length; });
   }, { nsFull: true });
 });
+// play enters the replay modal (#141 slice 5) — the explicit navigation
+// to the columns — and starts stepping once they stand; pause stays
+// inside the modal, the columns holding for scrubbing
 document.getElementById("nsplay")!.addEventListener("click", () => {
-  if (!A.nsPlaying && A.nsCursor >= A.nsRun().length) {
-    // replay from the top: matches retract, then land one by one
-    withNsRepartition(() => { A.nsCursor = 0; });
+  if (A.nsPlaying) {
+    nsSetPlaying(false);
+    return;
   }
-  nsSetPlaying(!A.nsPlaying);
+  nsEnterReplay(() => {
+    if (!A.nsSocial || A.nsPlaying) return;
+    if (A.nsCursor >= A.nsRun().length) {
+      // replay from the top: matches retract, then land one by one
+      withNsRepartition(() => { A.nsCursor = 0; });
+    }
+    nsSetPlaying(true);
+  });
 });
 // #102: the analysis lands finished (setNsSocial pins the cursor to the
 // end); this slider rewinds it. Dragging back retracts matches with the
 // same repartition tween a replay lands them with, dragging forward
-// re-applies them in the algorithm's own order.
+// re-applies them in the algorithm's own order. Scrubbing is a replay
+// gesture, so it enters the modal too (#141 slice 5).
 document.getElementById("nsprog")!.addEventListener("input", (e) => {
   const v = Number((e.target as HTMLInputElement).value);
   nsSetPlaying(false);
-  withNsRepartition(() => { A.nsCursor = v; });
+  nsEnterReplay(() => {
+    if (!A.nsSocial) return;
+    withNsRepartition(() => { A.nsCursor = Math.min(v, A.nsRun().length); });
+  });
 });
 
 // --- ns-netflix controls: the same repartition tween; playback is the
