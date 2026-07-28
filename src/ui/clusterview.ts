@@ -613,12 +613,49 @@ export function drawContraction(
   ctx.globalAlpha = 1;
 }
 
-export function hitTestClusters(clay: ClusterLayout, wx: number, wy: number): CoinId | null {
+/** where a coin's pile dot sits in the contracted map — the same
+ *  sunflower slot the draw pass uses */
+export function coinDotAt(clay: ClusterLayout, cl: Pick<Clustering, "rep" | "members">, id: CoinId): { x: number; y: number } | null {
+  const rep = cl.rep.get(id) ?? id;
+  const node = clay.nodes.get(rep);
+  if (!node) return null;
+  const members = cl.members.get(rep) ?? [rep];
+  const pk = pileScale(node.size, node.r);
+  const o = pileOffset(Math.max(0, members.indexOf(id)));
+  return { x: node.x + o.dx * pk, y: node.y + o.dy * pk };
+}
+
+export function hitTestClusters(
+  clay: ClusterLayout,
+  cl: Pick<Clustering, "rep" | "members">,
+  wx: number,
+  wy: number,
+): { kind: "coin" | "cluster"; id: CoinId } | null {
   for (const node of clay.nodes.values()) {
     const dx = wx - node.x, dy = wy - node.y;
     // singleton discs are tiny; give the pointer a little grace
     const r = Math.max(node.r, 10);
-    if (dx * dx + dy * dy <= r * r) return node.rep;
+    if (dx * dx + dy * dy > r * r) continue;
+    // inside a pile the pointer can pick out one member dot; between
+    // dots the disc answers as the cluster, so cluster-level clicks
+    // (select, open the person) stay reachable. Singletons stay
+    // cluster hits — the disc IS the coin, and the cluster already
+    // carries its meaning.
+    if (node.size >= 2) {
+      const members = cl.members.get(node.rep) ?? [node.rep];
+      const pk = pileScale(node.size, node.r);
+      const pick = Math.max(1.8, 5 * pk, 3);
+      let best: CoinId | null = null;
+      let bestD = pick * pick;
+      members.forEach((id, i) => {
+        const o = pileOffset(i);
+        const ddx = wx - (node.x + o.dx * pk), ddy = wy - (node.y + o.dy * pk);
+        const d = ddx * ddx + ddy * ddy;
+        if (d <= bestD) { bestD = d; best = id; }
+      });
+      if (best !== null) return { kind: "coin", id: best };
+    }
+    return { kind: "cluster", id: node.rep };
   }
   return null;
 }

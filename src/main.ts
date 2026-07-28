@@ -18,7 +18,7 @@ import { gradeMap, type MapGrade } from "./analysis/grading";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
-import { layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns, anchorClusterLayout, translateClusterLayout, drawContraction, hitTestClusters, truthSlices, transitionFragments, strandGeometry, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
+import { layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns, anchorClusterLayout, translateClusterLayout, drawContraction, hitTestClusters, coinDotAt, truthSlices, transitionFragments, strandGeometry, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { canonical, contracted, knobs, withView, withLayout, withGrouping, fragmentView, viewFromFragment, viewFromStep, type ViewState, type View, type Arrange, type GraphLayout, type Grouping } from "./ui/viewstate";
 import { observerSteps } from "./scenario/observerSteps";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
@@ -779,7 +779,9 @@ function draw(): void {
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
       clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
-      hover?.kind === "cluster" ? hover.id : undefined, singletonRing(),
+      hover?.kind === "cluster" ? hover.id
+        : hover?.kind === "coin" ? lensClustering().rep.get(hover.id)
+        : undefined, singletonRing(),
       mapPose(engine), collapseState().line);
     // ns-social mapping edges across the columns: the pair under manual
     // examination draws bright (the panel holds the verdict); paused
@@ -2395,8 +2397,9 @@ function applySelection(hit: Hit): void {
 function hitAt(wx: number, wy: number): Hit | null {
   const s = active();
   if (collapseT > 0.5) {
-    const rep = hitTestClusters(clusterLayout(), wx, wy);
-    return rep ? { kind: "cluster", id: rep } : null;
+    // a pile dot answers as its coin; the disc between dots (and any
+    // singleton) answers as the cluster
+    return hitTestClusters(clusterLayout(), lensClustering(), wx, wy);
   }
   if (collapseT > 0) return null; // mid-collapse: nothing stable to hit
   return hitTestMorph(s.chain, s.layout, s.bip, viewT, wx, wy);
@@ -3098,9 +3101,17 @@ inspector.addEventListener("click", (e) => {
   if (!row) return;
   const id = row.dataset["c"]!;
   const s = active();
+  if (collapsed) {
+    // the coin has a place in the contracted map too — its pile dot;
+    // fly there instead of forcing the map open
+    const p = coinDotAt(clusterLayout(), lensClustering(), id);
+    if (!p) return;
+    flyTo({ x: p.x - 260, y: p.y - 170, w: 520, h: 340 });
+    playPing(p.x, p.y);
+    return;
+  }
   const r = coinRectAt(s.layout, s.bip, id, viewT);
   if (!r) return;
-  if (collapsed) setCollapsed(false); // the coin lives in the graph, not the contraction
   flyTo({ x: r.x - 260, y: r.y - 170, w: r.w + 520, h: r.h + 340 });
   playPing(r.x + r.w / 2, r.y + r.h / 2);
 });
