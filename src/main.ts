@@ -2215,10 +2215,22 @@ function kick(): void {
   if (rafLive) return;
   rafLive = true;
   const frame = (now: number): void => {
-    const more = anim.tick(now);
-    draw();
-    if (more) requestAnimationFrame(frame);
-    else rafLive = false;
+    // a throw mid-frame must not leave rafLive latched true with the
+    // loop dead — that silently bricks every animation for the rest of
+    // the session. Keep driving while tweens remain (a transient draw
+    // failure resolves when the state it raced settles) and let the
+    // exception surface on the console either way.
+    let more = false;
+    try {
+      more = anim.tick(now);
+      draw();
+    } catch (e) {
+      more = anim.active;
+      throw e;
+    } finally {
+      if (more) requestAnimationFrame(frame);
+      else rafLive = false;
+    }
   };
   requestAnimationFrame(frame);
 }
