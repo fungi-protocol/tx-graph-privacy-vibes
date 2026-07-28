@@ -71,10 +71,20 @@ def main() -> None:
         # band -> force map), toggle clustered/unclustered, and bring up
         # the ns-social columns — each transition must animate without a
         # page error
-        page.keyboard.press("c")  # collapse: clustered chord ring
+        # land in the graph view deterministically (the "v" above was a
+        # blind flip and may have put cards up), then contract via the
+        # clusters checkbox: 'c' only speaks in the graph view since
+        # #141 slice 4d, and the chord segment renders only while the
+        # map is contracted, so the checkbox must go first
+        page.evaluate("document.querySelector('#viewtoggle button[data-v=\"graph\"]').click()")
+        page.wait_for_timeout(1500)
+        page.evaluate(
+            "const c = document.getElementById('groupcheck');"
+            "if (!c.checked) c.click()"
+        )  # clustered band (ltr)
         page.wait_for_timeout(1200)
-        # the layout picker is segmented (#140): uncurl to the band,
-        # then the force map, then back to the ring
+        # the layout picker is segmented (#140): the band, then the
+        # force map, then curl up into the ring
         for seg in ("ltr", "force", "chord"):
             page.locator(f'#layoutbtn button[data-l="{seg}"]').click()
             page.wait_for_timeout(1200)
