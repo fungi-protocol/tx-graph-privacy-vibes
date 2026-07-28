@@ -14,6 +14,7 @@ import { traceCoins, traceTx, type Trace } from "./analysis/trace";
 import { counterfactualOrigins } from "./analysis/paths";
 import { clusterObserver, clusterByOwner, clusterByKnowledge, clusterSingletons, gradeLinks, type ChangeRead, type Clustering, type Mistake } from "./analysis/clusters";
 import { clusterColor, clusterLabel, CLUSTER_MISC, TELL_USD, TELL_BTC, TELL_AUX, TELL_SCRIPT, TELL_ALL, OV_CIOH, OV_CHANGE, OV_SUBSUM, OV_REUSE, OV_REMEET, OV_ALL, CIOH_MAX_OFF, CHANGE_EV_MAX } from "./analysis/observer";
+import { gradeMap, type MapGrade } from "./analysis/grading";
 import { agentKnowledge, type Knowledge, type Attribution } from "./analysis/knowledge";
 import { nsSocialRun, nsApply, matchState, clusterAdjacency, nsSimilarity, activePairs, partitionColumns, type NsEvent } from "./analysis/nssocial";
 import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./analysis/nsnetflix";
@@ -212,6 +213,7 @@ function setViewDay(d: number | null, tx: number | null = null): void {
   viewTx = tx !== null && tx >= dayTxCount(cursorDay()) ? null : tx;
   simRev += 1; // the visible chain changed, even though the record didn't
   recomputeTrace(); // a selection may have slipped beyond the cursor
+  reflectGradeStats(); // the map grade follows the visible chain
   renderCast(); // the town roster follows the displayed day
   syncTimebar();
   draw();
@@ -1262,7 +1264,8 @@ overlaysPanel.innerHTML = `<h3>clustering</h3><h4>heuristics</h4>` + OVERLAY_DEF
   </div>
   <div class="nshint" id="auxhint">two independent sources that combine: the records name the exchange's own coins; the slider leaks a random sample of everyone's</div>
   <h4>grading</h4>
-  <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>`;
+  <label title="mark transactions where a heuristic's local inference is wrong against the hidden truth — e.g. the change guess picked the payment output. The storyteller's grading: no real observer could draw this."><input type="checkbox" id="mistakes"> point out mistakes</label>
+  <div id="gradestats"></div>`;
 // the panel grows with the story: a row stays off the panel until the
 // walked path (or the free-playing user, or a restored fragment) first
 // runs it with the observer panel in view — and once introduced it
@@ -1334,7 +1337,7 @@ function panelRowEls(k: PanelRow): (Element | null)[] {
     case "chscript": return [byId("chscript")];
     case "chaux": return [byId("chaux")];
     case "aux": return [document.getElementById("auxleaks"), document.getElementById("auxhint")];
-    case "grading": return [h4[2] ?? null, byId("mistakes")];
+    case "grading": return [h4[2] ?? null, byId("mistakes"), document.getElementById("gradestats")];
   }
 }
 function reflectOverlays(): void {
@@ -1433,6 +1436,55 @@ function reflectOverlays(): void {
       `${applied}/${run.length} match${run.length === 1 ? "" : "es"}`;
     reflectNfStats();
   }
+  reflectGradeStats();
+}
+// map-wide grading readout (#137): the previous map's numbers stick
+// around as "was N" markers whenever a knob changes the clustering, so
+// flipping a heuristic reads as a before/after comparison — including
+// the small differences that per-stack captions bury
+let gradeCur: { sig: string; chain: string; grade: MapGrade } | null = null;
+let gradePrev: MapGrade | null = null;
+function reflectGradeStats(): void {
+  const box = document.getElementById("gradestats") as HTMLElement;
+  if (lens !== 1 || !A.showMistakes) {
+    box.innerHTML = "";
+    return;
+  }
+  const chain = active().chain;
+  const grade = gradeMap(A.observerModel(), (id) => chain.coins.get(id)!.owner);
+  if (!grade) {
+    box.innerHTML = `<span class="nshint">no clusters to grade yet</span>`;
+    return;
+  }
+  // the comparison point is the previous MAP on the SAME chain: quiet
+  // rerenders keep the before/after on screen, a knob toggle advances
+  // it, and time passing resets it — a "was" against yesterday's
+  // smaller record would compare nothing meaningful
+  const sig = `${A.mapSig()}§${A.matchSig()}`;
+  const chainNow = A.chainKey();
+  if (!gradeCur || chainNow !== gradeCur.chain) {
+    gradeCur = { sig, chain: chainNow, grade };
+    gradePrev = null;
+  } else if (sig !== gradeCur.sig) {
+    gradePrev = gradeCur.grade;
+    gradeCur = { sig, chain: chainNow, grade };
+  }
+  const p = gradePrev ?? undefined;
+  const was = (now: number, before: number | undefined): string =>
+    before !== undefined && before !== now ? ` (was ${before})` : "";
+  const pct = (a: number, b: number): string => (b > 0 ? `${Math.round((a / b) * 100)}%` : "–");
+  const g = grade;
+  const gatheredWas = p && pct(p.gathered, p.gatherable) !== pct(g.gathered, g.gatherable)
+    ? ` (was ${pct(p.gathered, p.gatherable)})` : "";
+  box.innerHTML = `
+    <div class="nshint" title="every cluster of two or more coins, graded against the hidden truth. misplaced counts the coins sitting in a cluster whose main owner is someone else — the sum of the per-cluster error counts">
+      ${g.stacks} cluster${g.stacks === 1 ? "" : "s"} · ${g.stacked} coins clustered ·
+      <b>${g.misplaced} misplaced</b>${was(g.misplaced, p?.misplaced)}</div>
+    <div class="nshint" title="a few large clusters tend to dominate as the town grows, so the median and the largest are reported separately — one giant wrong merge reads differently from error spread thin">
+      sizes: median ${g.median} · largest ${g.largest}${was(g.largest, p?.largest)},
+      holding ${g.misplacedInLargest} of the misplaced${was(g.misplacedInLargest, p?.misplacedInLargest)}</div>
+    <div class="nshint" title="of the coins whose true owner holds two or more, the share sitting in that owner's own biggest cluster — the map-wide counterpart of a cluster's 'complete' caption">
+      gathered: ${g.gathered} of ${g.gatherable} coins (${pct(g.gathered, g.gatherable)})${gatheredWas}</div>`;
 }
 // relative-rate bucket labels, matching nsnetflix's FEE_REL_EDGES
 const NF_REL_LABELS = ["<0.7×", "0.7–0.85×", "0.85–0.95×", "0.95–1.05×", "1.05–1.2×", "1.2–1.45×", "1.45–2×", "≥2×"];
@@ -1898,6 +1950,7 @@ function stepDay(): void {
   simRev += 1;
   refreshEcoLayouts();
   recomputeTrace(); // recompute over the grown chain
+  reflectGradeStats(); // re-grade against the grown record
   const target = ecoScene!;
   const holdCam = (): void => {
     if (!hold) return;
