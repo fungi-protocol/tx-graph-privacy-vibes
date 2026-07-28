@@ -485,11 +485,16 @@ function observerPaint(): Paint {
   // compounding over a link — which can be wrong, so it says "likely"
   const attr = A.grantsOn() ? A.grantState().attr : null;
   const nameOf = (o: number | null): string => (o === null ? "outside town" : castList()[o]!.name);
+  // one reading of a coin for the whole lens: attribution first, the
+  // cluster palette where the grant says nothing — the transaction tint
+  // below must agree with the coins it wraps, or a named cluster's
+  // spends would wear an anonymous color
+  const coinCol = (id: string): string => {
+    const a = attr?.get(id);
+    return a ? (a.owner === null ? "#e8e5da" : ownerColor(a.owner)) : clusterColor(cl, id);
+  };
   return {
-    coinFill: (c) => {
-      const a = attr?.get(c.id);
-      return a ? (a.owner === null ? "#e8e5da" : ownerColor(a.owner)) : clusterColor(cl, c.id);
-    },
+    coinFill: (c) => coinCol(c.id),
     coinText: () => "#111",
     coinCaption: (c) => {
       const a = attr?.get(c.id);
@@ -503,7 +508,7 @@ function observerPaint(): Paint {
     // silent gap where the all-seeing lens shows a story.
     txMemo: (t) => changeReadCaption(cl.changeReads.get(t.id)),
     txAttribution: (t, ch) => {
-      const fill = commonInputFill(ch, t, (c) => clusterColor(cl, c.id));
+      const fill = commonInputFill(ch, t, (c) => coinCol(c.id));
       return fill === CLUSTER_MISC ? null : fill; // unclustered is not attribution
     },
     txFlag: (t) => {
