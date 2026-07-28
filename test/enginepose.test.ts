@@ -176,3 +176,23 @@ test("preemption: scalars stay finite in [0,1] and land on the target's rest pos
   }
   samePose(mapPose(e), restPose(CARDS), "at rest");
 });
+
+test("poseFromScalar: the legacy three-phase schedule, exactly", async () => {
+  const { poseFromScalar } = await import("../src/ui/clusterview");
+  // staged (with a ring): dot by 0.16, flight by 0.6, stack by 1
+  const p0 = poseFromScalar(0, true);
+  assert.deepEqual(p0, { dotT: 0, pinchT: 0, flightT: 0, curlT: 1, stackT: 0 });
+  const pDot = poseFromScalar(0.16, true);
+  assert.equal(pDot.dotT, 1);
+  assert.equal(pDot.flightT, 0);
+  const pRing = poseFromScalar(0.6, true);
+  assert.equal(pRing.flightT, 1);
+  assert.equal(pRing.stackT, 0);
+  const p1 = poseFromScalar(1, true);
+  assert.deepEqual(p1, { dotT: 1, pinchT: 1, flightT: 1, curlT: 1, stackT: 1 });
+  // pinchT rides the whole scalar (the old tx-square fade was 1 - t)
+  assert.ok(Math.abs(poseFromScalar(0.35, true).pinchT - 0.35) < 1e-12);
+  // unstaged: one scalar drives everything (the ring-less fallback)
+  const u = poseFromScalar(0.5, false);
+  assert.deepEqual(u, { dotT: 0.5, pinchT: 0.5, flightT: 0.5, curlT: 1, stackT: 0.5 });
+});

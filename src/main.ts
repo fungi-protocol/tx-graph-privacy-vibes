@@ -50,6 +50,7 @@ import { createAnalysisController, memoLRU } from "./ui/analysisController";
 import { createEngine, request as engineRequest, tick as engineTick, snapTo } from "./engine/engine";
 import { cellOf } from "./engine/adapter";
 import { projectScalars } from "./engine/project";
+import { mapPose } from "./engine/pose";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -266,7 +267,7 @@ let unclustered = false;
 // scene uncurled — the band (layered) or the free force map, picked by
 // the layout flag (#115)
 let chordArr = true;
-interface CollapseState { cl: Clustering; clay: ClusterLayout; ring: ClusterLayout }
+interface CollapseState { cl: Clustering; clay: ClusterLayout; ring: ClusterLayout; line: ClusterLayout }
 const collapseMemo = memoLRU<CollapseState>(16);
 /** the entry the contracted view last computed — what a repartition
  *  tween animates from */
@@ -316,7 +317,15 @@ function collapseState(): CollapseState {
       : chordArr ? layoutClusterGraph(clusterSingletons(active().chain), active().chain, mode)
       : layoutClusterBand(clusterSingletons(active().chain), active().chain);
     const ring = unclustered || !a ? ring0 : translateClusterLayout(ring0, a.dx, a.dy);
-    return { cl, clay, ring };
+    // the singleton band: the flat layout the flight lands on and the
+    // curl bends (#141 slice 3d). Under the chord it differs from the
+    // ring (which may also be force-reordered); uncurled the ring IS
+    // the band family already. Rides the same offset as the rest.
+    const line0 = chordArr
+      ? layoutClusterBand(clusterSingletons(active().chain), active().chain)
+      : ring0;
+    const line = !a ? line0 : translateClusterLayout(line0, a.dx, a.dy);
+    return { cl, clay, ring, line };
   });
   return lastCollapse;
 }
@@ -770,7 +779,8 @@ function draw(): void {
   if (collapseT > 0) {
     drawContraction(ctx, s.chain, s.layout, s.bip, Math.min(1, Math.max(0, viewT)),
       clusterLayout(), lensClustering(), collapseT, lensClusterPaint(), clusterTrans ?? undefined,
-      hover?.kind === "cluster" ? hover.id : undefined, singletonRing());
+      hover?.kind === "cluster" ? hover.id : undefined, singletonRing(),
+      mapPose(engine), collapseState().line);
     // ns-social mapping edges across the columns: the pair under manual
     // examination draws bright (the panel holds the verdict); paused
     // mid-replay, the next match the algorithm would accept draws dim —

@@ -26,6 +26,8 @@ export { type ClusterPaint, type ClusterTransition, truthSlices, transitionFragm
 import { contractedScene } from "./scene";
 import { type ClusterNode, type ClusterLayout, pileOffset, pileScale, strandGeometry, lerpQuad } from "./clusterlayout";
 import { type ClusterPaint, type ClusterTransition } from "./clustertransition";
+import { type MapPose } from "../engine/pose";
+import { ease, curlFrames, type FrameMap } from "../engine/legrender";
 
 function bezier(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, cx: number, cy: number): { tx: number; ty: number } {
   // bow transfer edges gently toward the ring's center so parallel edges
@@ -76,6 +78,27 @@ function columnEdge(
   return { tx: x1 - mx, ty: y1 - my };
 }
 
+// the legacy contraction phases: one scalar t, cut into three legs
+const DOT_PHASE = 0.16;
+const RING_PHASE = 0.6;
+
+/** the legacy-scalar shim (#141 slice 3d): callers that still drive
+ *  the morph off one collapseT get the same three-phase schedule they
+ *  had, expressed as the pose the renderer now reads. curlT is pinned
+ *  at 1 because the legacy flight went STRAIGHT to the ring slots —
+ *  without a `line` layout there is no bend to ride. */
+export function poseFromScalar(t: number, staged: boolean): MapPose {
+  const c = (v: number): number => Math.min(1, Math.max(0, v));
+  if (!staged) return { dotT: c(t), pinchT: c(t), flightT: c(t), curlT: 1, stackT: c(t) };
+  return {
+    dotT: c(t / DOT_PHASE),
+    pinchT: c(t),
+    flightT: c((t - DOT_PHASE) / (RING_PHASE - DOT_PHASE)),
+    curlT: 1,
+    stackT: c((t - RING_PHASE) / (1 - RING_PHASE)),
+  };
+}
+
 /** a small arrowhead at (x1, y1) along the (tx, ty) direction */
 function arrowAt(ctx: CanvasRenderingContext2D, x1: number, y1: number, tx: number, ty: number, size = 7): void {
   const d = Math.hypot(tx, ty) || 1;
@@ -117,14 +140,16 @@ export function drawContraction(
   trans?: ClusterTransition,
   hover?: CoinId,
   ring?: ClusterLayout,
+  pose?: MapPose,
+  line?: ClusterLayout,
 ): void {
   const transT = trans ? trans.t : 1;
-  // three legs (#95): shrink in place, flatten onto the ring, stack.
-  // The stacking leg eases out — the movement used to end too fast.
-  const DOT_PHASE = 0.16;
-  const RING_PHASE = 0.6;
-  const stackRaw = ring ? Math.max(0, (t - RING_PHASE) / (1 - RING_PHASE)) : t;
-  const discT = 1 - Math.pow(1 - Math.min(1, stackRaw), 3);
+  // the pose (#141 slice 3d): five sub-scalars, one per motion — the
+  // engine's legs drive them; a legacy caller's single t cuts into the
+  // same schedule through the shim. The stacking still eases out — the
+  // movement used to end too fast (#95).
+  const P: MapPose = pose ?? poseFromScalar(t, !!ring);
+  const discT = 1 - Math.pow(1 - Math.min(1, P.stackT), 3);
   // tolerant: during an animated exit the collapse state is pinned
   // (main.ts exitPin) while the visible chain can keep growing under
   // it, so a coin minted after the pin has no rep and no disc — the
@@ -192,8 +217,29 @@ export function drawContraction(
     const a = a0 + da * s, rr = r0 + (r1 - r0) * s;
     return { x: pcx + Math.cos(a) * rr, y: pcy + Math.sin(a) * rr };
   };
-  // where a coin is DRAWN right now, through the three legs; the edge
-  // pass and the dot pass must agree, so it is memoized per frame
+  // where a coin's curve slot is right now: at the resting layout slot
+  // once the curl is done, or riding the line as it bends (#141 slice
+  // 3d) — curlFrames gives the bend's shape, and a correction term
+  // eased in by the same clock carries each slot onto the RESTING ring
+  // exactly (the ring can be anchored elsewhere or force-reordered, so
+  // the bend's own endpoint is not it). Frames are memoized per call:
+  // every pass this frame must agree.
+  let curlMemo: { at: FrameMap; end: FrameMap } | null = null;
+  const slotAt = (id: CoinId): { x: number; y: number } | undefined => {
+    const rest = ring?.nodes.get(id);
+    if (!rest || !line || P.curlT >= 1) return rest;
+    if (P.curlT <= 0) {
+      const l = line.nodes.get(id);
+      return l ? { x: l.x, y: l.y } : rest;
+    }
+    curlMemo ??= { at: curlFrames(line, P.curlT).frames, end: curlFrames(line, 1).frames };
+    const f = curlMemo.at.get(id), f1 = curlMemo.end.get(id);
+    if (!f || !f1) return rest;
+    const w = ease(P.curlT);
+    return { x: f.x + (rest.x - f1.x) * w, y: f.y + (rest.y - f1.y) * w };
+  };
+  // where a coin is DRAWN right now, through the pose's motions; the
+  // edge pass and the dot pass must agree, so it is memoized per frame
   const DOT = 10;
   const posMemo = new Map<CoinId, { x: number; y: number; w: number; h: number }>();
   const coinPos = (id: CoinId): { x: number; y: number; w: number; h: number } => {
@@ -215,22 +261,26 @@ export function drawContraction(
     const off = pileOffset(pileIdx.get(id) ?? 0);
     const pk = pileScale(node.size, node.r);
     const px = node.x + off.dx * pk, py = node.y + off.dy * pk;
-    const slot = ring?.nodes.get(id);
+    const slot = slotAt(id);
     let out: { x: number; y: number; w: number; h: number };
     if (slot) {
-      if (t < DOT_PHASE) {
-        const s = t / DOT_PHASE;
-        out = { x: cx0, y: cy0, w: from.w + (DOT - from.w) * s, h: from.h + (DOT - from.h) * s };
-      } else if (t < RING_PHASE) {
-        const s0 = (t - DOT_PHASE) / (RING_PHASE - DOT_PHASE);
-        const s = s0 * s0 * (3 - 2 * s0);
-        out = { x: cx0 + (slot.x - cx0) * s, y: cy0 + (slot.y - cy0) * s, w: DOT, h: DOT };
-      } else {
-        const p = columns
+      // the pose's motions compose: the pill shrinks in place (dotT),
+      // flies to its curve slot (flightT, smoothstepped), which itself
+      // may still be bending (curlT), while the stacking glide (stackT)
+      // moves the destination on toward the pile — when legs run one at
+      // a time this is exactly the old three-phase schedule; when one
+      // leg carries several scalars (bridge -> band: STACK flies coins
+      // straight into the timeline discs) the composition IS the motion
+      const wd = from.w + (DOT - from.w) * P.dotT;
+      const hd = from.h + (DOT - from.h) * P.dotT;
+      const sF = ease(P.flightT);
+      const target = discT <= 0 ? slot
+        : columns
           ? { x: slot.x + (px - slot.x) * discT, y: slot.y + (py - slot.y) * discT }
           : arcLerp(slot.x, slot.y, px, py, discT);
-        out = { x: p.x, y: p.y, w: DOT, h: DOT };
-      }
+      out = sF >= 1
+        ? { x: target.x, y: target.y, w: wd, h: hd }
+        : { x: cx0 + (target.x - cx0) * sF, y: cy0 + (target.y - cy0) * sF, w: wd, h: hd };
     } else {
       out = {
         x: cx0 + (px - cx0) * t, y: cy0 + (py - cy0) * t,
@@ -246,8 +296,11 @@ export function drawContraction(
   // coin edges between wherever its coins are right now — the layout
   // changes, the graph doesn't. They hand over to the contracted edges
   // as the stacking runs.
-  if (ring && t < 0.98) {
-    const coinEdgeA = 0.55 * Math.min(1, t * 8) * (1 - discT);
+  if (ring && P.stackT < 0.98) {
+    // on from (nearly) the first frame of any motion — these strands
+    // REPLACE the graph view's own edges the moment contraction starts
+    const onset = Math.max(P.dotT, P.pinchT, P.flightT, P.stackT);
+    const coinEdgeA = 0.55 * Math.min(1, onset * 8) * (1 - discT);
     if (coinEdgeA > 0.01) {
       ctx.save();
       ctx.globalAlpha = coinEdgeA;
@@ -419,10 +472,10 @@ export function drawContraction(
   ctx.restore();
   }
 
-  // the coins themselves, through all three legs — never fading (#95):
+  // the coins themselves, through every motion — never fading (#95):
   // the pills that shrink are the dots that fly are the stacks that
   // settle. The node pass takes over drawing them at the very end.
-  if (t < 0.98) {
+  if (P.stackT < 0.98) {
     ctx.save();
     ctx.globalAlpha = 1;
     for (const coin of chain.coins.values()) {
@@ -432,10 +485,15 @@ export function drawContraction(
       ctx.fillStyle = paint.color(coin.id);
       ctx.fill();
     }
-    // tx squares fade toward the junction of their (moving) endpoints —
-    // the same centroid the edge strands meet at — a transaction is not
-    // a coin, so it alone contracts away
-    ctx.globalAlpha = 1 - t;
+    ctx.restore();
+  }
+  // tx squares fade toward the junction of their (moving) endpoints —
+  // the same centroid the edge strands meet at — a transaction is not
+  // a coin, so it alone pinches away (its own scalar: the squares hold
+  // while the pills shrink, dissolve on the PINCH leg)
+  if (P.pinchT < 0.98) {
+    ctx.save();
+    ctx.globalAlpha = 1 - P.pinchT;
     for (const tid of chain.order) {
       const tx = chain.txs.get(tid)!;
       const from = txRectAt(block, bip, tid, morphT)!;
@@ -446,10 +504,10 @@ export function drawContraction(
         tx2 += p.x; ty2 += p.y;
       }
       tx2 /= ends.length; ty2 /= ends.length;
-      const x = from.x + (tx2 - (from.x + from.w / 2)) * t;
-      const y = from.y + (ty2 - (from.y + from.h / 2)) * t;
+      const x = from.x + (tx2 - (from.x + from.w / 2)) * P.pinchT;
+      const y = from.y + (ty2 - (from.y + from.h / 2)) * P.pinchT;
       ctx.beginPath();
-      ctx.roundRect(x, y, from.w * (1 - 0.8 * t), from.h * (1 - 0.8 * t), 8);
+      ctx.roundRect(x, y, from.w * (1 - 0.8 * P.pinchT), from.h * (1 - 0.8 * P.pinchT), 8);
       ctx.fillStyle = "#26292f";
       ctx.fill();
       ctx.strokeStyle = "#4a4e57";
@@ -480,7 +538,7 @@ export function drawContraction(
     // through a repartition tween — each old piece's coins glide from
     // their old pile slots to their new ones, stacks in motion, nothing
     // fading in or out of existence
-    if (t >= 0.98) {
+    if (P.stackT >= 0.98) {
       ctx.globalAlpha = focus;
       // the pile (and its dots) shrink with the plateauing disc so a
       // large stack still fits inside its rim
