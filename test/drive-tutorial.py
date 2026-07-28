@@ -73,12 +73,14 @@ def main() -> None:
         # page error
         page.keyboard.press("c")  # collapse: clustered chord ring
         page.wait_for_timeout(1200)
-        for _ in range(3):  # chord -> layered(band) -> force -> chord
-            page.locator("#layoutbtn").click()
+        # the layout picker is segmented (#140): uncurl to the band,
+        # then the force map, then back to the ring
+        for seg in ("ltr", "force", "chord"):
+            page.locator(f'#layoutbtn button[data-l="{seg}"]').click()
             page.wait_for_timeout(1200)
-        page.locator("#unclusterbtn").click()  # -> unclustered ring
+        page.locator('#groupingbtn button[data-g="unclustered"]').click()  # expand
         page.wait_for_timeout(1200)
-        page.locator("#unclusterbtn").click()  # -> back to clustered
+        page.locator('#groupingbtn button[data-g="clustered"]').click()  # contract again
         page.wait_for_timeout(1200)
         # the checkbox input is styled (label covers it), so playwright's
         # actionability wait never passes — toggle it at the DOM level

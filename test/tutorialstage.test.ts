@@ -23,8 +23,10 @@ test("staged controls: each appears with the step that introduces it", () => {
   assert.deepEqual([...widgetRevealsAt(steps, 1)], []);
   assert.deepEqual([...widgetRevealsAt(steps, 2)].sort(), ["layout", "view"]);
   assert.deepEqual([...widgetRevealsAt(steps, 3)].sort(), ["layout", "lens", "view"]);
+  // the ring steps stage the contraction controls AND the layout knob's
+  // chord position: until here the layout cycle skips the ring drawing
   assert.deepEqual([...widgetRevealsAt(steps, 4)].sort(),
-    ["cluster", "layout", "lens", "uncluster", "view"]);
+    ["chord", "cluster", "layout", "lens", "uncluster", "view"]);
 });
 
 test("staged controls: a prefix property — jumps land on the walked path, later steps never hide", () => {
@@ -34,9 +36,9 @@ test("staged controls: a prefix property — jumps land on the walked path, late
     for (const w of now) assert.ok(next.has(w), `${w} vanished at ${i + 1}`);
   }
   // a chapter returning to the cards keeps everything introduced
-  assert.equal(widgetRevealsAt(steps, steps.length - 1).size, 5);
+  assert.equal(widgetRevealsAt(steps, steps.length - 1).size, 6);
   // out-of-range indexes clamp instead of throwing
-  assert.equal(widgetRevealsAt(steps, 999).size, 5);
+  assert.equal(widgetRevealsAt(steps, 999).size, 6);
   assert.equal(widgetRevealsAt(steps, -1).size, 0);
   assert.equal(widgetRevealsAt([], 3).size, 0);
 });

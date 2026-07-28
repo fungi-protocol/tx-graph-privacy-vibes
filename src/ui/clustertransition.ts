@@ -54,6 +54,12 @@ export function truthSlices(
  *  new disc. */
 export interface ClusterTransition {
   t: number; // 0 = old discs, 1 = settled new layout
+  /** the from-state this tween animates out of. A tween that lands
+   *  while another is in flight rebases onto the running one's src —
+   *  the motion restarts from the same origin toward the newest target
+   *  instead of the late tween clobbering the early one mid-glide (a
+   *  tutorial step commits grouping and heuristics back to back). */
+  src?: { cl: Clustering; clay: ClusterLayout };
   fragments: Map<CoinId, { x: number; y: number; r: number; coins: CoinId[] }[]>;
   /** the OLD arrangement's strand shapes, keyed by incidence id (#129):
    *  when present, the renderer interpolates each strand from this

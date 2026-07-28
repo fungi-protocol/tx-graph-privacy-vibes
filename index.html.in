@@ -38,18 +38,27 @@
     .tut-title { font-size: 14px; }
     .tut-nav button { font-size: 12px; padding: 4px 8px; }
   }
-  #viewtoggle, #layoutbtn, #clusterbtn, #unclusterbtn, #lens, #paramsbtn { position: fixed; left: 16px; background: #33363e; color: #d8dade;
-                border: 1px solid #4a4e57; border-radius: 6px; padding: 6px 12px;
+  /* the knob controls are segmented pickers (#140): the options sit
+     side by side, the active one lit — state readable at a glance, a
+     click names its target instead of cycling blind */
+  .seg { position: fixed; left: 16px; display: flex; background: #33363e;
+         border: 1px solid #4a4e57; border-radius: 6px; overflow: hidden; }
+  .seg button { background: transparent; color: #d8dade; border: none;
+                border-left: 1px solid #4a4e57; padding: 6px 10px;
                 font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button:first-child { border-left: none; }
+  .seg button:hover { background: #3d414a; }
+  .seg button.on { background: #4a4e57; color: #ffffff; }
   #viewtoggle { top: 16px; }
   #layoutbtn { top: 56px; }
-  #clusterbtn { top: 96px; }
-  #unclusterbtn { left: 104px; top: 96px; display: none; }
-  /* staged introductions (#116): the story reveals these; boot decides */
-  #viewtoggle, #layoutbtn, #clusterbtn, #lens { display: none; }
+  #groupingbtn { top: 96px; }
   #lens { top: 136px; }
-  #paramsbtn { bottom: 76px; }
-  #viewtoggle:hover, #layoutbtn:hover, #clusterbtn:hover, #unclusterbtn:hover, #lens:hover, #paramsbtn:hover { background: #3d414a; }
+  /* staged introductions (#116): the story reveals these; boot decides */
+  #viewtoggle, #layoutbtn, #groupingbtn, #lens { display: none; }
+  #paramsbtn { position: fixed; left: 16px; bottom: 76px; background: #33363e;
+               color: #d8dade; border: 1px solid #4a4e57; border-radius: 6px;
+               padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  #paramsbtn:hover { background: #3d414a; }
   #params { position: fixed; left: 16px; bottom: 116px; display: none; width: 260px;
             background: #24262cf2; border: 1px solid #3a3e46; border-radius: 10px;
             padding: 12px 14px; box-shadow: 0 6px 24px #0006; font-size: 13px; }
@@ -155,8 +164,8 @@
               border-radius: 8px; font-size: 11px; padding: 2px 8px; cursor: pointer;
               margin-left: 6px; }
   .chip-btn:hover { background: #3d414b; }
-  #ghlink { position: fixed; left: 16px; top: 178px; font-size: 12px; opacity: 0.55;
-            color: #d8dade; text-decoration: none; }
+  #ghlink { position: fixed; left: 50%; transform: translateX(-50%); bottom: 8px;
+            font-size: 12px; opacity: 0.55; color: #d8dade; text-decoration: none; }
   #ghlink:hover { opacity: 1; color: #edc948; }
   #keys { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
           display: none; background: #24262cf2; border: 1px solid #3a3e46;
@@ -172,17 +181,24 @@
 <body>
 <canvas id="view"></canvas>
 <div id="hud"></div>
-<button id="viewtoggle" title="flip between the transaction-card and graph drawings (v)">view: cards</button>
-<button id="layoutbtn" title="graph drawing: layered timeline (left to right), force-directed (springs and repulsion — no time axis, better for large dense graphs), or chord (the timeline bent around a circle)">layout: layered</button>
-<button id="clusterbtn" title="collapse each cluster's coins into one vertex — the observer's user graph (c)">clusters</button>
-<button id="unclusterbtn" title="group the graph by the lens's clusters (each cluster one vertex), or drop to the bottom of the refinement lattice: every coin its own vertex">clustered</button>
-<button id="lens" title="see the graph as a third-party observer would (o)">lens: all-seeing</button>
+<div id="viewtoggle" class="seg" title="the drawing: transaction cards or the coin graph (v)">
+  <button data-v="cards" class="on">cards</button><button data-v="graph">graph</button>
+</div>
+<div id="layoutbtn" class="seg" title="graph arrangement: layered timeline (left to right) or force-directed (springs and repulsion — no time axis). While clusters are on, chord bends the timeline around a circle — the cluster map's home shape">
+  <button data-l="ltr" class="on">layered</button><button data-l="force">force</button><button data-l="chord" style="display:none">chord</button>
+</div>
+<div id="groupingbtn" class="seg" title="coins: every coin its own vertex. clusters: collapse each of the lens's clusters into one vertex — the observer's user graph (c)">
+  <button data-g="unclustered" class="on">coins</button><button data-g="clustered">clusters</button>
+</div>
+<div id="lens" class="seg" title="whose knowledge the picture shows: everything, a third-party observer's guesses, or one wallet's view (o)">
+  <button data-le="0" class="on">all-seeing</button><button data-le="1">observer</button><button data-le="2">one wallet</button>
+</div>
 <button id="paramsbtn" title="re-roll the world: fees, wealth, rates, seed">params</button>
 <a id="ghlink" href="https://github.com/fungi-protocol/tx-graph-privacy-vibes/" target="_blank" rel="noopener" title="source, issues and README on GitHub">GitHub ↗</a>
 <div id="keys">
   <h3>keys (hold ?)</h3>
   <dl>
-    <dt>v</dt><dd>flip between the card and graph drawings (expands clusters first)</dd>
+    <dt>v</dt><dd>flip between the card and graph drawings</dd>
     <dt>c</dt><dd>collapse into the cluster map / expand back</dd>
     <dt>o</dt><dd>cycle the lens: all-seeing, observer, one wallet's</dd>
     <dt>h</dt><dd>hide everything a trace dims</dd>

@@ -84,8 +84,15 @@ export function withLayout(vs: ViewState, layout: GraphLayout): ViewState {
     : canonical({ ...vs, view: "graph", chord: false, arrange: layout });
 }
 
+/** the grouping knob IS the contract/expand gesture (#140): choosing
+ *  the clusters grouping enters the contracted map — as the chord ring,
+ *  the map's home arrangement — and choosing coins leaves it for the
+ *  plain coin graph. The clusters/expand shortcut this replaces was
+ *  redundant with the layout knob's chord position. */
 export function withGrouping(vs: ViewState, grouping: Grouping): ViewState {
-  return { ...vs, grouping };
+  return grouping === "clustered"
+    ? canonical({ ...vs, grouping, view: "graph", chord: true })
+    : { ...vs, grouping, chord: false };
 }
 
 // --- legacy bridge: the flag set main.ts stores between slices ---

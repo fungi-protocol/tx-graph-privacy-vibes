@@ -17,6 +17,7 @@ import { coinRectAt, txRectAt } from "./morph";
 export { type ContractedEdge, incidenceId, contractedScene, contractedEdges } from "./scene";
 export {
   type ClusterNode, type ClusterLayout, fitClusterLayout,
+  anchorClusterLayout, translateClusterLayout,
   pileOffset, discRadius, pileScale,
   layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns,
   type Strand, type StrandQuad, strandGeometry, splitQuad, lerpQuad, bowControl,
@@ -124,7 +125,13 @@ export function drawContraction(
   const RING_PHASE = 0.6;
   const stackRaw = ring ? Math.max(0, (t - RING_PHASE) / (1 - RING_PHASE)) : t;
   const discT = 1 - Math.pow(1 - Math.min(1, stackRaw), 3);
-  const nodeOf = (id: CoinId): ClusterNode => clay.nodes.get(cl.rep.get(id)!)!;
+  // tolerant: during an animated exit the collapse state is pinned
+  // (main.ts exitPin) while the visible chain can keep growing under
+  // it, so a coin minted after the pin has no rep and no disc — the
+  // drawing passes fall back to the coin's own morph frame instead of
+  // reading a slot that does not exist
+  const nodeOf = (id: CoinId): ClusterNode | undefined =>
+    clay.nodes.get(cl.rep.get(id) ?? id);
   // each coin's slot inside its cluster's stack
   const pileIdx = new Map<CoinId, number>();
   for (const members of cl.members.values()) members.forEach((id, i) => pileIdx.set(id, i));
@@ -192,9 +199,19 @@ export function drawContraction(
   const coinPos = (id: CoinId): { x: number; y: number; w: number; h: number } => {
     const memo = posMemo.get(id);
     if (memo) return memo;
-    const from = coinRectAt(block, bip, id, morphT)!;
-    const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
     const node = nodeOf(id);
+    const from = coinRectAt(block, bip, id, morphT) ??
+      (node ? { x: node.x, y: node.y, w: DOT, h: DOT } : { x: 0, y: 0, w: 0, h: 0 });
+    const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
+    if (!node) {
+      // no disc to fly to: shrink in place (see nodeOf)
+      const out = {
+        x: cx0, y: cy0,
+        w: from.w + (DOT - from.w) * t, h: from.h + (DOT - from.h) * t,
+      };
+      posMemo.set(id, out);
+      return out;
+    }
     const off = pileOffset(pileIdx.get(id) ?? 0);
     const pk = pileScale(node.size, node.r);
     const px = node.x + off.dx * pk, py = node.y + off.dy * pk;
@@ -331,8 +348,14 @@ export function drawContraction(
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = touched ? 2.6 : 1.6;
-    const fromN = e.from.map((r) => clay.nodes.get(r)!);
-    const toN = e.to.map((r) => clay.nodes.get(r)!);
+    const fromN0 = e.from.map((r) => clay.nodes.get(r));
+    const toN0 = e.to.map((r) => clay.nodes.get(r));
+    // a pinned collapse state can lag the growing chain (see nodeOf):
+    // an edge touching a cluster the layout has never met has nowhere
+    // to land this frame — skip it rather than dereference the gap
+    if (fromN0.some((n) => !n) || toN0.some((n) => !n)) continue;
+    const fromN = fromN0 as ClusterNode[];
+    const toN = toN0 as ClusterNode[];
     if (columns) {
       // the column layout keeps its lane-aware pair shapes, one edge
       // per (input cluster, output cluster) pair
@@ -496,9 +519,12 @@ export function drawContraction(
     const label = paint.label(node.rep);
     if (discT > 0.6 && transT > 0.6 && label) {
       ctx.globalAlpha = ((discT - 0.6) / 0.4) * ((transT - 0.6) / 0.4) * focus;
+      // tolerant lookup: the clustering can be computed over the full
+      // record while the visible chain is a rewound slice (the worker
+      // lands mid-ride), so a member may not be on screen yet
       const total = cl.members.get(node.rep)!
-        .map((id) => chain.coins.get(id)!)
-        .filter((c) => c.dest === null)
+        .map((id) => chain.coins.get(id))
+        .filter((c): c is NonNullable<typeof c> => !!c && c.dest === null)
         .reduce((s, c) => s + c.value, 0);
       // a small dark plate keeps the initial legible over the stack's
       // speckle of coin dots

@@ -63,8 +63,10 @@ export interface TutorialStep {
 export interface Rect { x: number; y: number; w: number; h: number }
 
 /** the stageable top-level controls: the view/layout/grouping knobs,
- *  the clusters shortcut, and the lens cycler */
-export type TutorialWidget = "view" | "layout" | "cluster" | "uncluster" | "lens";
+ *  the clusters shortcut, and the lens cycler. "chord" is not a button
+ *  of its own but the layout knob's third position — staged separately
+ *  so the cycle skips the ring until the tour has drawn it */
+export type TutorialWidget = "view" | "layout" | "cluster" | "uncluster" | "lens" | "chord";
 
 /** which controls the walked path has introduced by `index` (#116):
  *  the graph knobs appear with the first step drawn in the graph, the
@@ -77,7 +79,7 @@ export function widgetRevealsAt(steps: TutorialStep[], index: number): Set<Tutor
   for (let i = 0; i <= Math.min(index, steps.length - 1); i++) {
     const s = steps[i]!;
     if (s.view !== undefined && s.view >= 1) { out.add("view"); out.add("layout"); }
-    if (s.view === 2 || s.view === 3) { out.add("cluster"); out.add("uncluster"); }
+    if (s.view === 2 || s.view === 3) { out.add("cluster"); out.add("uncluster"); out.add("chord"); }
     if (s.lens === 1 || s.lens === 2) out.add("lens");
   }
   return out;

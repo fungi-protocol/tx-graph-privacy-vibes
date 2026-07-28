@@ -78,6 +78,22 @@ export function layoutForce(chain: Chain, shown?: Set<string>): BipLayout {
   }
 
   const n = ids.length;
+  // connected components: repulsion is only meaningful within one —
+  // between components nothing pulls back, so a pair of disconnected
+  // nodes would drift apart until the weak gravity balances the
+  // repulsion at a radius that grows with the node count, and a graph
+  // with unspent singleton coins (day 0 is nothing else) spreads over
+  // thousands of units of hundred-unit pills. Each component is
+  // simulated alone; the finished components are shelf-packed after.
+  const root = new Int32Array(n);
+  for (let i = 0; i < n; i++) root[i] = i;
+  const find = (i: number): number => {
+    while (root[i]! !== i) { root[i] = root[root[i]!]!; i = root[i]!; }
+    return i;
+  };
+  for (const [a, b] of edges) root[find(a)] = find(b);
+  const compOf = new Int32Array(n);
+  for (let i = 0; i < n; i++) compOf[i] = find(i);
   const x = new Float64Array(n), y = new Float64Array(n);
   const dx = new Float64Array(n), dy = new Float64Array(n);
   // seed positions in a disc sized to the graph: hashed, not random, so a
@@ -99,6 +115,7 @@ export function layoutForce(chain: Chain, shown?: Set<string>): BipLayout {
     dx.fill(0); dy.fill(0);
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
+        if (compOf[i]! !== compOf[j]!) continue;
         let vx = x[i]! - x[j]!, vy = y[i]! - y[j]!;
         let d2 = vx * vx + vy * vy;
         if (d2 < 1e-4) { vx = ((i * 37 + j) % 13) - 6; vy = ((i * 53 + j) % 11) - 5; d2 = vx * vx + vy * vy; }
@@ -138,6 +155,7 @@ export function layoutForce(chain: Chain, shown?: Set<string>): BipLayout {
     let moved = false;
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
+        if (compOf[i]! !== compOf[j]!) continue;
         const needW = (ws[i]! + ws[j]!) / 2 + CLEARANCE;
         const needH = (hs[i]! + hs[j]!) / 2 + CLEARANCE;
         let vx = x[j]! - x[i]!, vy = y[j]! - y[i]!;
@@ -163,6 +181,7 @@ export function layoutForce(chain: Chain, shown?: Set<string>): BipLayout {
         if (len2 < 1) continue;
         for (let i = 0; i < n; i++) {
           if (i === a || i === b) continue;
+          if (compOf[i]! !== compOf[a]!) continue;
           const t = ((x[i]! - ax) * ex + (y[i]! - ay) * ey) / len2;
           if (t <= 0.05 || t >= 0.95) continue;
           const px = ax + ex * t, py = ay + ey * t;
@@ -180,6 +199,55 @@ export function layoutForce(chain: Chain, shown?: Set<string>): BipLayout {
       }
     }
     if (!moved) break;
+  }
+
+  // Shelf-pack the finished components: every component simulated its
+  // own shape around the origin (they pass through each other — no
+  // cross-component force acts), so translate each into a row layout,
+  // widest-row target near the square root of the total area. Order is
+  // first appearance in the chain (append-only, so stable day to day:
+  // a node keeps its shelf until an edge merges it into another
+  // component and the springs take over).
+  {
+    const compIds: number[] = [];
+    const slot = new Map<number, number>();
+    for (let i = 0; i < n; i++) {
+      if (!slot.has(compOf[i]!)) { slot.set(compOf[i]!, compIds.length); compIds.push(compOf[i]!); }
+    }
+    const m = compIds.length;
+    if (m > 1) {
+      const bx0 = new Float64Array(m).fill(Infinity), by0 = new Float64Array(m).fill(Infinity);
+      const bx1 = new Float64Array(m).fill(-Infinity), by1 = new Float64Array(m).fill(-Infinity);
+      for (let i = 0; i < n; i++) {
+        const c = slot.get(compOf[i]!)!;
+        bx0[c] = Math.min(bx0[c]!, x[i]! - ws[i]! / 2);
+        by0[c] = Math.min(by0[c]!, y[i]! - hs[i]! / 2);
+        bx1[c] = Math.max(bx1[c]!, x[i]! + ws[i]! / 2);
+        by1[c] = Math.max(by1[c]!, y[i]! + hs[i]! / 2);
+      }
+      const GAP = 4 * CLEARANCE;
+      let area = 0, widest = 0;
+      for (let c = 0; c < m; c++) {
+        area += (bx1[c]! - bx0[c]! + GAP) * (by1[c]! - by0[c]! + GAP);
+        widest = Math.max(widest, bx1[c]! - bx0[c]!);
+      }
+      const targetW = Math.max(widest, Math.sqrt(area) * 1.2);
+      const ox = new Float64Array(m), oy = new Float64Array(m);
+      let px = 0, py = 0, rowH = 0;
+      for (let c = 0; c < m; c++) {
+        const w = bx1[c]! - bx0[c]!, h = by1[c]! - by0[c]!;
+        if (px > 0 && px + w > targetW) { px = 0; py += rowH + GAP; rowH = 0; }
+        ox[c] = px - bx0[c]!;
+        oy[c] = py - by0[c]!;
+        px += w + GAP;
+        rowH = Math.max(rowH, h);
+      }
+      for (let i = 0; i < n; i++) {
+        const c = slot.get(compOf[i]!)!;
+        x[i]! += ox[c]!;
+        y[i]! += oy[c]!;
+      }
+    }
   }
 
   const coins = new Map<CoinId, Rect>();

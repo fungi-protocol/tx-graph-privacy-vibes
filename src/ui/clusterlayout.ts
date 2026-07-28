@@ -48,6 +48,27 @@ export function fitClusterLayout(lay: ClusterLayout, target: Rect): ClusterLayou
   };
 }
 
+/** Slide a cluster layout so its bounds center lands on `cx, cy` —
+ *  translation only, never scaling (#140: the map has intrinsic scale;
+ *  disc radii and their fixed-size details are a pure function of the
+ *  partition). Used to anchor the contracted map on the point the
+ *  camera already watches, so forming or re-arranging it needs no
+ *  panning motion, only a zoom about that point. */
+export function anchorClusterLayout(lay: ClusterLayout, cx: number, cy: number): { lay: ClusterLayout; dx: number; dy: number } {
+  const b = lay.bounds;
+  const dx = cx - (b.x + b.w / 2), dy = cy - (b.y + b.h / 2);
+  return { lay: translateClusterLayout(lay, dx, dy), dx, dy };
+}
+
+/** the translation half of anchorClusterLayout, reused so a morph
+ *  waypoint can ride the SAME offset as the layout it stacks into */
+export function translateClusterLayout(lay: ClusterLayout, dx: number, dy: number): ClusterLayout {
+  if (dx === 0 && dy === 0) return lay;
+  const nodes = new Map<CoinId, ClusterNode>();
+  for (const [rep, n] of lay.nodes) nodes.set(rep, { ...n, x: n.x + dx, y: n.y + dy });
+  return { nodes, bounds: { ...lay.bounds, x: lay.bounds.x + dx, y: lay.bounds.y + dy } };
+}
+
 /** where the i-th coin of a cluster sits inside its vertex: a sunflower
  *  packing (golden-angle spiral) — a cluster is drawn as a STACK of its
  *  member coins, dots packed inside the vertex's rim, not an abstract

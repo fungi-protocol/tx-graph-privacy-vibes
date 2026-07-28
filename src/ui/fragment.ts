@@ -59,11 +59,17 @@ export interface FragmentState {
   v?: number;
   /** chord ring only: 1 = the lattice bottom (every coin a singleton) */
   uc?: number;
-  /** cluster view only: the world rect [x, y, w, h] the contraction's
-   *  circle was fit into — the rect the camera showed when the collapse
-   *  began, so shared links reproduce the same geometry. Absent = the
-   *  layout's own origin-centered coordinates. */
+  /** RETIRED (#140): the world rect the contraction's circle was fit
+   *  into, from the era when the map formed inside the camera's rect.
+   *  The map now always sits at its layout's own coordinates (intrinsic
+   *  scale), so the field is neither written nor honored; old links
+   *  carrying one still decode (and their cam applies as recorded). */
   cf?: [number, number, number, number];
+  /** contracted map only: the anchor point [x, y] the map is centered
+   *  on (#140) — the spot the camera watched when the collapse began.
+   *  The map keeps intrinsic scale; the anchor is pure translation, so
+   *  a shared link rebuilds the same placement under the saved cam. */
+  ma?: [number, number];
   /** scene: 0 = intro story (default), 1 = the economy */
   sc?: number;
   /** lens: 0 = all-seeing (default), 1 = third-party observer, 2 = one agent's view */
@@ -323,6 +329,10 @@ export function sanitize(raw: unknown): FragmentState | null {
     if (cx !== undefined && cy !== undefined && cw !== undefined && ch !== undefined) {
       out.cf = [cx, cy, cw, ch];
     }
+  }
+  if (Array.isArray(r.ma)) {
+    const mx = num(r.ma[0], -1e7, 1e7), my = num(r.ma[1], -1e7, 1e7);
+    if (mx !== undefined && my !== undefined) out.ma = [mx, my];
   }
   const sc = num(r.sc, 0, 1, true);
   if (sc !== undefined) out.sc = sc;
