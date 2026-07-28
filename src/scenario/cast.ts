@@ -210,7 +210,7 @@ export const PERSONAS: Persona[] = [
     concern: "Believes she has nothing to hide: withdrew from a KYC " +
       "exchange, pays everyone unilaterally, and hands out the same " +
       "address every time — her change goes back to it too. Every coin " +
-      "she ever touches is linked on the face of the record, no guessing " +
+      "she ever touches is linked in the record itself, no guessing " +
       "required, and every spend chains back to her identified " +
       "withdrawal. She is the baseline the others are measured against.",
     roots: [1_400_000, 380_000],

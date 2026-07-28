@@ -89,10 +89,10 @@ export function intersectionSteps(
         const k = freshClusters();
         const count = k !== undefined && k >= 2
           ? `arrived from <b>${k} separate clusters</b> on the observer's
-          map, and the coin's owner is one of them: ${k} faces on the
-          board, right here in frame`
+          map, and the coin's owner is one of them: ${k} candidates on
+          the board, right here in frame`
           : `all sit in <b>one cluster</b> on this run's map — earlier
-          merges already collapsed the faces together, so this session
+          merges already collapsed the candidates together, so this session
           bought its participants less than most; the next step shows
           the game at its usual size`;
         return `<p>Think of the observer as playing <b>Guess&nbsp;Who?</b>
@@ -101,7 +101,7 @@ export function intersectionSteps(
         ended: this coin is a <b>denominated output of the session you
         just watched</b>, one step old. Trace it back that one step and
         the guessing board is the session itself: its inputs ${count}.
-        That handful of faces is the coin's <b>candidate origins</b> — an
+        That handful is the coin's <b>candidate origins</b> — an
         anonymity set.</p>
         <p>The trace runs deeper, of course — each candidate has a past
         of its own — and the status line at the bottom counts the deep
@@ -127,7 +127,7 @@ export function intersectionSteps(
         and its trace lights up much of the town: candidate origins
         accumulated session over session, each join folding more
         strangers' pasts into the coin's own. The board grew from a
-        handful of faces to a crowd.</p>
+        handful of candidates to a crowd.</p>
         <p>(Researchers measure exactly this — the entropy of a coin's
         candidate set, read off the graph structure: Kelen &amp; Seres.
         It grows by coinjoining, especially with widely chosen peers —

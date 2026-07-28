@@ -63,11 +63,9 @@ export function economySteps(bounds: () => Rect): TutorialStep[] {
     {
       id: "what-leaks",
       title: "What leaks, and to whom",
-      html: `<p>Carol thinks she has nothing to hide — every spend chains
-        back to her identified exchange withdrawal, and she is fine with
-        it. The others are not: Bob's clients can compare his rates and
-        size his savings; Dave's client X can learn that client Y exists,
-        and his subcontractors can read his margin.</p>
+      html: `<p>Bob's clients can compare his rates and size his savings;
+        Dave's client X can learn that client Y exists, and his
+        subcontractors can read his margin.</p>
         <p>Nobody here is doing anything wrong. They have ordinary
         counterparties with ordinary curiosity — and, so far, no better
         way to pay. The stakes are not abstract, either: a public record

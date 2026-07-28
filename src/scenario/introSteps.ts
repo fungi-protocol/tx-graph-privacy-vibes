@@ -62,12 +62,10 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         <p>On the chain, no label says "change" — the new coin that returns
         to Alice is minted just like the one that goes to Bob. An observer
         can only <i>guess</i> which output was the payment and which stayed
-        with the sender. But the guesses can be shrewd. Careless wallet
-        software always lists the payment first and the change after it.
-        Address types talk too: when every input a wallet spends is one
-        type and exactly one output matches it — while the other output is
-        a different type — the matching output is probably the change
-        going back home. Remember this game; it matters soon.</p>`,
+        with the sender. But the guesses can be shrewd: careless wallet
+        software always lists the payment first and the change after it,
+        and that is only the most obvious of the habits later chapters
+        read. Remember this game; it matters soon.</p>`,
       focus: pad(union(t1o2, t1), 70),
       view: 0,
       scene: 0,
@@ -76,19 +74,19 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       id: "ordered-on-chain",
       title: "Ordered on chain, shuffled here",
       html: `<p>One more thing the record keeps that this drawing hides:
-        a transaction's inputs and outputs are <b>ordered</b>. That order
-        is chosen by wallet software, and it can talk. A wallet that
-        always puts the change in the same position hands the observer
-        the change for free; a wallet that sorts by a fixed public rule
-        (<b>BIP&nbsp;69</b>) avoids that leak but wears the rule itself
-        as a <b>fingerprint</b> — sorted transactions point back to the
-        software that sorts.</p>
+        a transaction's inputs and outputs are <b>ordered</b>. Wallet
+        software chooses that order, and the choice carries information.
+        A wallet that always puts the change in the same position reveals
+        which output is the change. A wallet that avoids this by sorting
+        to a fixed public rule (<b>BIP&nbsp;69</b>) reveals which software
+        it is instead — few wallets sort, so a sorted transaction is a
+        <b>fingerprint</b>.</p>
         <p>In this simulation every wallet <b>shuffles</b> its inputs and
-        outputs, so position carries nothing — and the drawings take the
-        same liberty, reordering boxes and edges however reads most
-        clearly. Nothing is lost by that: the observer's material is the
-        graph's <b>topology</b> — which output feeds which input, and the
-        amounts — not where anything sits on a screen.</p>`,
+        outputs, so position carries no information. The drawings reorder
+        boxes and edges freely for readability, which loses nothing
+        either: the observer's material is the graph's <b>topology</b> —
+        which output feeds which input, and the amounts — not where
+        anything sits on a screen.</p>`,
       focus: pad(t1, 90),
       view: 0,
       scene: 0,
@@ -134,20 +132,6 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
       scene: 0,
     },
     {
-      id: "addresses",
-      title: "Addresses",
-      html: `<p>Each coin is locked to an <b>address</b> — the destination
-        its owner's wallet named when the coin was created. An address is
-        what you hand someone so they can pay you, and it is what the
-        record shows in place of a name.</p>
-        <p>Look at Alice's coins: her wallet drew a <b>fresh address for
-        every output</b> — the withdrawal, each payment, each piece of
-        change its own destination — as well-made wallets do.</p>`,
-      focus: pad(all, 60),
-      view: 0,
-      scene: 0,
-    },
-    {
       id: "two-drawings",
       title: "Two drawings, one graph",
       html: `<p>Here is the same history drawn differently: coins and
@@ -157,7 +141,11 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         between the transaction that minted it and the one that spent it;
         unspent coins dangle at the right, and coins that entered from
         outside — like Alice's withdrawal — start at the left. Money still
-        flows left to right through time.</p>`,
+        flows left to right through time.</p>
+        <p>When the left-to-right drawing gets busy, the <b>layout</b>
+        button (top left) switches to a force-directed drawing: the
+        same graph, spread by its connections instead of laid on a
+        timeline.</p>`,
       focus: pad(bip.bounds, 80),
       view: 1,
       scene: 0,

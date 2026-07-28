@@ -10,7 +10,7 @@
 // then suspect the sole remainder; several remainders read as a batch
 // payment and the observer abstains) with its real-world family of
 // heuristics and the configurable evidence bar, cluster contraction,
-// and the pseudonym graph — whose named stacks are the chapter's
+// and the pseudonym graph — whose named clusters are the chapter's
 // closing payoff. The Scroll #2/#3 arc: familiar heuristics first,
 // then the honest caveat that attacks always get better, then the
 // observer's real product — a social graph. The random-leaks slider is
@@ -57,7 +57,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       title: "Address reuse",
       html: `<p>The most basic clustering needs no inference at all. Every
         coin is locked to an <b>address</b>, and paying the same address
-        twice links the coins on the face of the record — one key plainly
+        twice links the coins in the record itself — one key plainly
         controls both. Bitcoin's own whitepaper warned that "a new key pair
         should be used for each transaction"; early wallets reused
         addresses anyway, and reading reused addresses was the first
@@ -69,6 +69,11 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         coin she has ever touched — assembled by <i>reading</i> the record,
         not betting on it. Open her character sheet and the same address
         repeats down her whole coin list, marked ⟲.</p>
+        <p>Note whose privacy that spends: not only hers. Everyone who
+        pays Carol lands in that plainly-linked pile too — each payment
+        dated, amounted, and joined to everything else she has ever
+        received. Careless habits leak on behalf of the people around
+        them; that theme returns.</p>
         <p>On the real chain, reuse is still everywhere — donation pages,
         exchange deposit addresses, lazy software — so a real observer
         starts with far more of this free linkage than one careless
@@ -273,23 +278,23 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       title: "Shrinking the map",
       html: `<p>Now <b>contract</b> the graph: the dots the heuristics
         cluster together slide around the ring and <b>stack</b> into a
-        single vertex — a stack of coins claimed to share an owner. What
-        remains is a map of <b>transfers between pseudonyms</b> — who pays
-        whom, and how often.</p>
+        single vertex — a <b>cluster</b>, the coins claimed to share an
+        owner. What remains is a map of <b>transfers between
+        pseudonyms</b> — who pays whom, and how often.</p>
         <p>This is the observer's real product. Not a pile of coins: a
         <b>social graph</b>. With complete clustering it would be the user
         network itself; incomplete, it is a <b>pseudonym graph</b> — several
         vertices may still be one person.</p>
         <p>Both the <b>shape</b> and the <b>paint</b> here are the
-        observer's own bookkeeping: each stack wears its cluster's color,
+        observer's own bookkeeping: each disc wears its cluster's color,
         and coins the map says nothing about stay gray. If a cluster
-        wrongly merges two people, the stack looks as confident as any
+        wrongly merges two people, it looks as confident as any
         other — the observer cannot see its own mistakes, or it would not
-        make them. Flip the heuristics on the left and watch the stacks
+        make them. Flip the heuristics on the left and watch the clusters
         merge and split.</p>
         <p>And the exchange's names rode the whole way here: the books
-        named single coins, the guesses gathered them into stacks, and a
-        stack holding a named coin answers to the name — one exchange
+        named single coins, the guesses gathered them into clusters, and
+        a cluster holding a named coin answers to the name — one exchange
         withdrawal identifies a whole pseudonym's history, rates,
         salary, and counterparties. The map is patient: a name learned
         today applies to everything already on it.</p>
