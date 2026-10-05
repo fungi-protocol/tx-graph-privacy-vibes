@@ -31,6 +31,7 @@
 // inputs were owned by the same owner"); Meiklejohn et al. named it
 // Heuristic 1 and applied it at chain scale, but the origin is Satoshi.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
+import { cite } from "./references";
 
 export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect): TutorialStep[] {
   const pad = (b: Rect): Rect => ({ x: b.x - 80, y: b.y - 80, w: b.w + 160, h: b.h + 160 });
@@ -58,7 +59,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
       html: `<p>The most basic clustering needs no inference at all. Every
         coin is locked to an <b>address</b>, and paying the same address
         twice links the coins in the record itself — one key plainly
-        controls both. Bitcoin's own whitepaper warned that "a new key pair
+        controls both. Bitcoin's own ${cite("nakamoto", "whitepaper")} warned that "a new key pair
         should be used for each transaction"; early wallets reused
         addresses anyway, and reading reused addresses was the first
         clustering lever anyone pulled.</p>
@@ -136,10 +137,10 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         once</b> is evidence that one entity owns them all — whoever
         signed it could spend each of them. This is the
         <b>common-input-ownership heuristic</b> (CIOH), and it is as old
-        as Bitcoin: the same whitepaper paragraph that urged a fresh key
+        as Bitcoin: the same ${cite("nakamoto", "whitepaper")} paragraph that urged a fresh key
         per transaction admits that multi-input spends "necessarily reveal
         that their inputs were owned by the same owner." Later work
-        (Meiklejohn et al.) made it Heuristic 1 and ran it across the
+        (${cite("meiklejohn", "Meiklejohn et al.")}) made it Heuristic 1 and ran it across the
         whole chain. Co-spent coins merge into <b>clusters</b>: the
         colored groups that just appeared. Gray coins are ones the
         observer has nothing on yet.</p>
@@ -189,7 +190,7 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         heuristic, stated precisely: any wallet that orders its outputs by a
         fixed rule leaks the change's <b>position</b> once its software is
         identified — which is why some wallets sort outputs by a neutral
-        convention (BIP 69) or shuffle them, to destroy that signal. And
+        convention (${cite("bip69", "BIP 69")}) or shuffle them, to destroy that signal. And
         the address-type heuristic: change usually matches the inputs' address
         type while the payment is whatever the payee asked for — a wallet
         keeps its change where it keeps its keys. This town's wallet
@@ -198,14 +199,14 @@ export function observerSteps(bipBounds: () => Rect, clusterBounds: () => Rect):
         heuristic's controls, and every mixed-type payment leaks what a
         uniform one doesn't.</p>
         <p>Researchers added more. The freshly generated address next to
-        one seen before is probably the change (Androulaki et al. call it
+        one seen before is probably the change (${cite("androulaki", "Androulaki et al.")} call it
         the <i>shadow address</i>); an address that never appears again is
-        probably change too (Meiklejohn et al.) — both heuristics feed on the
+        probably change too (${cite("meiklejohn", "Meiklejohn et al.")}) — both heuristics feed on the
         address reuse this town, Carol aside, gave up. And above the hand-written rules
         sits a heavier tier: wallet software leaves <b>fingerprints</b> —
         fee choices, script versions, ordering and locktime conventions —
-        and classifiers trained on them (Möser &amp; Narayanan; Kappos et
-        al.) have proven extremely powerful in practice.</p>
+        and classifiers trained on them (${cite("moserNarayanan", "Möser &amp; Narayanan")};
+        ${cite("kappos", "Kappos et al.")}) have proven extremely powerful in practice.</p>
         <p>The lesson is the family, not any one member: take one
         heuristic away and the others still vote.</p>`,
       focus: () => pad(bipBounds()),

@@ -7,6 +7,7 @@
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type Focused } from "./intersectionSteps";
 import { GAME_DAY } from "../engine/economy";
+import { referencesHtml } from "./references";
 
 const HEIDI = 7;
 
@@ -106,6 +107,20 @@ export function gameSteps(
       scene: 1,
       minDay: GAME_DAY + 3,
       stages: ["params"], // the step hands over the world-re-rolling panel
+    },
+    {
+      id: "references",
+      title: "References",
+      html: `<p>The work the tour leaned on, in the order it came up. The
+        list stays within reach under
+        <a class="cite" data-ref="" href="#">references</a> at the foot of
+        the page.</p>${referencesHtml()}`,
+      focus: () => pad(bipBounds()),
+      select: () => null,
+      view: 1,
+      lens: 0,
+      scene: 1,
+      minDay: GAME_DAY + 3,
     },
   ];
 }

@@ -15,6 +15,7 @@
 // measure resemblance, not identity, and a wrong match links
 // strangers' histories exactly as a wrong change guess did.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
+import { cite } from "./references";
 
 /** what the live run did, resolved by the caller: how many matches the
  *  behavioral matcher accepted, at which similarity threshold */
@@ -66,7 +67,7 @@ export function nsNetflixSteps(
             outcome, not a failure of the method`
           : `accepted <b>${r.matches} ${r.matches === 1 ? "match" : "matches"}</b> this run`;
         return `<p>Now compare the profiles <i>between</i> clusters
-        (Narayanan&nbsp;&amp;&nbsp;Shmatikov again — their Netflix-prize
+        (${cite("nsNetflix", "Narayanan&nbsp;&amp;&nbsp;Shmatikov")} again — their Netflix-prize
         result, retold on this map). Two clusters that are really one
         user's wallet wear the same habits, so their vectors agree; the
         teal links are the pairs whose agreement clears the panel's

@@ -3,6 +3,7 @@
 import { type TutorialStep } from "../ui/tutorial";
 import { type Layout, coinAnchor, type Rect } from "../ui/blockview";
 import { type BipLayout } from "../ui/bipartite";
+import { cite } from "./references";
 
 function pad(r: Rect, m: number): Rect {
   return { x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m };
@@ -78,7 +79,7 @@ export function introSteps(layout: Layout, bip: BipLayout): TutorialStep[] {
         software chooses that order, and the choice carries information.
         A wallet that always puts the change in the same position reveals
         which output is the change. A wallet that avoids this by sorting
-        to a fixed public rule (<b>BIP&nbsp;69</b>) reveals which software
+        to a fixed public rule (<b>${cite("bip69", "BIP&nbsp;69")}</b>) reveals which software
         it is instead — few wallets sort, so a sorted transaction is a
         <b>fingerprint</b>.</p>
         <p>In this simulation every wallet <b>shuffles</b> its inputs and

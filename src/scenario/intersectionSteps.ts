@@ -31,6 +31,7 @@
 import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type AuxDecay } from "../analysis/auxinfo";
 import { type Chain, type CoinId, type TxId } from "../model/chain";
+import { cite } from "./references";
 
 export interface Focused {
   id: string;
@@ -129,7 +130,7 @@ export function intersectionSteps(
         strangers' pasts into the coin's own. The board grew from a
         handful of candidates to a crowd.</p>
         <p>(Researchers measure exactly this — the entropy of a coin's
-        candidate set, read off the graph structure: Kelen &amp; Seres.
+        candidate set, read off the graph structure: ${cite("kelenSeres", "Kelen &amp; Seres")}.
         It grows by coinjoining, especially with widely chosen peers —
         and it can decay much faster than it grew. The rest of this
         chapter is about the decay.)</p>`,
@@ -275,7 +276,7 @@ export function intersectionSteps(
         that two coins share an owner — <b>on chain or off</b> — opens the
         same attack: researchers showed web trackers on merchant checkout
         pages leak enough to link coins across coinjoins from the
-        adversary's armchair (Goldfeder et al., "When the Cookie Meets
+        adversary's armchair (${cite("goldfeder", "Goldfeder et al.")}, "When the Cookie Meets
         the Blockchain").</p>
         <p>Click any transaction to trace all of its inputs together this
         way; clicking coins adds them to the trace one by one (a gold

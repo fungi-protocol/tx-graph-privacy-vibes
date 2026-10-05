@@ -37,6 +37,7 @@ import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type Chain, type TxId, type ScriptKind, scriptTitle } from "../model/chain";
 import { clusterObserver } from "../analysis/clusters";
 import { type EconomyEvent } from "../engine/economy";
+import { cite } from "./references";
 
 /** What the rest of the record says about one payjoin's inputs: set the
  *  transaction's own evidence aside (`except`) and ask where every
@@ -235,7 +236,7 @@ export function payjoinSteps(
         false merge suggests. An outsider <i>can suspect</i> a payjoin —
         any two-input spend could be one, and sometimes an input looks
         unnecessary, more coin than the payment needed (the literature's
-        <i>unnecessary input heuristic</i>). Suspicion needs evidence to
+        <i>${cite("ghesmati", "unnecessary input heuristic")}</i>). Suspicion needs evidence to
         become a verdict, and the next steps show how much evidence the
         record actually offers an observer who looks past the one
         transaction.</p>
