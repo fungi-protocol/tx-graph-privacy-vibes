@@ -14,6 +14,7 @@ import { type TutorialStep, type Rect } from "../ui/tutorial";
 import { type Chain, type CoinId, type TxId } from "../model/chain";
 import { subTransactionMapping, type SubMapping } from "../analysis/subsetsum";
 import { sessionShape, mergeInputs } from "../analysis/clusters";
+import { cite } from "./references";
 
 /** the chapter's denominated exhibit: prefer a session whose mapping is
  *  PROVEN underdetermined (two balanced readings exhibited); fall back
@@ -142,7 +143,7 @@ export function coinjoinSteps(
         2&#8202;+&#8202;5&#8202;=&#8202;7. One consistent mapping, so the
         amounts <b>fully partition</b> the transaction. Analysts call the
         balanced groups <i>sub-transactions</i>, and the matching game the
-        <b>sub-transaction model</b> (Maurer et al.).</p>
+        <b>sub-transaction model</b> (${cite("maurer", "Maurer et al.")}).</p>
         <p>Frank and Ivan's values are just as careless. The
         sub-transaction model <b>generalizes</b> CIOH and change
         identification: a transaction it cannot split reads as one
@@ -343,7 +344,7 @@ export function coinjoinSteps(
       html: `<p>What did the session actually buy? Exactly the ambiguity
         the <b>sub-transaction model's combinatorics dictate</b>: the
         balanced readings can be counted — even totted up as entropy,
-        which is what the Boltzmann analysis does — and no more. Two
+        which is what the ${cite("boltzmann", "Boltzmann analysis")} does — and no more. Two
         separate roads lead beyond that. First, even a transaction read
         <b>in isolation</b> is not read from its amounts alone: scripts,
         timing, and whatever the observer already knows about particular

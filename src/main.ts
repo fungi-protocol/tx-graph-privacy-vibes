@@ -21,6 +21,7 @@ import { nfRun as runNetflix, nfStats, type NfEvent, type NfStats } from "./anal
 import { layoutClusterGraph, layoutClusterBand, layoutClusterForceMap, layoutClusterColumns, anchorClusterLayout, translateClusterLayout, drawContraction, hitTestClusters, coinDotAt, truthSlices, transitionFragments, strandGeometry, type ClusterLayout, type ClusterPaint, type ClusterTransition } from "./ui/clusterview";
 import { canonical, contracted, knobs, withView, withLayout, withGrouping, fragmentView, viewFromFragment, viewFromStep, type ViewState, type View, type Arrange, type GraphLayout, type Grouping } from "./ui/viewstate";
 import { observerSteps } from "./scenario/observerSteps";
+import { referencesHtml } from "./scenario/references";
 import { payjoinSteps, selectPayjoinExhibit, payjoinDetection, detectionFires, inputFamilies, type PayjoinDetection } from "./scenario/payjoinSteps";
 import { settlementSteps, selectSettlementExhibit, settlementVerdict } from "./scenario/settlementSteps";
 import { nsSocialSteps } from "./scenario/nssocialSteps";
@@ -3352,6 +3353,32 @@ const tutorial = new Tutorial(steps, {
     else applySelection(sel);
     draw();
   },
+});
+
+// --- references panel ---
+// every citation in the tour (and the footer link) opens the one list,
+// on the cited entry; Escape or a click outside puts it away
+const refsPanel = document.getElementById("refs")!;
+refsPanel.innerHTML = `<h3>references</h3>${referencesHtml()}`;
+function showRefs(key: string | null): void {
+  refsPanel.style.display = key === null ? "none" : "block";
+  for (const li of refsPanel.querySelectorAll("li")) {
+    const on = li.dataset.ref === key;
+    li.classList.toggle("on", on);
+    if (on) li.scrollIntoView({ block: "nearest" });
+  }
+}
+document.addEventListener("click", (e) => {
+  if (e.metaKey || e.ctrlKey || e.shiftKey) return; // a new tab goes straight to the work
+  const t = e.target as Element;
+  const c = t.closest<HTMLElement>("a.cite");
+  if (c) {
+    e.preventDefault();
+    showRefs(c.dataset.ref!);
+  } else if (!refsPanel.contains(t)) showRefs(null);
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") showRefs(null);
 });
 
 // --- cast panel + inspector ---

@@ -19,6 +19,7 @@ import { type Grade } from "./synthesisStaging";
 import { type EconomyEvent } from "../engine/economy";
 import { agentKnowledge } from "../analysis/knowledge";
 import { type TutorialStep, type Rect } from "../ui/tutorial";
+import { cite } from "./references";
 
 /** the elimination beat's claim: two inputs of the careless coinjoin
  *  that really do share an owner (latent truth picks the PAIR — that
@@ -319,7 +320,7 @@ export function synthesisSteps(
         const seedLines = (s?.board?.auxPairs ?? [])
           .filter(([a, b]) => seedReps.has(a) && seedReps.has(b)).length;
         return `<p>To push further, the literature offers a construction
-        (Narayanan&nbsp;&amp;&nbsp;Shmatikov, 2009): treat
+        (${cite("nsSocial", "Narayanan&nbsp;&amp;&nbsp;Shmatikov, 2009")}): treat
         re-identification as <b>matching two graphs</b>. On one side, the
         observer's map compressed — every cluster a pseudonym, an edge
         wherever a payment ran between two of them: ${counts}. On the
@@ -382,7 +383,7 @@ export function synthesisSteps(
         return `<p>One sweep examines <b>every unmapped pseudonym</b>
         against the whole board: candidates scored by mapped neighbors,
         accepted only when the best one stands out (eccentricity ≥ 1.5 —
-        our threshold; the paper explores several) <i>and</i> the
+        our threshold; ${cite("nsSocial", "the paper")} explores several) <i>and</i> the
         reverse match agrees. This run: ${s.examined} pseudonyms
         examined, ${s.noSignal} with no signal, ${s.belowThreshold}
         below threshold, ${s.reverseMismatch} vetoed by the reverse
@@ -416,7 +417,7 @@ export function synthesisSteps(
         premise. Here is a <b>hand-built miniature</b>, built for this
         page and found nowhere in the town: two seeded pseudonyms both
         pay a third; in the outside graph, both their images pay
-        <b>x</b>. One node per participant — exactly the paper's
+        <b>x</b>. One node per participant — exactly ${cite("nsSocial", "the paper")}'s
         setting. The same sweep, run on it, accepts <b>${hit}</b>
         (eccentricity ${d.eccentricity.toFixed(2)}) — and this time it
         is correct: corroborating neighbors point one way.</p>
@@ -449,8 +450,8 @@ export function synthesisSteps(
         modest grant — and the propagation heuristics run <b>on the fused
         map</b>, so every name is a seed.</p>
         <p>Try it: check <i>social-network analysis</i>, then drag
-        <i>random leaks</i> and watch the match counter. Narayanan and
-        Shmatikov observed a <b>phase transition</b> in exactly this
+        <i>random leaks</i> and watch the match counter.
+        ${cite("nsSocial", "Narayanan and Shmatikov")} observed a <b>phase transition</b> in exactly this
         machine: below a critical seed density the propagation stalls —
         matches trickle and die out — while past it each match creates
         the neighbors that justify the next, and the sweep <b>cascades</b>
@@ -536,10 +537,10 @@ export function synthesisSteps(
         about its addresses hands the operator its own cluster,
         ready-made, collection without analysis — and web trackers on
         checkout pages have been shown to link payments to identities
-        (Goldfeder&nbsp;et&nbsp;al.).</p>
+        (${cite("goldfeder", "Goldfeder&nbsp;et&nbsp;al.")}).</p>
         <p>What sets this card apart is not a new technique — it is the
         <b>seed count</b>. The sweep you watched ran on a handful of
-        seeds and stalled; the propagation paper's own experiments make
+        seeds and stalled; ${cite("nsSocial", "the propagation paper")}'s own experiments make
         the number of seeds the variable that separates stalling from
         cascading. Tier three holds exactly that variable — the
         <b>auxiliary information</b> dial you just turned is this card

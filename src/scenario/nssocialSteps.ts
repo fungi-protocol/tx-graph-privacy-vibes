@@ -17,6 +17,7 @@
 // nearby candidates — it can search the whole record. Uniqueness is
 // still not attribution; a name needs an outside anchor.
 import { type TutorialStep, type Rect } from "../ui/tutorial";
+import { cite } from "./references";
 
 /** what the live run did, resolved by the caller: how many matches the
  *  analysis accepted, over how many temporal partitions */
@@ -63,7 +64,7 @@ export function nsSocialSteps(
           ? `accepted <b>nothing</b> this run — a stall is a real outcome`
           : `accepted <b>${r.matches} matches</b> this run`;
         return `<p>Here is what that shape is worth to an observer
-        (Narayanan&nbsp;&amp;&nbsp;Shmatikov, 2009, retold on this
+        (${cite("nsSocial", "Narayanan&nbsp;&amp;&nbsp;Shmatikov, 2009")}, retold on this
         graph). Cut the record into ${r.parts} <b>epochs</b>, one per
         stretch of the town's history. People keep paying the same
         people, so each epoch's graph grows into much the same shape as
